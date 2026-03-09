@@ -1,17 +1,4 @@
 import React, { useState, useEffect, useRef, createContext, useContext, useCallback } from "react";
-import { createClient } from "@supabase/supabase-js";
-
-const SUPA_URL = import.meta.env.VITE_SUPABASE_URL;
-const SUPA_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
-const _supaBase = (SUPA_URL && SUPA_KEY && !SUPA_URL.includes('XXXXX'))
-  ? createClient(SUPA_URL, SUPA_KEY)
-  : null;
-
-const supa = _supaBase ? {
-  auth: _supaBase.auth,
-  async get(u,m){const r=await fetch(SUPA_URL+'/rest/v1/user_data?user_id=eq.'+u+'&module=eq.'+m+'&select=data',{headers:{apikey:SUPA_KEY,Authorization:'Bearer '+SUPA_KEY}});const d=await r.json();return d?.[0]?.data??null;},
-  async set(u,m,d){await fetch(SUPA_URL+'/rest/v1/user_data',{method:'POST',headers:{apikey:SUPA_KEY,Authorization:'Bearer '+SUPA_KEY,'Content-Type':'application/json',Prefer:'resolution=merge-duplicates'},body:JSON.stringify({user_id:u,module:m,data:d,updated_at:new Date().toISOString()})})}
-} : null;
 
 // ─── ESTILOS GLOBALES ─────────────────────────────────────────────────────────
 const GlobalStyles = ({ dark=true }) => (
@@ -360,7 +347,7 @@ const AuthScreen = ({ onLogin }) => {
             {loading?"Cargando...":mode==="login"?"Entrar":"Crear cuenta"}
           </Btn>
         </div>
-        <p style={{ textAlign:"center", color:"#444", fontSize:11, marginTop:20 }}>Datos sincronizados entre todos tus dispositivos.</p>
+        <p style={{ textAlign:"center", color:"#444", fontSize:11, marginTop:20 }}>Datos guardados localmente en este dispositivo.</p>
       </div>
     </div>
   );
@@ -505,15 +492,10 @@ const Sidebar = ({ active, setActive, user, onLogout, mobile, open, onClose, not
 // ─── HOOK DATOS ───────────────────────────────────────────────────────────────
 const useData = (userId, key, fallback = []) => {
   const [data, setData] = useState(() => store.get(uKey(userId, key), fallback));
-  useEffect(() => {
-    if (!supa || !userId) return;
-    supa.get(userId, key).then(val => { if (val !== null) { store.set(uKey(userId, key), val); setData(val); } }).catch(()=>{});
-  }, [userId, key]);
   const save = useCallback((val) => {
     setData(prev => {
       const next = typeof val==="function" ? val(prev) : val;
       store.set(uKey(userId, key), next);
-      if (supa && userId) supa.set(userId, key, next).catch(()=>{});
       return next;
     });
   }, [userId, key]);
@@ -969,7 +951,7 @@ const AlertasPanel = ({ alertas, onNavigate }) => {
 };
 
 const GlobalSearch = ({ onNavigate }) => {
-  const { user, navigate } = useCtx();
+  const { user } = useCtx();
   const [open, setOpen]   = useState(false);
   const [query, setQuery] = useState("");
   const inputRef = useRef(null);
@@ -1214,7 +1196,7 @@ const GlobalSearch = ({ onNavigate }) => {
 
 // ─── DASHBOARD ────────────────────────────────────────────────────────────────
 const Dashboard = () => {
-  const { user, navigate } = useCtx();
+  const { user } = useCtx();
   const [accounts, setAccounts] = useData(user.id, "accounts");
   const [transactions, setTransactions] = useData(user.id, "transactions");
   const [loans]        = useData(user.id, "loans");
@@ -8985,23 +8967,7 @@ const ImportarCSV = () => {
 
 // ─── APP SHELL ────────────────────────────────────────────────────────────────
 export default function App() {
-  const [user, setUser]   = useState(null);
-  useEffect(()=>{
-    if (!supa) return;
-    supa.auth.getSession().then(({data})=>{
-      if (data.session) {
-        const u = data.session.user;
-        setUser({ id: u.id, name: u.user_metadata?.name || u.email, email: u.email });
-      }
-    });
-    const { data: listener } = supa.auth.onAuthStateChange((_event, session)=>{
-      if (session) {
-        const u = session.user;
-        setUser({ id: u.id, name: u.user_metadata?.name || u.email, email: u.email });
-      } else { setUser(null); }
-    });
-    return ()=> listener.subscription.unsubscribe();
-  },[]);
+  const [user, setUser]   = useState(()=>store.get("fp_session"));
   const [active, setActive] = useState("dashboard");
   const [theme, setTheme]   = useState(()=>store.get("fp_theme","dark"));
   const toggleTheme = () => setTheme(t=>{ const n=t==="dark"?"light":"dark"; store.set("fp_theme",n); return n; });
@@ -9028,7 +8994,7 @@ export default function App() {
     setTimeout(()=>setToasts(p=>p.filter(t=>t.id!==id)),4000);
   },[]);
 
-  const logout = async ()=>{ if (supa) await supa.auth.signOut(); setUser(null); };
+  const logout = ()=>{ store.del("fp_session"); setUser(null); };
 
   if (!user) return <AuthScreen onLogin={setUser}/>;
 
