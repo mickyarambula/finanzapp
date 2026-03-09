@@ -1,5 +1,12 @@
 import React, { useState, useEffect, useRef, createContext, useContext, useCallback } from "react";
 
+const SUPA_URL = import.meta.env.VITE_SUPABASE_URL;
+const SUPA_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
+const supa = (SUPA_URL && SUPA_KEY && !SUPA_URL.includes('XXXXX')) ? {
+  async get(u,m){const r=await fetch(SUPA_URL+'/rest/v1/user_data?user_id=eq.'+u+'&module=eq.'+m+'&select=data',{headers:{apikey:SUPA_KEY,Authorization:'Bearer '+SUPA_KEY}});const d=await r.json();return d?.[0]?.data??null;},
+  async set(u,m,d){await fetch(SUPA_URL+'/rest/v1/user_data',{method:'POST',headers:{apikey:SUPA_KEY,Authorization:'Bearer '+SUPA_KEY,'Content-Type':'application/json',Prefer:'resolution=merge-duplicates'},body:JSON.stringify({user_id:u,module:m,data:d,updated_at:new Date().toISOString()})});}
+} : null;
+
 // ─── ESTILOS GLOBALES ─────────────────────────────────────────────────────────
 const GlobalStyles = ({ dark=true }) => (
   <style>{`
@@ -492,10 +499,15 @@ const Sidebar = ({ active, setActive, user, onLogout, mobile, open, onClose, not
 // ─── HOOK DATOS ───────────────────────────────────────────────────────────────
 const useData = (userId, key, fallback = []) => {
   const [data, setData] = useState(() => store.get(uKey(userId, key), fallback));
+  useEffect(() => {
+    if (!supa || !userId) return;
+    supa.get(userId, key).then(val => { if (val !== null) { store.set(uKey(userId, key), val); setData(val); } }).catch(()=>{});
+  }, [userId, key]);
   const save = useCallback((val) => {
     setData(prev => {
       const next = typeof val==="function" ? val(prev) : val;
       store.set(uKey(userId, key), next);
+      if (supa && userId) supa.set(userId, key, next).catch(()=>{});
       return next;
     });
   }, [userId, key]);
