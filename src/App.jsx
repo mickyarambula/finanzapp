@@ -7410,6 +7410,7 @@ const Patrimonio = () => {
   const [goals]                     = useData(user.id, "goals");
   const [tab, setTab]               = useState("grafica");
   const [rango, setRango]           = useState("6m");
+  const [hoverIdx, setHoverIdx]     = useState(null);
 
   // ── calcular estado actual del patrimonio
   const calcEstado = () => {
@@ -7698,7 +7699,6 @@ const Patrimonio = () => {
           {/* ── GRÁFICA PRINCIPAL INTERACTIVA */}
           <Card>
             {(()=>{
-              const [hoverIdx, setHoverIdx] = React.useState(null);
               if(datosConProyec.length<2) return (
                 <div style={{textAlign:"center",padding:"50px 20px"}}>
                   <Ic n="chart" size={40} color="#333"/>
