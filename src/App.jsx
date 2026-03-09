@@ -309,18 +309,22 @@ const AuthScreen = ({ onLogin }) => {
     setLoading(true);
     try {
       const hash = await hashPwd(pwd);
-      const users = store.get("fp_users", []);
-      if (mode === "login") {
-        const u = users.find(u => u.email===email.toLowerCase() && u.password===hash);
-        if (!u) { setErr("Correo o contraseña incorrectos."); setLoading(false); return; }
-        store.set("fp_session", u); onLogin(u);
-      } else {
-        if (!name.trim()) { setErr("Ingresa tu nombre."); setLoading(false); return; }
-        if (pwd !== pwd2) { setErr("Las contraseñas no coinciden."); setLoading(false); return; }
-        if (pwd.length < 6) { setErr("Mínimo 6 caracteres."); setLoading(false); return; }
-        if (users.find(u => u.email===email.toLowerCase())) { setErr("Correo ya registrado."); setLoading(false); return; }
-        const nu = { id:genId(), name:name.trim(), email:email.toLowerCase(), password:hash, createdAt:new Date().toISOString() };
-        store.set("fp_users", [...users, nu]); store.set("fp_session", nu); onLogin(nu);
+        if (mode === "login") {
+          if (!supa) { setErr("Servicio no disponible."); setLoading(false); return; }
+          const { data, error } = await supa.auth.signInWithPassword({ email: email.toLowerCase(), password: pwd });
+          if (error) { setErr("Correo o contraseña incorrectos."); setLoading(false); return; }
+          const u = { id: data.user.id, name: data.user.user_metadata?.name || email, email: data.user.email };
+          onLogin(u);
+        } else {
+          if (!name.trim()) { setErr("Ingresa tu nombre."); setLoading(false); return; }
+          if (pwd !== pwd2) { setErr("Las contraseñas no coinciden."); setLoading(false); return; }
+          if (pwd.length < 6) { setErr("Mínimo 6 caracteres."); setLoading(false); return; }
+          if (!supa) { setErr("Servicio no disponible."); setLoading(false); return; }
+          const { data, error } = await supa.auth.signUp({ email: email.toLowerCase(), password: pwd, options: { data: { name: name.trim() } } });
+          if (error) { setErr(error.message); setLoading(false); return; }
+          const nu = { id: data.user.id, name: name.trim(), email: email.toLowerCase() };
+          onLogin(nu);
+        }
       }
     } catch { setErr("Error inesperado."); }
     setLoading(false);
