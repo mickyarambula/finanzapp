@@ -2,10 +2,44 @@ import React, { useState, useEffect, useRef, createContext, useContext, useCallb
 
 const SUPA_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPA_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
-const supa = (SUPA_URL && SUPA_KEY && !SUPA_URL.includes('XXXXX')) ? {
-  async get(u,m){const r=await fetch(SUPA_URL+'/rest/v1/user_data?user_id=eq.'+u+'&module=eq.'+m+'&select=data',{headers:{apikey:SUPA_KEY,Authorization:'Bearer '+SUPA_KEY}});const d=await r.json();return d?.[0]?.data??null;},
-  async set(u,m,d){await fetch(SUPA_URL+'/rest/v1/user_data',{method:'POST',headers:{apikey:SUPA_KEY,Authorization:'Bearer '+SUPA_KEY,'Content-Type':'application/json',Prefer:'resolution=merge-duplicates'},body:JSON.stringify({user_id:u,module:m,data:d,updated_at:new Date().toISOString()})});}
-} : null;
+const _supaClient = (SUPA_URL && SUPA_KEY && !SUPA_URL.includes('XXXXX')) ? (() => {
+  const h = { apikey: SUPA_KEY, Authorization: 'Bearer ' + SUPA_KEY, 'Content-Type': 'application/json' };
+  let _authListeners = [];
+  const client = {
+    auth: {
+      async signInWithPassword({ email, password }) {
+        const r = await fetch(SUPA_URL+'/auth/v1/token?grant_type=password', { method:'POST', headers:h, body:JSON.stringify({email,password}) });
+        const d = await r.json();
+        if (d.error || !d.access_token) return { data: null, error: d };
+        localStorage.setItem('fp_supa_session', JSON.stringify(d));
+        return { data: { user: d.user, session: d }, error: null };
+      },
+      async signUp({ email, password, options }) {
+        const r = await fetch(SUPA_URL+'/auth/v1/signup', { method:'POST', headers:h, body:JSON.stringify({email,password,data:options?.data}) });
+        const d = await r.json();
+        if (d.error) return { data: null, error: d.error };
+        return { data: { user: d.user || d }, error: null };
+      },
+      async signOut() {
+        localStorage.removeItem('fp_supa_session');
+        _authListeners.forEach(cb => cb('SIGNED_OUT', null));
+      },
+      async getSession() {
+        const saved = localStorage.getItem('fp_supa_session');
+        if (saved) { try { return { data: { session: JSON.parse(saved) } }; } catch(e){} }
+        return { data: { session: null } };
+      },
+      onAuthStateChange(cb) {
+        _authListeners.push(cb);
+        return { data: { subscription: { unsubscribe: () => { _authListeners = _authListeners.filter(x=>x!==cb); } } } };
+      }
+    },
+    async get(u,m){const r=await fetch(SUPA_URL+'/rest/v1/user_data?user_id=eq.'+u+'&module=eq.'+m+'&select=data',{headers:{apikey:SUPA_KEY,Authorization:'Bearer '+SUPA_KEY}});const d=await r.json();return d?.[0]?.data??null;},
+    async set(u,m,d){await fetch(SUPA_URL+'/rest/v1/user_data',{method:'POST',headers:{apikey:SUPA_KEY,Authorization:'Bearer '+SUPA_KEY,'Content-Type':'application/json',Prefer:'resolution=merge-duplicates'},body:JSON.stringify({user_id:u,module:m,data:d,updated_at:new Date().toISOString()})})}
+  };
+  return client;
+})() : null;
+const supa = _supaClient;
 
 // ─── ESTILOS GLOBALES ─────────────────────────────────────────────────────────
 const GlobalStyles = ({ dark=true }) => (
@@ -354,7 +388,7 @@ const AuthScreen = ({ onLogin }) => {
             {loading?"Cargando...":mode==="login"?"Entrar":"Crear cuenta"}
           </Btn>
         </div>
-        <p style={{ textAlign:"center", color:"#444", fontSize:11, marginTop:20 }}>Datos guardados localmente en este dispositivo.</p>
+        <p style={{ textAlign:"center", color:"#444", fontSize:11, marginTop:20 }}>Datos sincronizados entre todos tus dispositivos.</p>
       </div>
     </div>
   );
@@ -8979,7 +9013,23 @@ const ImportarCSV = () => {
 
 // ─── APP SHELL ────────────────────────────────────────────────────────────────
 export default function App() {
-  const [user, setUser]   = useState(()=>store.get("fp_session"));
+  const [user, setUser]   = useState(null);
+  useEffect(()=>{
+    if (!supa) return;
+    supa.auth.getSession().then(({data})=>{
+      if (data.session) {
+        const u = data.session.user;
+        setUser({ id: u.id, name: u.user_metadata?.name || u.email, email: u.email });
+      }
+    });
+    const { data: listener } = supa.auth.onAuthStateChange((_event, session)=>{
+      if (session) {
+        const u = session.user;
+        setUser({ id: u.id, name: u.user_metadata?.name || u.email, email: u.email });
+      } else { setUser(null); }
+    });
+    return ()=> listener.subscription.unsubscribe();
+  },[]);
   const [active, setActive] = useState("dashboard");
   const [theme, setTheme]   = useState(()=>store.get("fp_theme","dark"));
   const toggleTheme = () => setTheme(t=>{ const n=t==="dark"?"light":"dark"; store.set("fp_theme",n); return n; });
@@ -9006,7 +9056,7 @@ export default function App() {
     setTimeout(()=>setToasts(p=>p.filter(t=>t.id!==id)),4000);
   },[]);
 
-  const logout = ()=>{ store.del("fp_session"); setUser(null); };
+  const logout = async ()=>{ if (supa) await supa.auth.signOut(); setUser(null); };
 
   if (!user) return <AuthScreen onLogin={setUser}/>;
 
