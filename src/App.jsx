@@ -300,31 +300,23 @@ const AuthScreen = ({ onLogin }) => {
   const [email, setEmail] = useState("");
   const [pwd, setPwd] = useState("");
   const [pwd2, setPwd2] = useState("");
-  const [err, setErr] = useState("");
-  const [loading, setLoading] = useState(false);
-
-  const submit = async () => {
-    setErr("");
-    if (!email || !pwd) { setErr("Completa todos los campos."); return; }
-    setLoading(true);
     try {
       const hash = await hashPwd(pwd);
-        if (mode === "login") {
-          if (!supa) { setErr("Servicio no disponible."); setLoading(false); return; }
-          const { data, error } = await supa.auth.signInWithPassword({ email: email.toLowerCase(), password: pwd });
-          if (error) { setErr("Correo o contraseña incorrectos."); setLoading(false); return; }
-          const u = { id: data.user.id, name: data.user.user_metadata?.name || email, email: data.user.email };
-          onLogin(u);
-        } else {
-          if (!name.trim()) { setErr("Ingresa tu nombre."); setLoading(false); return; }
-          if (pwd !== pwd2) { setErr("Las contraseñas no coinciden."); setLoading(false); return; }
-          if (pwd.length < 6) { setErr("Mínimo 6 caracteres."); setLoading(false); return; }
-          if (!supa) { setErr("Servicio no disponible."); setLoading(false); return; }
-          const { data, error } = await supa.auth.signUp({ email: email.toLowerCase(), password: pwd, options: { data: { name: name.trim() } } });
-          if (error) { setErr(error.message); setLoading(false); return; }
-          const nu = { id: data.user.id, name: name.trim(), email: email.toLowerCase() };
-          onLogin(nu);
-        }
+      if (mode === "login") {
+        if (!supa) { setErr("Servicio no disponible."); setLoading(false); return; }
+        const { data, error } = await supa.auth.signInWithPassword({ email: email.toLowerCase(), password: pwd });
+        if (error) { setErr("Correo o contraseña incorrectos."); setLoading(false); return; }
+        const u = { id: data.user.id, name: data.user.user_metadata?.name || email, email: data.user.email };
+        onLogin(u);
+      } else {
+        if (!name.trim()) { setErr("Ingresa tu nombre."); setLoading(false); return; }
+        if (pwd !== pwd2) { setErr("Las contraseñas no coinciden."); setLoading(false); return; }
+        if (pwd.length < 6) { setErr("Mínimo 6 caracteres."); setLoading(false); return; }
+        if (!supa) { setErr("Servicio no disponible."); setLoading(false); return; }
+        const { data, error } = await supa.auth.signUp({ email: email.toLowerCase(), password: pwd, options: { data: { name: name.trim() } } });
+        if (error) { setErr(error.message); setLoading(false); return; }
+        const nu = { id: data.user.id, name: name.trim(), email: email.toLowerCase() };
+        onLogin(nu);
       }
     } catch(e) { setErr("Error inesperado."); }
     setLoading(false);
