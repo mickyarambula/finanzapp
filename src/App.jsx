@@ -322,7 +322,7 @@ const AuthScreen = ({ onLogin }) => {
         const nu = { id: data.user.id, name: name.trim(), email: email.toLowerCase() };
         onLogin(nu);
       }
-    } catch(e) { setErr("Error inesperado."); }
+    } catch(e) { setErr(e?.message || "Error inesperado."); }
     setLoading(false);
   };
 
