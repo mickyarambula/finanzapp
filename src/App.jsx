@@ -301,6 +301,7 @@ const AuthScreen = ({ onLogin }) => {
   const [pwd, setPwd] = useState("");
   const [pwd2, setPwd2] = useState("");
   const [err, setErr] = useState("");
+  const [loading, setLoading] = useState(false);
   const submit = async () => {
     setErr("");
     if (!email || !pwd) { setErr("Completa todos los campos."); return; }
