@@ -326,7 +326,7 @@ const AuthScreen = ({ onLogin }) => {
           onLogin(nu);
         }
       }
-    } catch { setErr("Error inesperado."); }
+    } catch(e) { setErr("Error inesperado."); }
     setLoading(false);
   };
 
