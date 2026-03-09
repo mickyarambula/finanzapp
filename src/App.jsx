@@ -963,7 +963,7 @@ const AlertasPanel = ({ alertas, onNavigate }) => {
 };
 
 const GlobalSearch = ({ onNavigate }) => {
-  const { user } = useCtx();
+  const { user, navigate } = useCtx();
   const [open, setOpen]   = useState(false);
   const [query, setQuery] = useState("");
   const inputRef = useRef(null);
@@ -1208,7 +1208,7 @@ const GlobalSearch = ({ onNavigate }) => {
 
 // ─── DASHBOARD ────────────────────────────────────────────────────────────────
 const Dashboard = () => {
-  const { user } = useCtx();
+  const { user, navigate } = useCtx();
   const [accounts, setAccounts] = useData(user.id, "accounts");
   const [transactions, setTransactions] = useData(user.id, "transactions");
   const [loans]        = useData(user.id, "loans");
