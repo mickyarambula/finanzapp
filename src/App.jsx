@@ -9,8 +9,8 @@ const _supaBase = (SUPA_URL && SUPA_KEY && !SUPA_URL.includes('XXXXX'))
 
 const supa = _supaBase ? {
   auth: _supaBase.auth,
-  async get(u,m){const r=await fetch(SUPA_URL+'/rest/v1/user_data?user_id=eq.'+u+'&module=eq.'+m+'&select=data',{headers:{apikey:SUPA_KEY,Authorization:'Bearer '+SUPA_KEY}});const d=await r.json();return d?.[0]?.data??null;},
-  async set(u,m,d){await fetch(SUPA_URL+'/rest/v1/user_data',{method:'POST',headers:{apikey:SUPA_KEY,Authorization:'Bearer '+SUPA_KEY,'Content-Type':'application/json',Prefer:'resolution=merge-duplicates'},body:JSON.stringify({user_id:u,module:m,data:d,updated_at:new Date().toISOString()})})}
+  async get(u,m){const { data: { session } } = await _supaBase.auth.getSession(); const token = session?.access_token || SUPA_KEY; const r=await fetch(SUPA_URL+'/rest/v1/user_data?user_id=eq.'+u+'&module=eq.'+m+'&select=data',{headers:{apikey:SUPA_KEY,Authorization:'Bearer '+token}});const d=await r.json();return d?.[0]?.data??null;},
+  async set(u,m,d){const { data: { session } } = await _supaBase.auth.getSession(); const token = session?.access_token || SUPA_KEY; await fetch(SUPA_URL+'/rest/v1/user_data',{method:'POST',headers:{apikey:SUPA_KEY,Authorization:'Bearer '+token,'Content-Type':'application/json',Prefer:'resolution=merge-duplicates'},body:JSON.stringify({user_id:u,module:m,data:d,updated_at:new Date().toISOString()})})}
 } : null;
 
 // ─── ESTILOS GLOBALES ─────────────────────────────────────────────────────────
