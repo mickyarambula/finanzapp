@@ -112,6 +112,7 @@ const ICONS = {
   chart:"M3.5 18.49l6-6.01 4 4L22 6.92l-1.41-1.41-7.09 7.97-4-4L2 16.99z",
   calendar:"M20 3h-1V1h-2v2H7V1H5v2H4c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 18H4V8h16v13zM9 10H7v2h2v-2zm4 0h-2v2h2v-2zm4 0h-2v2h2v-2zm-8 4H7v2h2v-2zm4 0h-2v2h2v-2zm4 0h-2v2h2v-2z",
   asistente:"M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-2 12H6v-2h12v2zm0-3H6V9h12v2zm0-3H6V6h12v2z",
+  attach:"M16.5 6v11.5c0 2.21-1.79 4-4 4s-4-1.79-4-4V5c0-1.38 1.12-2.5 2.5-2.5s2.5 1.12 2.5 2.5v10.5c0 .55-.45 1-1 1s-1-.45-1-1V6H10v9.5c0 1.38 1.12 2.5 2.5 2.5s2.5-1.12 2.5-2.5V5c0-2.21-1.79-4-4-4S7 2.79 7 5v12.5c0 3.04 2.46 5.5 5.5 5.5s5.5-2.46 5.5-5.5V6h-1.5z",
 };
 
 const Ic = ({ n, size = 20, color = "currentColor", style: s }) => (
@@ -8989,95 +8990,172 @@ const ImportarCSV = () => {
 
 // ─── ASISTENTE IA ─────────────────────────────────────────────────────────────
 const Asistente = () => {
-  const { user } = useCtx();
+  const { user, toast } = useCtx();
   const t = useTheme();
 
-  const [accounts]     = useData(user.id, "accounts");
-  const [transactions] = useData(user.id, "transactions");
-  const [loans]        = useData(user.id, "loans");
-  const [investments]  = useData(user.id, "investments");
-  const [goals]        = useData(user.id, "goals");
-  const [mortgages]    = useData(user.id, "mortgages");
-  const [presupuestos] = useData(user.id, "presupuestos");
-  const [recurring]    = useData(user.id, "recurring");
+  const [accounts]                    = useData(user.id, "accounts");
+  const [transactions, setTransactions] = useData(user.id, "transactions");
+  const [loans]                       = useData(user.id, "loans");
+  const [investments]                 = useData(user.id, "investments");
+  const [goals]                       = useData(user.id, "goals");
+  const [mortgages]                   = useData(user.id, "mortgages");
+  const [presupuestos]                = useData(user.id, "presupuestos");
+  const [recurring]                   = useData(user.id, "recurring");
+  const [config]                      = useData(user.id, "config", {});
 
   const [messages, setMessages] = useState([]);
   const [input, setInput]       = useState("");
   const [loading, setLoading]   = useState(false);
-  const bottomRef               = useRef(null);
-  const ANTHROPIC_KEY           = import.meta.env.VITE_ANTHROPIC_KEY;
+  const [adjunto, setAdjunto]   = useState(null); // { name, type, base64, mediaType }
+  const [pendingTx, setPendingTx] = useState(null); // transacción detectada pendiente de confirmar
+  const bottomRef  = useRef(null);
+  const fileRef    = useRef(null);
+  const ANTHROPIC_KEY = import.meta.env.VITE_ANTHROPIC_KEY;
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior:"smooth" }); }, [messages, loading]);
 
+  // ── Categorías disponibles
+  const DEFAULT_CATS = {
+    income:["Salario","Freelance","Negocio","Renta","Intereses","Dividendos","Otro"],
+    expense:["Alimentación","Transporte","Salud","Educación","Entretenimiento","Ropa","Servicios","Hipoteca / Vivienda","Pago de deuda","Otro"],
+  };
+  const cats = {
+    income:[...new Set([...(config.categorias?.income||DEFAULT_CATS.income)])],
+    expense:[...new Set([...(config.categorias?.expense||DEFAULT_CATS.expense)])],
+  };
+
+  // ── Contexto financiero para el sistema prompt
   const buildContext = () => {
     const now    = new Date();
     const mesKey = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}`;
-    const TC = getTc(user.id);
+    const TC     = getTc(user.id);
+    const liquidez      = accounts.filter(a=>a.type!=="credit").reduce((s,a)=>s+(a.currency==="USD"?parseFloat(a.balance||0)*TC:parseFloat(a.balance||0)),0);
+    const deudaTarjetas = accounts.filter(a=>a.type==="credit").reduce((s,a)=>s+Math.abs(Math.min(parseFloat(a.balance||0),0)),0);
+    const invTotal      = investments.reduce((s,i)=>{ const ti=parseFloat(i.titulos)||0,p=parseFloat(i.precioActual)||0,ap=(i.aportaciones||[]).reduce((ss,a)=>ss+parseFloat(a.amount||0),0),val=ti>0&&p>0?ti*p:parseFloat(i.currentValue)||ap; return s+(i.currency==="USD"?val*TC:val); },0);
+    const txMes   = transactions.filter(tx=>tx.date?.startsWith(mesKey));
+    const ingrMes = txMes.filter(tx=>tx.type==="income").reduce((s,tx)=>s+parseFloat(tx.amount||0),0);
+    const gastMes = txMes.filter(tx=>tx.type==="expense").reduce((s,tx)=>s+parseFloat(tx.amount||0),0);
+    return `Eres un experto en finanzas personales integrado en Finanzapp, la app de ${user.name}.
+Tienes acceso en tiempo real a todos sus datos. Responde siempre en español, claro y directo.
 
-    const liquidez = accounts.filter(a=>a.type!=="credit")
-      .reduce((s,a)=>s+(a.currency==="USD"?parseFloat(a.balance||0)*TC:parseFloat(a.balance||0)),0);
-    const deudaTarjetas = accounts.filter(a=>a.type==="credit")
-      .reduce((s,a)=>s+Math.abs(Math.min(parseFloat(a.balance||0),0)),0);
-    const invTotal = investments.reduce((s,i)=>{
-      const ti=parseFloat(i.titulos)||0, p=parseFloat(i.precioActual)||0;
-      const ap=(i.aportaciones||[]).reduce((ss,a)=>ss+parseFloat(a.amount||0),0);
-      const val=ti>0&&p>0?ti*p:parseFloat(i.currentValue)||ap;
-      return s+(i.currency==="USD"?val*TC:val);
-    },0);
-    const txMes     = transactions.filter(tx=>tx.date?.startsWith(mesKey));
-    const ingrMes   = txMes.filter(tx=>tx.type==="income").reduce((s,tx)=>s+parseFloat(tx.amount||0),0);
-    const gastMes   = txMes.filter(tx=>tx.type==="expense").reduce((s,tx)=>s+parseFloat(tx.amount||0),0);
+Cuando el usuario suba un documento (ticket, factura, estado de cuenta, comprobante):
+1. Extrae TODOS los movimientos o el movimiento principal: fecha, monto, descripción, tipo (ingreso/gasto).
+2. Sugiere la categoría más adecuada de esta lista — expense: ${cats.expense.join(", ")} | income: ${cats.income.join(", ")}
+3. Sugiere la cuenta más adecuada de las disponibles.
+4. Responde con un JSON al final de tu mensaje con este formato exacto (sin markdown, sin backticks):
+TRANSACCIONES_JSON:[{"type":"expense|income","amount":0,"date":"YYYY-MM-DD","category":"...","description":"...","account":"ID_CUENTA"}]
+Si hay múltiples movimientos (como en un estado de cuenta), inclúyelos todos en el array.
+Si no puedes determinar algún campo, usa null.
 
-    return `Eres un experto en finanzas personales integrado en Finanzapp, la app financiera de ${user.name}.
-Tienes acceso en tiempo real a todos sus datos. Responde siempre en español, de forma clara y directa.
-Usa saltos de línea para separar ideas. Si algo requiere cambio en el código, indícalo con: ⚙️ REQUIERE DESARROLLO: [descripción].
+Cuentas disponibles:
+${accounts.map(a=>`ID:${a.id} | ${a.name} | ${a.currency}`).join("\n")||"Sin cuentas"}
 
-=== RESUMEN FINANCIERO ACTUAL ===
-Fecha: ${now.toLocaleDateString("es-MX",{weekday:"long",year:"numeric",month:"long",day:"numeric"})}
-Tipo de cambio USD/MXN: ${TC}
+=== RESUMEN FINANCIERO ===
+Fecha: ${now.toLocaleDateString("es-MX",{weekday:"long",year:"numeric",month:"long",day:"numeric"})} | TC: ${TC}
+Liquidez: ${fmt(liquidez)} | Inversiones: ${fmt(invTotal)} | Deuda tarjetas: ${fmt(deudaTarjetas)}
+Patrimonio neto: ${fmt(liquidez+invTotal-deudaTarjetas)}
+Flujo ${now.toLocaleDateString("es-MX",{month:"long"})}: Ingresos ${fmt(ingrMes)} | Gastos ${fmt(gastMes)}
 
-Liquidez: ${fmt(liquidez)} | Deuda tarjetas: ${fmt(deudaTarjetas)} | Inversiones: ${fmt(invTotal)}
-Patrimonio neto estimado: ${fmt(liquidez+invTotal-deudaTarjetas)}
-Flujo ${now.toLocaleDateString("es-MX",{month:"long"})}: Ingresos ${fmt(ingrMes)} | Gastos ${fmt(gastMes)} | Resultado ${fmt(ingrMes-gastMes)}
+CUENTAS:
+${accounts.map(a=>`- [${a.id}] ${a.name} [${a.type}] ${a.currency}: ${fmt(parseFloat(a.balance||0),a.currency)}`).join("\n")}
 
-=== CUENTAS (${accounts.length}) ===
-${accounts.map(a=>`- ${a.name} [${a.type}] ${a.currency}: ${fmt(parseFloat(a.balance||0),a.currency)}`).join("\n")}
+PRÉSTAMOS:
+${loans.map(l=>`- ${l.name||"Préstamo"} [${l.type==="received"?"Por pagar":"Por cobrar"}] ${fmt(parseFloat(l.principal||0))}`).join("\n")||"Sin préstamos"}
 
-=== TRANSACCIONES ESTE MES (${txMes.length}) ===
-${txMes.slice(-30).map(tx=>`- ${tx.date} | ${tx.type==="income"?"Ingreso":"Gasto"} | ${tx.category||"Sin cat"} | ${fmt(parseFloat(tx.amount||0))} | ${tx.description||""}`).join("\n")||"Sin transacciones este mes"}
+INVERSIONES:
+${investments.map(i=>`- ${i.name||i.ticker||"Inversión"} ${fmt(parseFloat(i.currentValue||0),i.currency||"MXN")}`).join("\n")||"Sin inversiones"}
 
-=== PRÉSTAMOS (${loans.length}) ===
-${loans.map(l=>`- ${l.name||l.description||"Préstamo"} [${l.type==="received"?"Por pagar":"Por cobrar"}] Capital: ${fmt(parseFloat(l.principal||0))} | Tasa: ${l.rate}% | Inicio: ${l.startDate||"—"}`).join("\n")||"Sin préstamos"}
+METAS:
+${goals.map(g=>`- ${g.name} | ${fmt(parseFloat(g.current||0))} / ${fmt(parseFloat(g.target||0))}`).join("\n")||"Sin metas"}
 
-=== HIPOTECAS (${(mortgages||[]).length}) ===
-${(mortgages||[]).map(m=>`- ${m.nombre||"Hipoteca"} | Monto: ${fmt(parseFloat(m.monto||0))} | Tasa: ${m.tasaAnual}% | Plazo: ${m.plazoAnios} años | Pagos: ${(m.pagosRealizados||[]).length}`).join("\n")||"Sin hipotecas"}
-
-=== INVERSIONES (${investments.length}) ===
-${investments.map(i=>`- ${i.name||i.ticker||"Inversión"} [${i.type||"—"}] ${i.currency||"MXN"} | Valor: ${fmt(parseFloat(i.currentValue||0),i.currency||"MXN")} | Estado: ${i.estado||"activa"}`).join("\n")||"Sin inversiones"}
-
-=== METAS DE AHORRO (${goals.length}) ===
-${goals.map(g=>`- ${g.name} | Objetivo: ${fmt(parseFloat(g.target||0))} | Actual: ${fmt(parseFloat(g.current||0))} | Fecha: ${g.deadline||"—"}`).join("\n")||"Sin metas"}
-
-=== PRESUPUESTOS ACTIVOS ===
-${presupuestos.filter(p=>p.activo!==false).map(p=>`- ${p.nombre} | Límite: ${fmt(parseFloat(p.montoLimite||0))} | Tipo: ${p.tipo}`).join("\n")||"Sin presupuestos"}
-
-=== RECURRENTES ===
-${(recurring||[]).map(r=>`- ${r.description||r.name} | ${r.type==="income"?"Ingreso":"Gasto"} | ${fmt(parseFloat(r.amount||0))} | ${r.frequency||"mensual"}`).join("\n")||"Sin recurrentes"}`;
+PRESUPUESTOS ACTIVOS:
+${presupuestos.filter(p=>p.activo!==false).map(p=>`- ${p.nombre} | Límite: ${fmt(parseFloat(p.montoLimite||0))}`).join("\n")||"Sin presupuestos"}`;
   };
 
+  // ── Leer archivo como base64
+  const readFile = (file) => new Promise((res, rej) => {
+    const reader = new FileReader();
+    reader.onload = e => res(e.target.result.split(",")[1]);
+    reader.onerror = rej;
+    reader.readAsDataURL(file);
+  });
+
+  const handleFileChange = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const allowed = ["image/jpeg","image/png","image/webp","image/gif","application/pdf"];
+    if (!allowed.includes(file.type)) { toast("Formato no soportado. Usa JPG, PNG o PDF","error"); return; }
+    if (file.size > 20*1024*1024) { toast("El archivo es muy grande (máx 20MB)","error"); return; }
+    const base64 = await readFile(file);
+    setAdjunto({ name:file.name, type:file.type, base64, mediaType:file.type });
+    e.target.value = "";
+  };
+
+  // ── Parsear JSON de transacciones de la respuesta
+  const parseTxJson = (text) => {
+    const match = text.match(/TRANSACCIONES_JSON:(\[[\s\S]*?\])/);
+    if (!match) return null;
+    try {
+      const arr = JSON.parse(match[1]);
+      return arr.filter(tx=>tx.amount&&tx.type);
+    } catch { return null; }
+  };
+
+  // ── Confirmar y guardar transacciones
+  const guardarTransacciones = (txs) => {
+    const nuevas = txs.map(tx=>({
+      ...tx,
+      id: genId(),
+      amount: Math.abs(parseFloat(tx.amount)||0),
+      date: tx.date || today(),
+      category: tx.category || "Otro",
+      description: tx.description || "Sin descripción",
+      account: tx.account || accounts[0]?.id || "",
+      creadoEn: today(),
+    }));
+    setTransactions(p=>[...p,...nuevas]);
+    toast(`${nuevas.length} transacción${nuevas.length!==1?"es":""} registrada${nuevas.length!==1?"s":""} ✓`);
+    setPendingTx(null);
+    setMessages(p=>[...p,{role:"assistant",content:`✅ Listo. Registré ${nuevas.length} transacción${nuevas.length!==1?"es":""} en tu historial.`}]);
+  };
+
+  // ── Enviar mensaje
   const send = async () => {
     const text = input.trim();
-    if (!text || loading) return;
+    if ((!text && !adjunto) || loading) return;
     if (!ANTHROPIC_KEY) {
       setMessages(p=>[...p,{role:"assistant",content:"⚠️ No se encontró VITE_ANTHROPIC_KEY. Agrégala en Vercel → Settings → Environment Variables y vuelve a desplegar."}]);
       return;
     }
-    const userMsg  = { role:"user", content:text };
+
+    // Construir contenido del mensaje del usuario
+    let userContent;
+    let displayText = text || (adjunto ? `📎 ${adjunto.name}` : "");
+
+    if (adjunto) {
+      const contentParts = [];
+      if (adjunto.type === "application/pdf") {
+        contentParts.push({ type:"document", source:{ type:"base64", media_type:"application/pdf", data:adjunto.base64 } });
+      } else {
+        contentParts.push({ type:"image", source:{ type:"base64", media_type:adjunto.mediaType, data:adjunto.base64 } });
+      }
+      if (text) contentParts.push({ type:"text", text });
+      else contentParts.push({ type:"text", text:"Analiza este documento y extrae los movimientos financieros. Sugiere dónde registrarlos." });
+      userContent = contentParts;
+    } else {
+      userContent = text;
+    }
+
+    const userMsg  = { role:"user", content:userContent, display:displayText };
     const newMsgs  = [...messages, userMsg];
     setMessages(newMsgs);
     setInput("");
+    setAdjunto(null);
     setLoading(true);
+
     try {
+      // Para la API solo mandamos el contenido real (no el campo display)
+      const apiMessages = newMsgs.map(m=>({ role:m.role, content:m.content }));
       const res = await fetch("https://api.anthropic.com/v1/messages", {
         method:"POST",
         headers:{
@@ -9086,18 +9164,20 @@ ${(recurring||[]).map(r=>`- ${r.description||r.name} | ${r.type==="income"?"Ingr
           "anthropic-version":"2023-06-01",
           "anthropic-dangerous-direct-browser-access":"true"
         },
-        body:JSON.stringify({
-          model:"claude-sonnet-4-20250514",
-          max_tokens:1024,
-          system:buildContext(),
-          messages:newMsgs.map(m=>({role:m.role,content:m.content}))
-        })
+        body:JSON.stringify({ model:"claude-sonnet-4-20250514", max_tokens:2048, system:buildContext(), messages:apiMessages })
       });
       const data  = await res.json();
       const reply = data.content?.[0]?.text || "Sin respuesta.";
-      setMessages(p=>[...p,{role:"assistant",content:reply}]);
+
+      // Detectar transacciones en la respuesta
+      const txs = parseTxJson(reply);
+      const replyLimpio = reply.replace(/TRANSACCIONES_JSON:\[[\s\S]*?\]/, "").trim();
+
+      setMessages(p=>[...p,{ role:"assistant", content:replyLimpio }]);
+      if (txs && txs.length > 0) setPendingTx(txs);
+
     } catch(e) {
-      setMessages(p=>[...p,{role:"assistant",content:"❌ Error al conectar con la API. Verifica tu key y conexión."}]);
+      setMessages(p=>[...p,{ role:"assistant", content:"❌ Error al conectar con la API. Verifica tu key y conexión." }]);
     }
     setLoading(false);
   };
@@ -9113,27 +9193,37 @@ ${(recurring||[]).map(r=>`- ${r.description||r.name} | ${r.type==="income"?"Ingr
 
   return (
     <div style={{display:"flex",flexDirection:"column",height:"calc(100vh - 120px)",maxWidth:800,margin:"0 auto",animation:"fadeUp .25s ease"}}>
-      <div style={{marginBottom:16}}>
-        <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:4}}>
-          <div style={{width:38,height:38,borderRadius:12,background:"linear-gradient(135deg,#00d4aa,#3b82f6)",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-            <Ic n="asistente" size={20} color="#fff"/>
-          </div>
-          <div>
-            <h2 style={{fontSize:20,fontFamily:"'Syne',sans-serif",fontWeight:800,color:t.text,margin:0}}>Asistente Financiero</h2>
-            <p style={{fontSize:12,color:t.text2,margin:0}}>Pregúntame cualquier cosa sobre tus finanzas</p>
-          </div>
+      {/* Header */}
+      <div style={{marginBottom:16,display:"flex",alignItems:"center",gap:12}}>
+        <div style={{width:38,height:38,borderRadius:12,background:"linear-gradient(135deg,#00d4aa,#3b82f6)",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+          <Ic n="asistente" size={20} color="#fff"/>
+        </div>
+        <div>
+          <h2 style={{fontSize:20,fontFamily:"'Syne',sans-serif",fontWeight:800,color:t.text,margin:0}}>Asistente Financiero</h2>
+          <p style={{fontSize:12,color:t.text2,margin:0}}>Pregunta, o sube un ticket · factura · estado de cuenta · comprobante</p>
         </div>
       </div>
 
+      {/* Chat */}
       <div style={{flex:1,overflowY:"auto",display:"flex",flexDirection:"column",gap:12,paddingRight:4,marginBottom:12}}>
+
         {messages.length===0&&(
           <div>
-            <div style={{textAlign:"center",padding:"32px 20px 24px"}}>
+            <div style={{textAlign:"center",padding:"28px 20px 20px"}}>
               <div style={{width:56,height:56,borderRadius:18,background:"linear-gradient(135deg,rgba(0,212,170,.15),rgba(59,130,246,.15))",display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 12px"}}>
                 <Ic n="asistente" size={28} color="#00d4aa"/>
               </div>
-              <p style={{fontSize:15,fontWeight:700,color:t.text,margin:"0 0 6px"}}>Hola, {user.name.split(" ")[0]} 👋</p>
-              <p style={{fontSize:13,color:t.text2,margin:0,lineHeight:1.5}}>Tengo acceso a todas tus cuentas, transacciones,<br/>préstamos, inversiones y metas en tiempo real.</p>
+              <p style={{fontSize:15,fontWeight:700,color:t.text,margin:"0 0 4px"}}>Hola, {user.name.split(" ")[0]} 👋</p>
+              <p style={{fontSize:13,color:t.text2,margin:0,lineHeight:1.5}}>
+                Pregúntame sobre tus finanzas o sube un documento<br/>
+                y lo analizo y registro automáticamente.
+              </p>
+            </div>
+            {/* Formatos soportados */}
+            <div style={{display:"flex",justifyContent:"center",gap:8,marginBottom:16,flexWrap:"wrap"}}>
+              {["🧾 Tickets","📄 Facturas CFDI","🏦 Estados de cuenta","📱 Comprobantes"].map(l=>(
+                <span key={l} style={{fontSize:11,padding:"4px 10px",borderRadius:20,background:t.surface2,border:`1px solid ${t.border}`,color:t.text2}}>{l}</span>
+              ))}
             </div>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
               {SUGERENCIAS.map((s,i)=>(
@@ -9156,10 +9246,43 @@ ${(recurring||[]).map(r=>`- ${r.description||r.name} | ${r.type==="income"?"Ingr
               </div>
             )}
             <div style={{maxWidth:"78%",padding:"10px 14px",borderRadius:m.role==="user"?"14px 14px 4px 14px":"14px 14px 14px 4px",background:m.role==="user"?"linear-gradient(135deg,#00d4aa,#00a884)":t.surface2,border:m.role==="user"?"none":`1px solid ${t.border}`,fontSize:13,color:m.role==="user"?"#fff":t.text,lineHeight:1.6,whiteSpace:"pre-wrap",wordBreak:"break-word"}}>
-              {m.content}
+              {m.display || (typeof m.content==="string" ? m.content : m.content?.find?.(c=>c.type==="text")?.text || "")}
             </div>
           </div>
         ))}
+
+        {/* Tarjeta de confirmación de transacciones */}
+        {pendingTx && (
+          <div style={{border:"1px solid rgba(0,212,170,.3)",borderRadius:12,padding:14,background:"rgba(0,212,170,.05)"}}>
+            <p style={{fontSize:13,fontWeight:700,color:"#00d4aa",margin:"0 0 10px"}}>
+              📋 {pendingTx.length} transacción{pendingTx.length!==1?"es":""} detectada{pendingTx.length!==1?"s":""}  — ¿las registro?
+            </p>
+            <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:12}}>
+              {pendingTx.map((tx,i)=>(
+                <div key={i} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 10px",borderRadius:8,background:t.surface2,flexWrap:"wrap",gap:6}}>
+                  <div style={{display:"flex",alignItems:"center",gap:8}}>
+                    <div style={{width:7,height:7,borderRadius:"50%",background:tx.type==="income"?"#00d4aa":"#ff4757",flexShrink:0}}/>
+                    <div>
+                      <p style={{fontSize:12,fontWeight:600,color:t.text,margin:0}}>{tx.description||"Sin descripción"}</p>
+                      <p style={{fontSize:11,color:t.text2,margin:0}}>{tx.category||"—"} · {tx.date||today()} · {accounts.find(a=>a.id===tx.account)?.name||"Sin cuenta"}</p>
+                    </div>
+                  </div>
+                  <span style={{fontSize:13,fontWeight:700,color:tx.type==="income"?"#00d4aa":"#ff4757",flexShrink:0}}>
+                    {tx.type==="income"?"+":"-"}{fmt(Math.abs(parseFloat(tx.amount||0)))}
+                  </span>
+                </div>
+              ))}
+            </div>
+            <div style={{display:"flex",gap:8}}>
+              <Btn onClick={()=>guardarTransacciones(pendingTx)} style={{flex:1}}>
+                <Ic n="check" size={14}/>Registrar todo
+              </Btn>
+              <Btn variant="secondary" onClick={()=>setPendingTx(null)} style={{flex:1}}>
+                <Ic n="close" size={14}/>Cancelar
+              </Btn>
+            </div>
+          </div>
+        )}
 
         {loading&&(
           <div style={{display:"flex",alignItems:"flex-start",gap:8}}>
@@ -9176,24 +9299,44 @@ ${(recurring||[]).map(r=>`- ${r.description||r.name} | ${r.type==="income"?"Ingr
         <div ref={bottomRef}/>
       </div>
 
-      <div style={{display:"flex",gap:10,alignItems:"flex-end",background:t.surface,border:`1px solid ${t.border}`,borderRadius:14,padding:"10px 12px"}}>
+      {/* Preview de adjunto */}
+      {adjunto&&(
+        <div style={{display:"flex",alignItems:"center",gap:8,padding:"7px 12px",background:t.surface2,border:`1px solid rgba(0,212,170,.25)`,borderRadius:10,marginBottom:8}}>
+          <Ic n="attach" size={16} color="#00d4aa"/>
+          <span style={{flex:1,fontSize:12,color:t.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{adjunto.name}</span>
+          <button onClick={()=>setAdjunto(null)} style={{background:"none",border:"none",cursor:"pointer",color:t.muted,display:"flex",padding:2}}>
+            <Ic n="close" size={14}/>
+          </button>
+        </div>
+      )}
+
+      {/* Input */}
+      <input ref={fileRef} type="file" accept="image/*,.pdf" style={{display:"none"}} onChange={handleFileChange}/>
+      <div style={{display:"flex",gap:8,alignItems:"flex-end",background:t.surface,border:`1px solid ${adjunto?"rgba(0,212,170,.3)":t.border}`,borderRadius:14,padding:"10px 12px",transition:"border-color .2s"}}>
+        <button onClick={()=>fileRef.current?.click()}
+          title="Adjuntar imagen o PDF"
+          style={{width:34,height:34,borderRadius:9,border:`1px solid ${t.border}`,background:"transparent",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,transition:"all .15s"}}
+          onMouseEnter={e=>{e.currentTarget.style.borderColor="rgba(0,212,170,.4)";e.currentTarget.style.background="rgba(0,212,170,.08)";}}
+          onMouseLeave={e=>{e.currentTarget.style.borderColor=t.border;e.currentTarget.style.background="transparent";}}>
+          <Ic n="attach" size={17} color="#666"/>
+        </button>
         <textarea
           value={input}
           onChange={e=>setInput(e.target.value)}
           onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();send();}}}
-          placeholder="Pregúntame algo sobre tus finanzas... (Enter para enviar)"
+          placeholder={adjunto?"Añade un comentario o presiona Enter para analizar...":"Pregunta algo o adjunta un documento (📎)..."}
           rows={1}
           style={{flex:1,background:"transparent",border:"none",outline:"none",resize:"none",fontSize:13,color:t.text,lineHeight:1.5,maxHeight:120,overflowY:"auto",fontFamily:"'DM Sans',sans-serif"}}
         />
-        <button onClick={send} disabled={!input.trim()||loading}
-          style={{width:36,height:36,borderRadius:10,border:"none",background:input.trim()&&!loading?"linear-gradient(135deg,#00d4aa,#00a884)":"rgba(255,255,255,.06)",cursor:input.trim()&&!loading?"pointer":"default",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,transition:"all .15s"}}>
-          <svg viewBox="0 0 24 24" width={17} height={17} fill={input.trim()&&!loading?"#fff":"#444"}>
+        <button onClick={send} disabled={(!input.trim()&&!adjunto)||loading}
+          style={{width:36,height:36,borderRadius:10,border:"none",background:(input.trim()||adjunto)&&!loading?"linear-gradient(135deg,#00d4aa,#00a884)":"rgba(255,255,255,.06)",cursor:(input.trim()||adjunto)&&!loading?"pointer":"default",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,transition:"all .15s"}}>
+          <svg viewBox="0 0 24 24" width={17} height={17} fill={(input.trim()||adjunto)&&!loading?"#fff":"#444"}>
             <path d="M2 21l21-9L2 3v7l15 2-15 2v7z"/>
           </svg>
         </button>
       </div>
       {messages.length>0&&(
-        <button onClick={()=>setMessages([])} style={{marginTop:8,background:"none",border:"none",cursor:"pointer",fontSize:11,color:t.muted,textAlign:"center"}}>
+        <button onClick={()=>{setMessages([]);setPendingTx(null);}} style={{marginTop:8,background:"none",border:"none",cursor:"pointer",fontSize:11,color:t.muted,textAlign:"center"}}>
           Limpiar conversación
         </button>
       )}
