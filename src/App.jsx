@@ -667,52 +667,125 @@ const AmortizacionChart = ({ loan, pagos }) => {
 
 // Dona portafolio inversiones
 const PortafolioChart = ({ investments, tc=17.5 }) => {
-  const activas = investments.filter(i=>i.status!=="closed");
+  const [vista, setVista] = React.useState("tipo");
+  const [hoverSlice, setHoverSlice] = React.useState(null);
+  const activas = investments.filter(i=>i.status!=="closed"&&i.estado!=="liquidada");
   if(activas.length===0) return null;
-  const COLORS=["#00d4aa","#3b82f6","#f39c12","#a78bfa","#ff6b7a","#10b981","#f97316","#06b6d4"];
-  const TC=tc;
+  const TC = tc;
+  const COLORS_TIPO = {"Criptomonedas":"#f39c12","Acciones / ETFs":"#3b82f6","Fondo de Inversión":"#00d4aa","Fondo Inmobiliario":"#a78bfa","Otro":"#666"};
+  const COLORS_INV = ["#00d4aa","#3b82f6","#f39c12","#a78bfa","#ff6b7a","#10b981","#f97316","#06b6d4","#e11d48","#84cc16","#0ea5e9","#d946ef"];
+  const fmtV = v => v>=1000000?`$${(v/1000000).toFixed(2)}M`:v>=1000?`$${(v/1000).toFixed(1)}k`:`$${v.toFixed(0)}`;
   const withVal = activas.map(inv=>{
     const aps=(inv.aportaciones||[]).reduce((s,a)=>s+parseFloat(a.amount||0)*(a.currency==="USD"?TC:1),0);
     const cobs=(inv.cobros||[]).filter(c=>["retiro_parcial","retiro_total"].includes(c.tipoCobro)).reduce((s,c)=>s+parseFloat(c.monto||0)*(c.currency==="USD"?TC:1),0);
-    return {...inv, valor:Math.max(aps-cobs,0)};
+    const t=parseFloat(inv.titulos)||0, p=parseFloat(inv.precioActual)||0;
+    const valDirecto=t>0&&p>0?t*p*(inv.currency==="USD"?TC:1):parseFloat(inv.currentValue||0)*(inv.currency==="USD"?TC:1);
+    const valor=valDirecto>0?valDirecto:Math.max(aps-cobs,0);
+    const tipoRaw=inv.type||inv.tipo||"Otro";
+    const tipo=tipoRaw.includes("Cripto")?"Criptomonedas":tipoRaw.includes("Accion")||tipoRaw.includes("ETF")?"Acciones / ETFs":tipoRaw.includes("Fondo Inm")||tipoRaw.includes("Inmobili")?"Fondo Inmobiliario":tipoRaw.includes("Fondo")||tipoRaw.includes("Inversion")||tipoRaw.includes("Inversión")?"Fondo de Inversión":"Otro";
+    return {...inv,valor,tipo};
   }).filter(i=>i.valor>0);
   const total=withVal.reduce((s,i)=>s+i.valor,0);
   if(total===0) return null;
-  const fmt=v=>v>=1000?`$${(v/1000).toFixed(1)}k`:`$${v.toFixed(0)}`;
-  const R=52,r=30,cx=65,cy=65;
+  const porTipo={};
+  withVal.forEach(i=>{porTipo[i.tipo]=(porTipo[i.tipo]||0)+i.valor;});
+  const tiposArr=Object.entries(porTipo).sort((a,b)=>b[1]-a[1]).map(([tipo,valor])=>({label:tipo,valor,pct:valor/total,color:COLORS_TIPO[tipo]||"#666",items:withVal.filter(i=>i.tipo===tipo).sort((a,b)=>b.valor-a.valor)}));
+  const slices=(vista==="tipo"?tiposArr.map(t=>({label:t.label,valor:t.valor,pct:t.pct,color:t.color})):withVal.sort((a,b)=>b.valor-a.valor).map((inv,i)=>({label:inv.nombre||inv.instrumento||inv.ticker||"—",valor:inv.valor,pct:inv.valor/total,color:COLORS_INV[i%COLORS_INV.length]})));
+  const R=70,r=42,cx=80,cy=80;
   let angle=-Math.PI/2;
-  const slices=withVal.map((inv,i)=>{
-    const pct=inv.valor/total; const a=pct*2*Math.PI;
+  const paths=slices.map((s,i)=>{
+    const a=s.pct*2*Math.PI;
     const x1=cx+R*Math.cos(angle),y1=cy+R*Math.sin(angle);
     const x2=cx+R*Math.cos(angle+a),y2=cy+R*Math.sin(angle+a);
     const xi1=cx+r*Math.cos(angle),yi1=cy+r*Math.sin(angle);
     const xi2=cx+r*Math.cos(angle+a),yi2=cy+r*Math.sin(angle+a);
     const large=a>Math.PI?1:0;
-    const path=`M${x1},${y1} A${R},${R} 0 ${large},1 ${x2},${y2} L${xi2},${yi2} A${r},${r} 0 ${large},0 ${xi1},${yi1} Z`;
+    const path=`M${x1.toFixed(2)},${y1.toFixed(2)} A${R},${R} 0 ${large},1 ${x2.toFixed(2)},${y2.toFixed(2)} L${xi2.toFixed(2)},${yi2.toFixed(2)} A${r},${r} 0 ${large},0 ${xi1.toFixed(2)},${yi1.toFixed(2)} Z`;
     angle+=a;
-    return {...inv,pct,path,color:COLORS[i%COLORS.length]};
+    return {...s,path,idx:i};
   });
+  const hov=hoverSlice!=null?paths[hoverSlice]:null;
   return (
-    <div style={{background:"rgba(255,255,255,.02)",borderRadius:12,padding:"16px 18px",border:"1px solid rgba(255,255,255,.06)"}}>
-      <p style={{fontSize:13,fontWeight:700,color:"#e0e0e0",margin:"0 0 14px"}}>Distribución del portafolio</p>
-      <div style={{display:"flex",gap:16,alignItems:"center",flexWrap:"wrap"}}>
-        <svg viewBox="0 0 130 130" style={{width:130,height:130,flexShrink:0}}>
-          {slices.map((s,i)=><path key={i} d={s.path} fill={s.color} opacity=".9"/>)}
-          <text x={cx} y={cy-6} textAnchor="middle" fill="#888" fontSize="9">Total</text>
-          <text x={cx} y={cy+8} textAnchor="middle" fill="#e0e0e0" fontSize="11" fontWeight="700">{fmt(total)}</text>
-        </svg>
-        <div style={{flex:1,minWidth:140,display:"flex",flexDirection:"column",gap:6}}>
-          {slices.map((s,i)=>(
-            <div key={i} style={{display:"flex",alignItems:"center",gap:7}}>
-              <span style={{width:8,height:8,borderRadius:2,background:s.color,flexShrink:0,display:"inline-block"}}/>
-              <span style={{fontSize:11,color:"#aaa",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.nombre||s.instrumento}</span>
-              <span style={{fontSize:11,fontWeight:700,color:"#e0e0e0",flexShrink:0}}>{(s.pct*100).toFixed(0)}%</span>
-              <span style={{fontSize:10,color:"#555",flexShrink:0,minWidth:45,textAlign:"right"}}>{fmt(s.valor)}</span>
-            </div>
+    <div style={{background:"rgba(255,255,255,.02)",borderRadius:14,padding:"18px 20px",border:"1px solid rgba(255,255,255,.06)"}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:8}}>
+        <div>
+          <p style={{fontSize:14,fontWeight:700,color:"#e0e0e0",margin:"0 0 2px"}}>Distribución del portafolio</p>
+          <p style={{fontSize:11,color:"#555",margin:0}}>{activas.length} inversiones · {fmtV(total)} total</p>
+        </div>
+        <div style={{display:"flex",gap:2,background:"rgba(255,255,255,.04)",borderRadius:8,padding:3}}>
+          {[["tipo","Por tipo"],["instrumento","Por activo"]].map(([v,l])=>(
+            <button key={v} onClick={()=>setVista(v)} style={{padding:"5px 12px",borderRadius:6,border:"none",cursor:"pointer",fontSize:11,fontWeight:600,background:vista===v?"rgba(0,212,170,.15)":"transparent",color:vista===v?"#00d4aa":"#555",transition:"all .15s"}}>{l}</button>
           ))}
-          <div style={{marginTop:4,paddingTop:8,borderTop:"1px solid rgba(255,255,255,.05)",display:"flex",justifyContent:"space-between"}}>
-            <span style={{fontSize:11,color:"#555"}}>{activas.length} inversión{activas.length!==1?"es":""} activa{activas.length!==1?"s":""}</span>
-            <span style={{fontSize:12,fontWeight:700,color:"#00d4aa"}}>{fmt(total)}</span>
+        </div>
+      </div>
+      <div style={{display:"flex",gap:20,alignItems:"flex-start",flexWrap:"wrap"}}>
+        <div style={{flexShrink:0}}>
+          <svg viewBox="0 0 160 160" style={{width:160,height:160}} onMouseLeave={()=>setHoverSlice(null)}>
+            {paths.map((s,i)=>(
+              <path key={i} d={s.path} fill={s.color} opacity={hoverSlice===null||hoverSlice===i?1:.3} style={{cursor:"pointer",transition:"opacity .15s"}} onMouseEnter={()=>setHoverSlice(i)}/>
+            ))}
+            {hov?(
+              <>
+                <text x={cx} y={cy-10} textAnchor="middle" fill="#aaa" fontSize="7.5" style={{pointerEvents:"none"}}>{hov.label.length>16?hov.label.slice(0,14)+"…":hov.label}</text>
+                <text x={cx} y={cy+4} textAnchor="middle" fill={hov.color} fontSize="11" fontWeight="700" style={{pointerEvents:"none"}}>{(hov.pct*100).toFixed(1)}%</text>
+                <text x={cx} y={cy+17} textAnchor="middle" fill="#e0e0e0" fontSize="8.5" style={{pointerEvents:"none"}}>{fmtV(hov.valor)}</text>
+              </>
+            ):(
+              <>
+                <text x={cx} y={cy-4} textAnchor="middle" fill="#666" fontSize="8" style={{pointerEvents:"none"}}>Total</text>
+                <text x={cx} y={cy+10} textAnchor="middle" fill="#e0e0e0" fontSize="11" fontWeight="700" style={{pointerEvents:"none"}}>{fmtV(total)}</text>
+              </>
+            )}
+          </svg>
+        </div>
+        <div style={{flex:1,minWidth:200}}>
+          {vista==="tipo"?(
+            <div style={{display:"flex",flexDirection:"column",gap:8}}>
+              {tiposArr.map((t,i)=>(
+                <div key={t.label}>
+                  <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3}}>
+                    <span style={{width:10,height:10,borderRadius:3,background:t.color,flexShrink:0}}/>
+                    <span style={{fontSize:12,fontWeight:700,color:"#e0e0e0",flex:1}}>{t.label}</span>
+                    <span style={{fontSize:12,fontWeight:700,color:t.color}}>{(t.pct*100).toFixed(1)}%</span>
+                    <span style={{fontSize:11,color:"#555",minWidth:52,textAlign:"right"}}>{fmtV(t.valor)}</span>
+                  </div>
+                  <div style={{height:4,borderRadius:2,background:"rgba(255,255,255,.05)",marginBottom:4}}>
+                    <div style={{height:"100%",borderRadius:2,background:t.color,width:`${t.pct*100}%`,transition:"width .5s"}}/>
+                  </div>
+                  <div style={{paddingLeft:18,display:"flex",flexDirection:"column",gap:2}}>
+                    {t.items.map((inv,j)=>(
+                      <div key={j} style={{display:"flex",alignItems:"center",gap:6}}>
+                        <span style={{fontSize:10,color:"#555",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{inv.nombre||inv.instrumento||inv.ticker||"—"}</span>
+                        <span style={{fontSize:10,color:"#666"}}>{((inv.valor/total)*100).toFixed(1)}%</span>
+                        <span style={{fontSize:10,color:"#444",minWidth:48,textAlign:"right"}}>{fmtV(inv.valor)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ):(
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"6px 12px"}}>
+              {paths.map((s,i)=>(
+                <div key={i} style={{display:"flex",alignItems:"center",gap:6,padding:"4px 6px",borderRadius:7,background:hoverSlice===i?"rgba(255,255,255,.04)":"transparent",cursor:"default"}} onMouseEnter={()=>setHoverSlice(i)} onMouseLeave={()=>setHoverSlice(null)}>
+                  <span style={{width:8,height:8,borderRadius:2,background:s.color,flexShrink:0}}/>
+                  <div style={{flex:1,minWidth:0}}>
+                    <p style={{fontSize:10,fontWeight:600,color:"#ccc",margin:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.label}</p>
+                    <div style={{display:"flex",gap:4,alignItems:"center",marginTop:1}}>
+                      <div style={{flex:1,height:3,borderRadius:2,background:"rgba(255,255,255,.06)"}}>
+                        <div style={{height:"100%",borderRadius:2,background:s.color,width:`${s.pct*100}%`}}/>
+                      </div>
+                      <span style={{fontSize:9,color:"#555"}}>{(s.pct*100).toFixed(0)}%</span>
+                    </div>
+                  </div>
+                  <span style={{fontSize:10,color:"#666",textAlign:"right"}}>{fmtV(s.valor)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          <div style={{marginTop:10,paddingTop:8,borderTop:"1px solid rgba(255,255,255,.05)",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <span style={{fontSize:11,color:"#444"}}>{activas.length} activo{activas.length!==1?"s":""}</span>
+            <span style={{fontSize:13,fontWeight:800,color:"#00d4aa"}}>{fmtV(total)}</span>
           </div>
         </div>
       </div>
