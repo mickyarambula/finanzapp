@@ -1291,6 +1291,110 @@ const GlobalSearch = ({ onNavigate }) => {
 };
 
 // ─── DASHBOARD ────────────────────────────────────────────────────────────────
+// Gráfica de línea — evolución del patrimonio neto en el tiempo
+const LineChartPatrimonio = ({ snapshots, onVerTodo }) => {
+  const [rango, setRango] = useState("6m");
+  const [hover, setHover] = useState(null);
+
+  const filtrar = (snaps) => {
+    const corte = new Date();
+    if (rango === "1m") corte.setMonth(corte.getMonth()-1);
+    else if (rango === "3m") corte.setMonth(corte.getMonth()-3);
+    else if (rango === "6m") corte.setMonth(corte.getMonth()-6);
+    else if (rango === "1y") corte.setFullYear(corte.getFullYear()-1);
+    else return snaps;
+    return snaps.filter(s => new Date(s.fecha) >= corte);
+  };
+
+  const snapsOrd = [...(snapshots||[])].sort((a,b)=>new Date(a.fecha)-new Date(b.fecha));
+  const vis = filtrar(snapsOrd);
+
+  if (vis.length < 2) return (
+    <Card>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+        <p style={{fontSize:13,fontWeight:700,color:"#ccc",margin:0}}>Evolución del Patrimonio</p>
+        <span style={{fontSize:11,color:"#555"}}>Acumulando datos...</span>
+      </div>
+      <div style={{height:80,display:"flex",alignItems:"center",justifyContent:"center"}}>
+        <p style={{fontSize:12,color:"#444",textAlign:"center"}}>La gráfica aparecerá después de algunos días de uso 📈</p>
+      </div>
+    </Card>
+  );
+
+  const W = 520, H = 100, PAD = 10;
+  const vals = vis.map(s => s.patrimonioNeto||0);
+  const minV = Math.min(...vals);
+  const maxV = Math.max(...vals);
+  const rng  = maxV - minV || 1;
+  const toX  = i => PAD + (i/(vis.length-1))*(W-PAD*2);
+  const toY  = v => PAD + (1-(v-minV)/rng)*(H-PAD*2);
+  const pts  = vis.map((s,i) => [toX(i), toY(s.patrimonioNeto||0)]);
+  const path = pts.map((p,i) => (i===0?`M${p[0]},${p[1]}`:`L${p[0]},${p[1]}`)).join(" ");
+  const area = `${path} L${pts[pts.length-1][0]},${H+10} L${pts[0][0]},${H+10} Z`;
+  const primero = vals[0], ultimo = vals[vals.length-1];
+  const delta   = ultimo - primero;
+  const deltaPct= primero !== 0 ? (delta/Math.abs(primero)*100) : 0;
+  const isPos   = delta >= 0;
+  const color   = isPos ? "#00d4aa" : "#ff4757";
+  const fmt2 = v => { const abs=Math.abs(v); if(abs>=1000000) return `${(v/1000000).toFixed(2)}M`; if(abs>=1000) return `${(v/1000).toFixed(0)}k`; return v.toFixed(0); };
+  const fmtFull = v => new Intl.NumberFormat("es-MX",{style:"currency",currency:"MXN",minimumFractionDigits:0}).format(v);
+
+  return (
+    <Card>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,flexWrap:"wrap",gap:8}}>
+        <div style={{display:"flex",alignItems:"center",gap:12}}>
+          <p style={{fontSize:13,fontWeight:700,color:"#ccc",margin:0}}>Evolución del Patrimonio</p>
+          <span style={{fontSize:11,fontWeight:700,color,background:isPos?"rgba(0,212,170,.1)":"rgba(255,71,87,.1)",padding:"2px 8px",borderRadius:20}}>
+            {isPos?"+":""}{deltaPct.toFixed(1)}% en el período
+          </span>
+        </div>
+        <div style={{display:"flex",gap:4}}>
+          {[["1m","1M"],["3m","3M"],["6m","6M"],["1y","1A"],["all","Todo"]].map(([v,l])=>(
+            <button key={v} onClick={()=>setRango(v)} style={{fontSize:10,fontWeight:700,padding:"3px 8px",borderRadius:6,border:"none",cursor:"pointer",background:rango===v?color:"rgba(255,255,255,.05)",color:rango===v?"#000":"#555",transition:"all .2s"}}>{l}</button>
+          ))}
+        </div>
+      </div>
+      <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
+        <span style={{fontSize:9,color:"#333"}}>Mín: <strong style={{color:"#ff4757"}}>${fmt2(minV)}</strong></span>
+        <span style={{fontSize:9,color:"#333"}}>Máx: <strong style={{color:"#00d4aa"}}>${fmt2(maxV)}</strong></span>
+      </div>
+      <div style={{position:"relative"}} onMouseLeave={()=>setHover(null)}>
+        <svg viewBox={`0 0 ${W} ${H+10}`} style={{width:"100%",overflow:"visible",display:"block"}}>
+          <defs>
+            <linearGradient id="patGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor={color} stopOpacity="0.18"/>
+              <stop offset="100%" stopColor={color} stopOpacity="0"/>
+            </linearGradient>
+          </defs>
+          <path d={area} fill="url(#patGrad)"/>
+          <path d={path} fill="none" stroke={color} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round"/>
+          {hover!==null && pts[hover] && (
+            <>
+              <line x1={pts[hover][0]} y1={0} x2={pts[hover][0]} y2={H+10} stroke="rgba(255,255,255,.1)" strokeWidth="1" strokeDasharray="3,3"/>
+              <circle cx={pts[hover][0]} cy={pts[hover][1]} r="4" fill={color} stroke="#1a1a2e" strokeWidth="2"/>
+            </>
+          )}
+          {vis.map((_,i)=>(
+            <rect key={i} x={pts[i][0]-12} y={0} width={24} height={H+10} fill="transparent" onMouseEnter={()=>setHover(i)} style={{cursor:"crosshair"}}/>
+          ))}
+        </svg>
+        {hover!==null && vis[hover] && (
+          <div style={{position:"absolute",top:0,left:pts[hover][0]/W*100>65?"auto":`${pts[hover][0]/W*100}%`,right:pts[hover][0]/W*100>65?`${(1-pts[hover][0]/W)*100}%`:"auto",transform:"translateY(-2px)",background:"#1e1e3a",border:"1px solid rgba(255,255,255,.1)",borderRadius:8,padding:"6px 10px",pointerEvents:"none",zIndex:10,minWidth:140}}>
+            <p style={{fontSize:10,color:"#777",margin:"0 0 2px"}}>{vis[hover].fecha}</p>
+            <p style={{fontSize:13,fontWeight:800,color,margin:"0 0 2px"}}>{fmtFull(vis[hover].patrimonioNeto||0)}</p>
+            {vis[hover].liquidezTotal!==undefined && <p style={{fontSize:10,color:"#555",margin:0}}>Liquidez {fmtFull(vis[hover].liquidezTotal||0)}</p>}
+          </div>
+        )}
+      </div>
+      <div style={{display:"flex",justifyContent:"space-between",marginTop:4}}>
+        <span style={{fontSize:9,color:"#333"}}>{vis[0]?.fecha}</span>
+        <button onClick={onVerTodo} style={{fontSize:9,color:"#00d4aa",background:"none",border:"none",cursor:"pointer",padding:0}}>Ver detalle completo →</button>
+        <span style={{fontSize:9,color:"#333"}}>{vis[vis.length-1]?.fecha}</span>
+      </div>
+    </Card>
+  );
+};
+
 const Dashboard = () => {
   const { user, navigate } = useCtx();
   const [accounts, setAccounts] = useData(user.id, "accounts");
@@ -1301,6 +1405,7 @@ const Dashboard = () => {
   const [goals]        = useData(user.id, "goals");
   const [presupuestos] = useData(user.id, "presupuestos");
   const [mortgages]    = useData(user.id, "mortgages");
+  const [snapshots]    = useData(user.id, "patrimonio_snaps");
   const now = new Date();
   const TC = getTc(user.id);
 
@@ -1769,6 +1874,8 @@ const Dashboard = () => {
           ))}
         </div>
       </Card>
+
+      <LineChartPatrimonio snapshots={snapshots} onVerTodo={()=>navigate("patrimonio")}/>
 
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))",gap:14}}>
 
