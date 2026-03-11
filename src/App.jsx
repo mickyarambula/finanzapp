@@ -2256,8 +2256,8 @@ const Transactions = () => {
   const f = k => e => setForm(p=>({...p,[k]:e.target.value}));
 
   const DEFAULT_CATS = {
-    income:["Salario","Freelance","Negocio","Renta","Intereses","Dividendos","Intereses cobrados","Retiro de inversión","Dividendos e intereses","Otro"],
-    expense:["Alimentación","Transporte","Salud","Educación","Entretenimiento","Ropa","Servicios","Hipoteca / Vivienda","Pago de deuda","Otro"],
+    income:["Salario","Freelance","Negocio","Renta","Intereses","Dividendos","Intereses cobrados","Retiro de inversión","Dividendos e intereses","Ganancia de inversión","Recuperación de capital","Otro"],
+    expense:["Alimentación","Transporte","Salud","Educación","Entretenimiento","Ropa","Servicios","Hipoteca / Vivienda","Pago de deuda","Pérdida de inversión","Abono a capital","Otro"],
   };
   const cats = {
     income: [...new Set([...(config.categorias?.income||DEFAULT_CATS.income)])],
@@ -2728,20 +2728,45 @@ const Loans = () => {
     // ── híbrido: crear transacción si el usuario lo eligió
     if (pf.registrarComoTx) {
       const isIngreso = selected.type==="given"; // préstamo dado → cobrar = ingreso
-      const desc = pf.paymentType==="interest_only"
-        ? `Intereses cobrados — ${selected.name}`
-        : `Cobro capital+interés — ${selected.name}`;
-      const newTx = {
-        id:genId(), date:pf.date, amount,
-        type: isIngreso?"income":"expense",
-        description: isIngreso ? desc : `Pago préstamo — ${selected.name}`,
-        category: isIngreso?"Intereses cobrados":"Pago de deuda",
-        accountId: targetId,
-        currency: selected.currency||"MXN",
-        origen:"prestamo", origenId:selected.id,
-        notes: pf.notes||"",
-      };
-      setTransactions(p=>[newTx,...p]);
+      const txs = [];
+      if (pf.paymentType==="interest_only") {
+        // Solo intereses → ingreso/gasto puro
+        txs.push({
+          id:genId(), date:pf.date, amount,
+          type: isIngreso?"income":"expense",
+          description: isIngreso?`Intereses cobrados — ${selected.name}`:`Pago intereses — ${selected.name}`,
+          category: isIngreso?"Intereses cobrados":"Pago de deuda",
+          accountId: targetId, currency: selected.currency||"MXN",
+          origen:"prestamo", origenId:selected.id, notes: pf.notes||"",
+        });
+      } else {
+        // Capital + interés: separar ambas partes
+        const interes = st.pendingInterest > 0 ? Math.min(st.pendingInterest, amount) : 0;
+        const capital = Math.max(0, amount - interes);
+        // Solo los intereses son ingreso/gasto real
+        if (interes > 0) {
+          txs.push({
+            id:genId(), date:pf.date, amount:interes,
+            type: isIngreso?"income":"expense",
+            description: isIngreso?`Intereses cobrados — ${selected.name}`:`Pago intereses — ${selected.name}`,
+            category: isIngreso?"Intereses cobrados":"Pago de deuda",
+            accountId: targetId, currency: selected.currency||"MXN",
+            origen:"prestamo", origenId:selected.id, notes: pf.notes||"",
+          });
+        }
+        // El capital es recuperación de activo (préstamo dado) o reducción de pasivo (préstamo recibido)
+        if (capital > 0) {
+          txs.push({
+            id:genId(), date:pf.date, amount:capital,
+            type: isIngreso?"income":"expense",
+            description: isIngreso?`Recuperación de capital — ${selected.name}`:`Abono a capital — ${selected.name}`,
+            category: isIngreso?"Recuperación de capital":"Abono a capital",
+            accountId: targetId, currency: selected.currency||"MXN",
+            origen:"prestamo", origenId:selected.id, notes: pf.notes||"",
+          });
+        }
+      }
+      setTransactions(p=>[...txs,...p]);
     }
     toast(pf.paymentType==="interest_only"?"Pago de intereses registrado. Capital intacto.":"Pago registrado.","success");
     closePay();
@@ -3187,19 +3212,39 @@ const Investments = () => {
     setSelected(updated);
     // ── híbrido: crear transacción si el usuario lo eligió
     if (cobroForm.registrarComoTx && cobroForm.tipoCobro!=="reinversion") {
-      const TIPOLABEL = {retiro_parcial:"Retiro parcial",liquidacion_total:"Liquidación total",dividendo:"Dividendo/Interés"};
-      const cta = accounts.find(a=>a.id===cobroForm.cuentaDestinoId);
-      const newTx = {
-        id:genId(), date:cobroForm.fecha, amount:montoNeto,
-        type:"income",
-        description:`${TIPOLABEL[cobroForm.tipoCobro]||"Cobro"} — ${selected.name}`,
-        category: cobroForm.tipoCobro==="dividendo"?"Dividendos e intereses":"Retiro de inversión",
-        accountId: cobroForm.cuentaDestinoId||"",
-        currency: selected.currency||"MXN",
-        origen:"inversion", origenId:selected.id,
-        notes: cobroForm.notas||"",
-      };
-      setTransactions(p=>[newTx,...p]);
+      const txsInv = [];
+      if (cobroForm.tipoCobro==="dividendo") {
+        // Dividendo/interés: ingreso puro, registrar el monto neto completo
+        txsInv.push({
+          id:genId(), date:cobroForm.fecha, amount:montoNeto,
+          type:"income",
+          description:`Dividendo/Interés — ${selected.name}`,
+          category:"Dividendos e intereses",
+          accountId: cobroForm.cuentaDestinoId||"",
+          currency: selected.currency||"MXN",
+          origen:"inversion", origenId:selected.id, notes: cobroForm.notas||"",
+        });
+      } else {
+        // Retiro parcial o liquidación total: solo registrar ganancia o pérdida
+        const base = st.costoTitulos>0 ? st.costoTitulos : st.totalInvertido;
+        const gananciaNeta = montoNeto - base;
+        if (Math.abs(gananciaNeta) >= 1) {
+          // Hay diferencia significativa entre lo recibido y el capital invertido
+          txsInv.push({
+            id:genId(), date:cobroForm.fecha, amount:Math.abs(gananciaNeta),
+            type: gananciaNeta >= 0 ? "income" : "expense",
+            description: gananciaNeta >= 0
+              ? `Ganancia realizada — ${selected.name}`
+              : `Pérdida realizada — ${selected.name}`,
+            category: gananciaNeta >= 0 ? "Ganancia de inversión" : "Pérdida de inversión",
+            accountId: cobroForm.cuentaDestinoId||"",
+            currency: selected.currency||"MXN",
+            origen:"inversion", origenId:selected.id, notes: cobroForm.notas||"",
+          });
+        }
+        // El capital recuperado NO se registra como ingreso (era tuyo desde el inicio)
+      }
+      setTransactions(p=>[...txsInv,...p]);
     }
     setOpenCobro(false);
     setCobroForm(blankCobro);
@@ -5014,8 +5059,8 @@ const Settings = () => {
   const [newCatCfg, setNewCatCfg] = useState({tipo:"expense", nombre:""});
 
   const DEFAULT_CATS = {
-    income:["Salario","Freelance","Negocio","Renta","Intereses","Dividendos","Intereses cobrados","Retiro de inversión","Dividendos e intereses","Otro"],
-    expense:["Alimentación","Transporte","Salud","Educación","Entretenimiento","Ropa","Servicios","Hipoteca / Vivienda","Pago de deuda","Otro"],
+    income:["Salario","Freelance","Negocio","Renta","Intereses","Dividendos","Intereses cobrados","Retiro de inversión","Dividendos e intereses","Ganancia de inversión","Recuperación de capital","Otro"],
+    expense:["Alimentación","Transporte","Salud","Educación","Entretenimiento","Ropa","Servicios","Hipoteca / Vivienda","Pago de deuda","Pérdida de inversión","Abono a capital","Otro"],
   };
   const cats = {
     income:  [...new Set([...(config.categorias?.income  || DEFAULT_CATS.income)])],
@@ -6663,7 +6708,7 @@ const Recurring = () => {
 
   const DEFAULT_CATS = {
     income:["Salario","Freelance","Negocio","Renta","Intereses","Dividendos","Otro"],
-    expense:["Alimentación","Transporte","Salud","Educación","Entretenimiento","Ropa","Servicios","Hipoteca / Vivienda","Pago de deuda","Otro"],
+    expense:["Alimentación","Transporte","Salud","Educación","Entretenimiento","Ropa","Servicios","Hipoteca / Vivienda","Pago de deuda","Pérdida de inversión","Abono a capital","Otro"],
   };
   const CATS_GASTO   = [...new Set([...(config.categorias?.expense||DEFAULT_CATS.expense)])];
   const CATS_INGRESO = [...new Set([...(config.categorias?.income||DEFAULT_CATS.income)])];
@@ -8402,8 +8447,8 @@ const Presupuestos = () => {
   const [newCat, setNewCat]             = useState({ tipo:"expense", nombre:"" });
 
   const DEFAULT_CATS = {
-    income:["Salario","Freelance","Negocio","Renta","Intereses","Dividendos","Intereses cobrados","Retiro de inversión","Dividendos e intereses","Otro"],
-    expense:["Alimentación","Transporte","Salud","Educación","Entretenimiento","Ropa","Servicios","Hipoteca / Vivienda","Pago de deuda","Otro"],
+    income:["Salario","Freelance","Negocio","Renta","Intereses","Dividendos","Intereses cobrados","Retiro de inversión","Dividendos e intereses","Ganancia de inversión","Recuperación de capital","Otro"],
+    expense:["Alimentación","Transporte","Salud","Educación","Entretenimiento","Ropa","Servicios","Hipoteca / Vivienda","Pago de deuda","Pérdida de inversión","Abono a capital","Otro"],
   };
   const cats = {
     income: [...new Set([...(config.categorias?.income||DEFAULT_CATS.income)])],
@@ -9234,7 +9279,7 @@ const Asistente = () => {
   // ── Categorías disponibles
   const DEFAULT_CATS = {
     income:["Salario","Freelance","Negocio","Renta","Intereses","Dividendos","Otro"],
-    expense:["Alimentación","Transporte","Salud","Educación","Entretenimiento","Ropa","Servicios","Hipoteca / Vivienda","Pago de deuda","Otro"],
+    expense:["Alimentación","Transporte","Salud","Educación","Entretenimiento","Ropa","Servicios","Hipoteca / Vivienda","Pago de deuda","Pérdida de inversión","Abono a capital","Otro"],
   };
   const cats = {
     income:[...new Set([...(config.categorias?.income||DEFAULT_CATS.income)])],
