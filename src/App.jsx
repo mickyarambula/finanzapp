@@ -1795,6 +1795,8 @@ const Accounts = () => {
   const [open, setOpen]     = useState(false);
   const [editing, setEditing] = useState(null);
   const [askConfirm, confirmModal] = useConfirm();
+  const [detailAccount, setDetailAccount] = useState(null); // panel lateral
+  const [mesFilter, setMesFilter]         = useState("all"); // filtro mes en panel
 
   const blank = { name:"", bank:"", type:"checking", currency:"MXN", balance:"", creditLimit:"", fechaPago:"", notes:"" };
   const [form, setForm] = useState(blank);
@@ -1901,7 +1903,10 @@ const Accounts = () => {
             const txCount = transactions.filter(t=>t.accountId===a.id).length;
             const isNeg = parseFloat(a.balance||0)<0 && a.type!=="credit";
             return (
-              <Card key={a.id} style={{borderColor:`${color}22`,padding:0,overflow:"hidden"}}>
+              <Card key={a.id} style={{borderColor:`${color}22`,padding:0,overflow:"hidden",cursor:"pointer",transition:"transform .15s,box-shadow .15s"}}
+            onClick={()=>{setDetailAccount(a);setMesFilter("all");}}
+            onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-2px)";e.currentTarget.style.boxShadow=`0 8px 24px ${color}22`;}}
+            onMouseLeave={e=>{e.currentTarget.style.transform="";e.currentTarget.style.boxShadow="";}}>
                 <div style={{height:4,background:`linear-gradient(90deg,${color},${color}88)`}}/>
                 <div style={{padding:"14px 16px"}}>
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
@@ -1914,8 +1919,8 @@ const Accounts = () => {
                       </div>
                     </div>
                     <div style={{display:"flex",gap:4}}>
-                      <button onClick={()=>openEdit(a)} style={{background:"none",border:"none",cursor:"pointer",color:"#555",padding:4,borderRadius:6}} onMouseEnter={e=>e.currentTarget.style.color="#aaa"} onMouseLeave={e=>e.currentTarget.style.color="#555"}><Ic n="edit" size={15}/></button>
-                      <button onClick={()=>del(a)} style={{background:"none",border:"none",cursor:"pointer",color:"#555",padding:4,borderRadius:6}} onMouseEnter={e=>e.currentTarget.style.color="#ff4757"} onMouseLeave={e=>e.currentTarget.style.color="#555"}><Ic n="trash" size={15}/></button>
+                      <button onClick={e=>{e.stopPropagation();openEdit(a);}} style={{background:"none",border:"none",cursor:"pointer",color:"#555",padding:4,borderRadius:6}} onMouseEnter={e=>e.currentTarget.style.color="#aaa"} onMouseLeave={e=>e.currentTarget.style.color="#555"}><Ic n="edit" size={15}/></button>
+                      <button onClick={e=>{e.stopPropagation();del(a);}} style={{background:"none",border:"none",cursor:"pointer",color:"#555",padding:4,borderRadius:6}} onMouseEnter={e=>e.currentTarget.style.color="#ff4757"} onMouseLeave={e=>e.currentTarget.style.color="#555"}><Ic n="trash" size={15}/></button>
                     </div>
                   </div>
                   <p style={{fontSize:22,fontWeight:800,color:isNeg?"#ff4757":color,margin:"0 0 6px"}}>{fmt(a.balance,a.currency)}</p>
@@ -1934,7 +1939,7 @@ const Accounts = () => {
                   <p style={{fontSize:10,color:"#444",margin:"4px 0 0"}}>{txCount} transacción{txCount!==1?"es":""}</p>
                   {a.type==="credit"&&(
                     <div style={{marginTop:10,paddingTop:10,borderTop:"1px solid rgba(255,255,255,.05)"}}>
-                      <Btn onClick={()=>abrirPago(a)} style={{width:"100%",justifyContent:"center",background:"linear-gradient(135deg,rgba(255,71,87,.15),rgba(255,71,87,.08))",border:"1px solid rgba(255,71,87,.25)",color:"#ff6b7a"}}>
+                      <Btn onClick={e=>{e.stopPropagation();abrirPago(a);}} style={{width:"100%",justifyContent:"center",background:"linear-gradient(135deg,rgba(255,71,87,.15),rgba(255,71,87,.08))",border:"1px solid rgba(255,71,87,.25)",color:"#ff6b7a"}}>
                         <Ic n="transfers" size={13}/>Pagar tarjeta
                       </Btn>
                     </div>
@@ -1970,6 +1975,171 @@ const Accounts = () => {
         </div>
       </Modal>
       {confirmModal}
+
+      {/* ── PANEL DETALLE DE CUENTA ── */}
+      {detailAccount&&(()=>{
+        const a = accounts.find(x=>x.id===detailAccount.id)||detailAccount;
+        const color = TIPO_COLOR[a.type]||"#777";
+        const txs = transactions
+          .filter(t=>t.accountId===a.id)
+          .sort((x,y)=>new Date(y.date)-new Date(x.date));
+
+        const meses = [...new Set(txs.map(t=>t.date?.slice(0,7)))].sort((a,b)=>b.localeCompare(a)).slice(0,6);
+        const txsFiltradas = mesFilter==="all" ? txs : txs.filter(t=>t.date?.startsWith(mesFilter));
+
+        const totalIngresos = txsFiltradas.filter(t=>t.type==="income").reduce((s,t)=>s+parseFloat(t.amount||0),0);
+        const totalGastos   = txsFiltradas.filter(t=>t.type==="expense").reduce((s,t)=>s+parseFloat(t.amount||0),0);
+
+        // categorías top
+        const catMap = {};
+        txsFiltradas.filter(t=>t.type==="expense").forEach(t=>{ catMap[t.category||"Sin cat"]=(catMap[t.category||"Sin cat"]||0)+parseFloat(t.amount||0); });
+        const topCats = Object.entries(catMap).sort((a,b)=>b[1]-a[1]).slice(0,4);
+
+        return (
+          <>
+            {/* overlay */}
+            <div onClick={()=>setDetailAccount(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.45)",zIndex:1000,backdropFilter:"blur(2px)"}}/>
+            {/* panel */}
+            <div style={{position:"fixed",top:0,right:0,width:"min(460px,100vw)",height:"100vh",background:"#161b27",borderLeft:"1px solid rgba(255,255,255,.08)",zIndex:1001,display:"flex",flexDirection:"column",animation:"slideIn .2s ease",overflowY:"auto"}}>
+              {/* header */}
+              <div style={{padding:"20px 20px 16px",borderBottom:"1px solid rgba(255,255,255,.06)",flexShrink:0}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12}}>
+                  <div style={{display:"flex",alignItems:"center",gap:12}}>
+                    <div style={{width:42,height:42,borderRadius:12,background:`${color}18`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                      <Ic n="accounts" size={20} color={color}/>
+                    </div>
+                    <div>
+                      <p style={{fontSize:17,fontWeight:800,color:"#f0f0f0",margin:0,fontFamily:"'Syne',sans-serif"}}>{a.name}</p>
+                      <div style={{display:"flex",gap:6,marginTop:3,flexWrap:"wrap"}}>
+                        <Badge label={TIPOS[a.type]||a.type} color={color}/>
+                        <Badge label={a.currency} color="#555"/>
+                        {a.bank&&<Badge label={a.bank} color="#444"/>}
+                      </div>
+                    </div>
+                  </div>
+                  <button onClick={()=>setDetailAccount(null)} style={{background:"none",border:"none",cursor:"pointer",color:"#555",padding:4,borderRadius:6}} onMouseEnter={e=>e.currentTarget.style.color="#aaa"} onMouseLeave={e=>e.currentTarget.style.color="#555"}>
+                    <Ic n="close" size={20}/>
+                  </button>
+                </div>
+
+                {/* saldo principal */}
+                <p style={{fontSize:32,fontWeight:800,color:parseFloat(a.balance||0)<0&&a.type!=="credit"?"#ff4757":color,margin:"0 0 4px"}}>{fmt(a.balance,a.currency)}</p>
+
+                {/* barra crédito */}
+                {a.type==="credit"&&parseFloat(a.creditLimit||0)>0&&(
+                  <div style={{marginBottom:8}}>
+                    <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
+                      <span style={{fontSize:11,color:"#555"}}>Usado: {fmt(Math.abs(parseFloat(a.balance||0)),a.currency)}</span>
+                      <span style={{fontSize:11,color:"#00d4aa"}}>Disponible: {fmt(parseFloat(a.creditLimit||0)-Math.abs(parseFloat(a.balance||0)),a.currency)}</span>
+                    </div>
+                    <div style={{height:6,borderRadius:3,background:"rgba(255,255,255,.06)"}}>
+                      <div style={{height:"100%",borderRadius:3,background:color,width:`${Math.min(Math.abs(parseFloat(a.balance||0))/parseFloat(a.creditLimit)*100,100)}%`,transition:"width .5s"}}/>
+                    </div>
+                    <div style={{display:"flex",justifyContent:"space-between",marginTop:3}}>
+                      <span style={{fontSize:10,color:"#444"}}>{(Math.abs(parseFloat(a.balance||0))/parseFloat(a.creditLimit)*100).toFixed(0)}% del límite ({fmt(a.creditLimit,a.currency)})</span>
+                      {a.fechaPago&&<span style={{fontSize:10,color:"#f39c12"}}>Pago: {a.fechaPago}</span>}
+                    </div>
+                  </div>
+                )}
+
+                {/* stats rápidos */}
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginTop:10}}>
+                  <div style={{background:"rgba(0,212,170,.06)",border:"1px solid rgba(0,212,170,.1)",borderRadius:9,padding:"8px 12px"}}>
+                    <p style={{fontSize:10,color:"#555",margin:"0 0 2px",textTransform:"uppercase",letterSpacing:.4}}>Ingresos {mesFilter==="all"?"totales":mesFilter}</p>
+                    <p style={{fontSize:14,fontWeight:700,color:"#00d4aa",margin:0}}>{fmt(totalIngresos)}</p>
+                  </div>
+                  <div style={{background:"rgba(255,71,87,.06)",border:"1px solid rgba(255,71,87,.1)",borderRadius:9,padding:"8px 12px"}}>
+                    <p style={{fontSize:10,color:"#555",margin:"0 0 2px",textTransform:"uppercase",letterSpacing:.4}}>Gastos {mesFilter==="all"?"totales":mesFilter}</p>
+                    <p style={{fontSize:14,fontWeight:700,color:"#ff4757",margin:0}}>{fmt(totalGastos)}</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* filtro por mes */}
+              <div style={{padding:"12px 20px",borderBottom:"1px solid rgba(255,255,255,.05)",flexShrink:0}}>
+                <div style={{display:"flex",gap:6,overflowX:"auto",paddingBottom:2}}>
+                  <button onClick={()=>setMesFilter("all")} style={{padding:"5px 12px",borderRadius:7,border:`1px solid ${mesFilter==="all"?"rgba(0,212,170,.4)":"rgba(255,255,255,.08)"}`,background:mesFilter==="all"?"rgba(0,212,170,.1)":"transparent",color:mesFilter==="all"?"#00d4aa":"#555",fontSize:11,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}}>
+                    Todos ({txs.length})
+                  </button>
+                  {meses.map(m=>(
+                    <button key={m} onClick={()=>setMesFilter(m)} style={{padding:"5px 12px",borderRadius:7,border:`1px solid ${mesFilter===m?"rgba(0,212,170,.4)":"rgba(255,255,255,.08)"}`,background:mesFilter===m?"rgba(0,212,170,.1)":"transparent",color:mesFilter===m?"#00d4aa":"#555",fontSize:11,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}}>
+                      {new Date(m+"-15").toLocaleDateString("es-MX",{month:"short",year:"2-digit"})} ({txs.filter(t=>t.date?.startsWith(m)).length})
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* top categorías */}
+              {topCats.length>0&&(
+                <div style={{padding:"12px 20px",borderBottom:"1px solid rgba(255,255,255,.05)",flexShrink:0}}>
+                  <p style={{fontSize:10,color:"#444",textTransform:"uppercase",letterSpacing:.4,marginBottom:8}}>Top categorías de gasto</p>
+                  <div style={{display:"flex",flexDirection:"column",gap:5}}>
+                    {topCats.map(([cat,val])=>{
+                      const pct = totalGastos>0?val/totalGastos*100:0;
+                      return (
+                        <div key={cat}>
+                          <div style={{display:"flex",justifyContent:"space-between",marginBottom:2}}>
+                            <span style={{fontSize:11,color:"#888"}}>{cat}</span>
+                            <span style={{fontSize:11,color:"#ff4757",fontWeight:600}}>{fmt(val)}</span>
+                          </div>
+                          <div style={{height:4,borderRadius:2,background:"rgba(255,255,255,.05)"}}>
+                            <div style={{height:"100%",borderRadius:2,background:"#ff4757",width:`${pct}%`}}/>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* lista movimientos */}
+              <div style={{flex:1,overflowY:"auto",padding:"12px 20px"}}>
+                <p style={{fontSize:10,color:"#444",textTransform:"uppercase",letterSpacing:.4,marginBottom:10}}>
+                  Movimientos ({txsFiltradas.length})
+                </p>
+                {txsFiltradas.length===0?(
+                  <div style={{textAlign:"center",padding:"40px 0",color:"#444"}}>
+                    <Ic n="transactions" size={32} color="#333"/>
+                    <p style={{marginTop:8,fontSize:13}}>Sin movimientos en este período</p>
+                  </div>
+                ):(
+                  <div style={{display:"flex",flexDirection:"column",gap:1}}>
+                    {txsFiltradas.map(tx=>(
+                      <div key={tx.id} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",borderRadius:9,background:"rgba(255,255,255,.02)",marginBottom:2}}>
+                        <div style={{width:32,height:32,borderRadius:8,background:tx.type==="income"?"rgba(0,212,170,.1)":"rgba(255,71,87,.1)",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                          <Ic n={tx.type==="income"?"plus":"minus"} size={15} color={tx.type==="income"?"#00d4aa":"#ff4757"}/>
+                        </div>
+                        <div style={{flex:1,minWidth:0}}>
+                          <p style={{fontSize:12,fontWeight:600,color:"#e0e0e0",margin:"0 0 1px",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{tx.description||"Sin descripción"}</p>
+                          <div style={{display:"flex",gap:5,alignItems:"center"}}>
+                            <span style={{fontSize:10,color:"#444"}}>{fmtDate(tx.date)}</span>
+                            {tx.category&&<Badge label={tx.category} color={tx.type==="income"?"#00d4aa":"#ff4757"}/>}
+                          </div>
+                        </div>
+                        <span style={{fontSize:13,fontWeight:700,color:tx.type==="income"?"#00d4aa":"#ff4757",flexShrink:0}}>
+                          {tx.type==="income"?"+":"-"}{fmt(tx.amount,tx.currency||a.currency)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* footer acciones */}
+              <div style={{padding:"12px 20px",borderTop:"1px solid rgba(255,255,255,.06)",display:"flex",gap:8,flexShrink:0}}>
+                <Btn onClick={()=>{setDetailAccount(null);openEdit(a);}} variant="secondary" style={{flex:1,justifyContent:"center"}}>
+                  <Ic n="edit" size={14}/>Editar cuenta
+                </Btn>
+                {a.type==="credit"&&(
+                  <Btn onClick={()=>{setDetailAccount(null);abrirPago(a);}} style={{flex:1,justifyContent:"center",background:"linear-gradient(135deg,rgba(255,71,87,.2),rgba(255,71,87,.1))",border:"1px solid rgba(255,71,87,.3)",color:"#ff6b7a"}}>
+                    <Ic n="transfers" size={14}/>Pagar tarjeta
+                  </Btn>
+                )}
+              </div>
+            </div>
+          </>
+        );
+      })()}
 
       {/* ── MODAL PAGO DE TARJETA */}
       <Modal open={pagoOpen} onClose={()=>setPagoOpen(false)} title={`Pagar tarjeta: ${pagoCard?.name||""}`} width={420}>
