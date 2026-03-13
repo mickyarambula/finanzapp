@@ -2005,33 +2005,44 @@ const Dashboard = () => {
       </div>
     );
     const maxVal = Math.max(...data.flatMap(d=>[d.ingr,d.gast]),1);
-    const W=560,H=110,BAR=32,GAP=6,GRP=BAR*2+GAP+16;
+    const n = data.length;
+    const W=520, H=100, BAR=18, GAP=4;
+    // espacio por grupo centrado
+    const GRP = W / n;
+    const fmtV = v => v>=1000000?`$${(v/1000000).toFixed(1)}M`:v>=1000?`$${(v/1000).toFixed(0)}k`:`$${v.toFixed(0)}`;
     return (
-      <svg viewBox={`0 0 ${W} ${H+24}`} style={{width:"100%",height:H+24}} preserveAspectRatio="xMidYMid meet">
+      <svg viewBox={`0 0 ${W} ${H+28}`} style={{width:"100%",overflow:"visible"}} preserveAspectRatio="xMidYMid meet">
         {data.map((d,i)=>{
-          const x=i*GRP+8;
-          const hI=Math.round((d.ingr/maxVal)*H);
-          const hG=Math.round((d.gast/maxVal)*H);
+          const cx = i*GRP + GRP/2; // centro del grupo
+          const x  = cx - BAR - GAP/2;
+          const hI = Math.max(Math.round((d.ingr/maxVal)*H), d.ingr>0?2:0);
+          const hG = Math.max(Math.round((d.gast/maxVal)*H), d.gast>0?2:0);
           return (
             <g key={d.mk}>
               {/* ingreso */}
-              <rect x={x} y={H-hI} width={BAR} height={Math.max(hI,1)} rx={3}
-                fill={d.esMesActual?"#00d4aa":"#00d4aa55"}/>
+              <rect x={x} y={H-hI} width={BAR} height={hI} rx={3}
+                fill={d.esMesActual?"#00d4aa":"#00d4aa44"}/>
               {/* gasto */}
-              <rect x={x+BAR+GAP} y={H-hG} width={BAR} height={Math.max(hG,1)} rx={3}
-                fill={d.esMesActual?"#ff4757":"#ff475755"}/>
-              {/* label mes */}
-              <text x={x+BAR} y={H+16} textAnchor="middle" fill={d.esMesActual?"#aaa":"#555"} fontSize="10" fontWeight={d.esMesActual?"700":"400"}>
+              <rect x={x+BAR+GAP} y={H-hG} width={BAR} height={hG} rx={3}
+                fill={d.esMesActual?"#ff4757":"#ff475744"}/>
+              {/* valor ingreso encima si es mes actual */}
+              {d.esMesActual && d.ingr>0 && (
+                <text x={x+BAR/2} y={H-hI-3} textAnchor="middle" fill="#00d4aa" fontSize="8" fontWeight="700">{fmtV(d.ingr)}</text>
+              )}
+              {/* valor gasto encima si es mes actual */}
+              {d.esMesActual && d.gast>0 && (
+                <text x={x+BAR+GAP+BAR/2} y={H-hG-3} textAnchor="middle" fill="#ff4757" fontSize="8" fontWeight="700">{fmtV(d.gast)}</text>
+              )}
+              {/* label mes — centrado bajo el par */}
+              <text x={cx} y={H+16} textAnchor="middle"
+                fill={d.esMesActual?"#ccc":"#555"}
+                fontSize={d.esMesActual?"11":"10"}
+                fontWeight={d.esMesActual?"700":"400"}>
                 {d.label}
               </text>
             </g>
           );
         })}
-        {/* leyenda */}
-        <g transform={`translate(${W-100},4)`}>
-          <rect width={10} height={10} rx={2} fill="#00d4aa"/><text x={14} y={9} fill="#777" fontSize="9">Ingresos</text>
-          <rect y={14} width={10} height={10} rx={2} fill="#ff4757"/><text x={14} y={23} fill="#777" fontSize="9">Gastos</text>
-        </g>
       </svg>
     );
   };
