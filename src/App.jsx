@@ -843,11 +843,13 @@ const useNotifications = (user, transactions, accounts, loans, presupuestos, goa
     accounts.filter(a=>a.type!=="credit"&&parseFloat(a.balance||0)<0).forEach(a=>
       list.push({id:`neg_${a.id}`,nivel:"error",msg:`Saldo negativo: ${a.name}`,modulo:"accounts"}));
 
-    // tarjeta vencida/próxima
+    // tarjeta vencida/próxima — solo si hay saldo real que pagar
     accounts.filter(a=>a.type==="credit"&&a.fechaPago).forEach(a=>{
+      const saldo=Math.abs(Math.min(parseFloat(a.balance||0),0));
+      if(saldo<1) return; // sin deuda, no alertar
       const dias=Math.round((new Date(a.fechaPago+"T12:00:00")-now)/86400000);
       if(dias<0) list.push({id:`tj_venc_${a.id}`,nivel:"error",msg:`Pago vencido: ${a.name}`,modulo:"accounts"});
-      else if(dias<=7) list.push({id:`tj_prox_${a.id}`,nivel:"warning",msg:`Pago en ${dias}d: ${a.name} — ${fmtN(Math.abs(parseFloat(a.balance||0)))}`,modulo:"accounts"});
+      else if(dias<=7) list.push({id:`tj_prox_${a.id}`,nivel:"warning",msg:`Pago en ${dias}d: ${a.name} — ${fmtN(saldo)}`,modulo:"accounts"});
     });
 
     // presupuestos
@@ -1854,12 +1856,14 @@ const Dashboard = () => {
       detalle:`${fmt(parseFloat(a.balance||0))} — requiere atención inmediata`,modulo:"accounts"})
   );
 
-  // 3. Pago de tarjeta vencido
+  // 3. Pago de tarjeta vencido — solo si hay saldo real
   accounts.filter(a=>a.type==="credit"&&a.fechaPago).forEach(a=>{
+    const saldo=Math.abs(Math.min(parseFloat(a.balance||0),0));
+    if(saldo<1) return;
     const dias=Math.round((new Date(a.fechaPago+"T12:00:00")-now)/86400000);
     if(dias<0) alertas.push({nivel:"error",icono:"warn",
       msg:`Pago vencido: ${a.name}`,
-      detalle:`Venció hace ${Math.abs(dias)} día${Math.abs(dias)!==1?"s":""}`,modulo:"accounts"});
+      detalle:`Venció hace ${Math.abs(dias)} día${Math.abs(dias)!==1?"s":""} · Deuda: ${fmt(saldo)}`,modulo:"accounts"});
   });
 
   // 4. Presupuestos excedidos
@@ -1885,12 +1889,14 @@ const Dashboard = () => {
   });
 
   // ── NIVEL WARNING ──────────────────────────────────────────────────────────
-  // 6. Pago de tarjeta próximo (≤7 días)
+  // 6. Pago de tarjeta próximo (≤7 días) — solo si hay saldo real
   accounts.filter(a=>a.type==="credit"&&a.fechaPago).forEach(a=>{
+    const saldo=Math.abs(Math.min(parseFloat(a.balance||0),0));
+    if(saldo<1) return;
     const dias=Math.round((new Date(a.fechaPago+"T12:00:00")-now)/86400000);
     if(dias>=0&&dias<=7) alertas.push({nivel:"warning",icono:"warn",
       msg:`Pago en ${dias===0?"hoy":dias+" día"+(dias!==1?"s":"")}${": "}${a.name}`,
-      detalle:`Deuda actual: ${fmt(Math.abs(parseFloat(a.balance||0)))}`,modulo:"accounts"});
+      detalle:`Deuda actual: ${fmt(saldo)}`,modulo:"accounts"});
   });
 
   // 7. Presupuestos al 80–99%
@@ -2197,6 +2203,49 @@ const Dashboard = () => {
             })}
             {accounts.filter(a=>a.type!=="credit").length>3&&<span style={{fontSize:10,color:"#444"}}>+{accounts.filter(a=>a.type!=="credit").length-3} más</span>}
           </div>
+        </Card>
+        {/* Gauge Deuda / Patrimonio */}
+        <Card onClick={()=>navigate("patrimonio")} style={{cursor:"pointer"}}>
+          <p style={{fontSize:10,color:"#555",textTransform:"uppercase",letterSpacing:.5,margin:"0 0 8px",fontWeight:700}}>Deuda / Patrimonio</p>
+          {(() => {
+            const pct = patrimonioNeto>0 ? Math.min(deudaTotal/patrimonioNeto*100,100) : 0;
+            const color = pct<=30?"#00d4aa":pct<=60?"#f39c12":"#ff4757";
+            const label = pct<=30?"Saludable":pct<=60?"Moderado":"Alto";
+            // arco SVG: radio=28, circunferencia media = PI*28 ≈ 87.96
+            const C = Math.PI*28;
+            const filled = (pct/100)*C;
+            return (
+              <div style={{display:"flex",alignItems:"center",gap:12}}>
+                {/* semicírculo */}
+                <div style={{position:"relative",width:68,height:38,flexShrink:0}}>
+                  <svg viewBox="0 0 68 38" style={{width:68,height:38,overflow:"visible"}}>
+                    {/* fondo arco */}
+                    <path d="M 6 34 A 28 28 0 0 1 62 34"
+                      fill="none" stroke="rgba(255,255,255,.06)" strokeWidth="7" strokeLinecap="round"/>
+                    {/* arco relleno */}
+                    <path d="M 6 34 A 28 28 0 0 1 62 34"
+                      fill="none" stroke={color} strokeWidth="7" strokeLinecap="round"
+                      strokeDasharray={`${filled} ${C}`}
+                      style={{transition:"stroke-dasharray .6s ease, stroke .4s"}}/>
+                    {/* aguja */}
+                    {(() => {
+                      const ang = Math.PI - (pct/100)*Math.PI; // de izq a der
+                      const nx = 34 + 22*Math.cos(ang);
+                      const ny = 34 - 22*Math.sin(ang);
+                      return <line x1="34" y1="34" x2={nx.toFixed(1)} y2={ny.toFixed(1)}
+                        stroke={color} strokeWidth="2" strokeLinecap="round"/>;
+                    })()}
+                    <circle cx="34" cy="34" r="3" fill={color}/>
+                  </svg>
+                </div>
+                <div>
+                  <p style={{fontSize:20,fontWeight:800,color,margin:"0 0 2px"}}>{pct.toFixed(0)}<span style={{fontSize:12,fontWeight:400}}>%</span></p>
+                  <p style={{fontSize:11,fontWeight:700,color,margin:"0 0 3px"}}>{label}</p>
+                  <p style={{fontSize:9,color:"#555",margin:0}}>Deuda {fmt(deudaTotal)}</p>
+                </div>
+              </div>
+            );
+          })()}
         </Card>
       </div>
 
