@@ -1291,6 +1291,186 @@ const GlobalSearch = ({ onNavigate }) => {
 };
 
 // ─── DASHBOARD ────────────────────────────────────────────────────────────────
+// Proyección de flujo de caja — próximos 6 meses
+const ProyeccionFlujo = ({ recurrents, loans, mortgages, transactions, accounts, TC }) => {
+  const [detalleMes, setDetalleMes] = useState(null); // índice del mes con detalle abierto
+
+  const hoy = new Date();
+
+  // ── calcular cuántas veces cae un recurrente en un mes dado
+  const ocurrenciasEnMes = (r, anio, mes) => {
+    const inicio = new Date(r.fechaInicio+"T12:00:00");
+    const primerDiaMes = new Date(anio, mes, 1);
+    const ultimoDiaMes = new Date(anio, mes+1, 0);
+    if (inicio > ultimoDiaMes) return 0;
+    if (r.frecuencia === "mensual") return 1;
+    if (r.frecuencia === "anual") {
+      return inicio.getMonth()===mes ? 1 : 0;
+    }
+    if (r.frecuencia === "quincenal") {
+      let count=0, d=new Date(inicio);
+      while(d <= ultimoDiaMes) { if(d>=primerDiaMes) count++; d=new Date(d); d.setDate(d.getDate()+15); }
+      return count;
+    }
+    if (r.frecuencia === "semanal") {
+      let count=0, d=new Date(inicio);
+      while(d <= ultimoDiaMes) { if(d>=primerDiaMes) count++; d=new Date(d); d.setDate(d.getDate()+7); }
+      return count;
+    }
+    return 0;
+  };
+
+  // ── calcular saldo de un préstamo (simple)
+  const calcLoanBal = loan => {
+    const dr=(parseFloat(loan.rate)||0)/100/(loan.rateType==="annual"?365:30);
+    let bal=parseFloat(loan.principal||0), last=new Date(loan.startDate);
+    for(const p of [...(loan.payments||[])].sort((a,b)=>new Date(a.date)-new Date(b.date))){
+      const days=Math.max(0,Math.round((new Date(p.date)-last)/86400000));
+      bal=Math.max(0, bal-(p.amount-Math.min(p.amount,bal*dr*days)));
+      last=new Date(p.date);
+    }
+    return bal;
+  };
+
+  // ── construir 6 meses hacia el futuro
+  const meses = Array.from({length:6}, (_,i) => {
+    const d = new Date(hoy.getFullYear(), hoy.getMonth()+i+1, 1);
+    return { anio: d.getFullYear(), mes: d.getMonth(), label: d.toLocaleDateString("es-MX",{month:"short",year:"2-digit"}) };
+  });
+
+  const proyeccion = meses.map(({ anio, mes, label }) => {
+    const items = [];
+
+    // Recurrentes activos
+    (recurrents||[]).filter(r=>r.activo!==false).forEach(r => {
+      const veces = ocurrenciasEnMes(r, anio, mes);
+      if (veces === 0) return;
+      const monto = parseFloat(r.monto||0) * veces * (r.currency==="USD"?TC:1);
+      items.push({ nombre: r.nombre, monto, tipo: r.tipo, origen: "recurrente" });
+    });
+
+    // Préstamos recibidos — interés mensual estimado
+    (loans||[]).filter(l=>l.type==="received").forEach(l => {
+      const bal = calcLoanBal(l);
+      if (bal <= 0.01) return;
+      const dr = (parseFloat(l.rate)||0)/100/(l.rateType==="annual"?12:1);
+      const interesMes = bal * dr;
+      if (interesMes > 0)
+        items.push({ nombre: `Interés — ${l.name}`, monto: interesMes*(l.currency==="USD"?TC:1), tipo:"expense", origen:"prestamo" });
+    });
+
+    // Préstamos dados — interés mensual a cobrar
+    (loans||[]).filter(l=>l.type==="given").forEach(l => {
+      const bal = calcLoanBal(l);
+      if (bal <= 0.01) return;
+      const dr = (parseFloat(l.rate)||0)/100/(l.rateType==="annual"?12:1);
+      const interesMes = bal * dr;
+      if (interesMes > 0)
+        items.push({ nombre: `Interés cobrar — ${l.name}`, monto: interesMes*(l.currency==="USD"?TC:1), tipo:"income", origen:"prestamo" });
+    });
+
+    // Hipotecas — cuota mensual
+    (mortgages||[]).forEach(m => {
+      const P=parseFloat(m.monto)||0, n=(parseFloat(m.plazoAnios)||0)*12, r=(parseFloat(m.tasaAnual)||0)/100/12;
+      if(!P||!n) return;
+      const cuota = r>0 ? (P*r*Math.pow(1+r,n))/(Math.pow(1+r,n)-1) : P/n;
+      const pagados=(m.pagosRealizados||[]).length;
+      if(pagados < n)
+        items.push({ nombre: `Hipoteca — ${m.banco||"Hipoteca"}`, monto: cuota*(m.moneda==="USD"?TC:1), tipo:"expense", origen:"hipoteca" });
+    });
+
+    const ingresos = items.filter(i=>i.tipo==="income").reduce((s,i)=>s+i.monto,0);
+    const gastos   = items.filter(i=>i.tipo==="expense").reduce((s,i)=>s+i.monto,0);
+    const flujo    = ingresos - gastos;
+
+    return { label, anio, mes, items, ingresos, gastos, flujo };
+  });
+
+  const maxVal = Math.max(...proyeccion.flatMap(m=>[m.ingresos, m.gastos]), 1);
+  const fmt2 = v => { const a=Math.abs(v); if(a>=1000000) return `${(v/1000000).toFixed(1)}M`; if(a>=1000) return `$${(v/1000).toFixed(0)}k`; return `$${v.toFixed(0)}`; };
+  const fmtFull = v => new Intl.NumberFormat("es-MX",{style:"currency",currency:"MXN",minimumFractionDigits:0}).format(v);
+  const H = 80;
+
+  return (
+    <Card>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8}}>
+        <div>
+          <p style={{fontSize:13,fontWeight:700,color:"#ccc",margin:"0 0 2px"}}>Proyección de Flujo — Próximos 6 meses</p>
+          <p style={{fontSize:10,color:"#555",margin:0}}>Basado en recurrentes, préstamos e hipotecas activos</p>
+        </div>
+        <div style={{display:"flex",gap:14}}>
+          <span style={{fontSize:11,color:"#555",display:"flex",alignItems:"center",gap:4}}><span style={{width:8,height:8,borderRadius:2,background:"#00d4aa",display:"inline-block"}}/>Ingresos</span>
+          <span style={{fontSize:11,color:"#555",display:"flex",alignItems:"center",gap:4}}><span style={{width:8,height:8,borderRadius:2,background:"#ff4757",display:"inline-block"}}/>Gastos</span>
+        </div>
+      </div>
+
+      {/* barras */}
+      <div style={{display:"flex",gap:6,alignItems:"flex-end",height:H+40,justifyContent:"space-around"}}>
+        {proyeccion.map((m,i) => {
+          const hI = Math.max(Math.round((m.ingresos/maxVal)*H), m.ingresos>0?3:0);
+          const hG = Math.max(Math.round((m.gastos/maxVal)*H),  m.gastos>0?3:0);
+          const isPos = m.flujo >= 0;
+          const abierto = detalleMes === i;
+          return (
+            <div key={i} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:3,cursor:"pointer"}}
+              onClick={()=>setDetalleMes(abierto?null:i)}>
+              {/* flujo neto */}
+              <span style={{fontSize:9,fontWeight:700,color:isPos?"#00d4aa":"#ff4757"}}>
+                {isPos?"+":""}{fmt2(m.flujo)}
+              </span>
+              {/* par de barras */}
+              <div style={{display:"flex",gap:2,alignItems:"flex-end",height:H}}>
+                <div style={{width:14,height:hI,background:"#00d4aa",borderRadius:"3px 3px 0 0",opacity:abierto?1:0.75,transition:"all .2s"}}/>
+                <div style={{width:14,height:hG,background:"#ff4757",borderRadius:"3px 3px 0 0",opacity:abierto?1:0.75,transition:"all .2s"}}/>
+              </div>
+              {/* mes label */}
+              <span style={{fontSize:9,color:abierto?"#e0e0e0":"#555",fontWeight:abierto?700:400,textTransform:"capitalize"}}>{m.label}</span>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* detalle del mes seleccionado */}
+      {detalleMes !== null && (() => {
+        const m = proyeccion[detalleMes];
+        return (
+          <div style={{marginTop:14,padding:"12px 14px",background:"rgba(255,255,255,.03)",borderRadius:10,border:"1px solid rgba(255,255,255,.07)"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+              <p style={{fontSize:12,fontWeight:700,color:"#e0e0e0",margin:0,textTransform:"capitalize"}}>{m.label}</p>
+              <div style={{display:"flex",gap:16}}>
+                <span style={{fontSize:11,color:"#00d4aa"}}>+{fmtFull(m.ingresos)}</span>
+                <span style={{fontSize:11,color:"#ff4757"}}>-{fmtFull(m.gastos)}</span>
+                <span style={{fontSize:11,fontWeight:700,color:m.flujo>=0?"#00d4aa":"#ff4757"}}>
+                  Neto: {fmtFull(m.flujo)}
+                </span>
+              </div>
+            </div>
+            <div style={{display:"flex",flexDirection:"column",gap:4}}>
+              {m.items.length === 0
+                ? <p style={{fontSize:11,color:"#444",margin:0}}>Sin movimientos programados</p>
+                : m.items.map((item,j) => (
+                  <div key={j} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"4px 0",borderBottom:"1px solid rgba(255,255,255,.03)"}}>
+                    <div style={{display:"flex",alignItems:"center",gap:8}}>
+                      <div style={{width:6,height:6,borderRadius:"50%",background:item.tipo==="income"?"#00d4aa":"#ff4757",flexShrink:0}}/>
+                      <span style={{fontSize:11,color:"#aaa"}}>{item.nombre}</span>
+                      <span style={{fontSize:9,color:"#444",background:"rgba(255,255,255,.04)",padding:"1px 5px",borderRadius:4}}>
+                        {item.origen}
+                      </span>
+                    </div>
+                    <span style={{fontSize:11,fontWeight:600,color:item.tipo==="income"?"#00d4aa":"#ff4757"}}>
+                      {item.tipo==="income"?"+":"-"}{fmtFull(item.monto)}
+                    </span>
+                  </div>
+                ))
+              }
+            </div>
+          </div>
+        );
+      })()}
+    </Card>
+  );
+};
+
 // Gráfica de línea — evolución del patrimonio neto en el tiempo
 const LineChartPatrimonio = ({ snapshots, onVerTodo }) => {
   const [rango, setRango] = useState("6m");
@@ -1876,6 +2056,8 @@ const Dashboard = () => {
       </Card>
 
       <LineChartPatrimonio snapshots={snapshots} onVerTodo={()=>navigate("patrimonio")}/>
+
+      <ProyeccionFlujo recurrents={recurrents} loans={loans} mortgages={mortgages} transactions={transactions} accounts={accounts} TC={TC}/>
 
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))",gap:14}}>
 
