@@ -64,6 +64,27 @@ const getTc = (userId) => {
   } catch { return 17.5; }
 };
 
+// ── Hook: actualiza TC desde API pública al iniciar sesión (máx 1 vez por hora)
+const useTcAuto = (userId, setConfig) => {
+  useEffect(() => {
+    if (!userId) return;
+    const KEY = `fp_tc_lastfetch_${userId}`;
+    const last = parseInt(localStorage.getItem(KEY)||"0");
+    const ahora = Date.now();
+    if (ahora - last < 3600000) return; // ya se actualizó hace menos de 1 hora
+    fetch("https://open.er-api.com/v6/latest/USD")
+      .then(r => r.json())
+      .then(data => {
+        const tc = data?.rates?.MXN;
+        if (tc && tc > 10 && tc < 30) {
+          setConfig(c => ({ ...c, tipoCambio: tc.toFixed(2), tcAuto: true, tcFecha: new Date().toISOString() }));
+          localStorage.setItem(KEY, String(ahora));
+        }
+      })
+      .catch(() => {}); // falla silenciosa — queda el valor manual
+  }, [userId]);
+};
+
 const fmt = (amount, currency = "MXN") =>
   new Intl.NumberFormat("es-MX", { style:"currency", currency, minimumFractionDigits:2 }).format(amount || 0);
 
@@ -5616,13 +5637,36 @@ const Settings = () => {
           <p style={{fontSize:12,color:"#555",marginBottom:14,lineHeight:1.6}}>
             Se usa en toda la app para convertir cuentas, inversiones y reportes en dólares.
           </p>
+          {/* badge auto */}
+          {config.tcAuto && (
+            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12,padding:"6px 12px",background:"rgba(0,212,170,.08)",border:"1px solid rgba(0,212,170,.2)",borderRadius:8}}>
+              <span style={{fontSize:11,color:"#00d4aa",fontWeight:700}}>✓ Actualización automática activa</span>
+              <span style={{fontSize:10,color:"#555"}}>
+                Última actualización: {config.tcFecha ? new Date(config.tcFecha).toLocaleString("es-MX",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"}) : "—"}
+              </span>
+            </div>
+          )}
           <div style={{display:"flex",gap:10,alignItems:"flex-end",flexWrap:"wrap"}}>
             <div style={{flex:1,minWidth:160}}>
-              <Inp label="1 USD = ? MXN" type="number" value={config.tipoCambio||""} onChange={e=>setConfig(c=>({...c,tipoCambio:e.target.value}))} placeholder="Ej. 17.50"/>
+              <Inp label="1 USD = ? MXN (o déjalo automático)" type="number" value={config.tipoCambio||""} onChange={e=>setConfig(c=>({...c,tipoCambio:e.target.value,tcAuto:false}))} placeholder="Ej. 17.50"/>
             </div>
-            <Btn onClick={()=>toast("Tipo de cambio guardado ✓","success")} style={{marginBottom:14}}><Ic n="check" size={15}/>Guardar</Btn>
+            <Btn onClick={()=>{
+              fetch("https://open.er-api.com/v6/latest/USD")
+                .then(r=>r.json())
+                .then(data=>{
+                  const tc=data?.rates?.MXN;
+                  if(tc&&tc>10&&tc<30){
+                    setConfig(c=>({...c,tipoCambio:tc.toFixed(2),tcAuto:true,tcFecha:new Date().toISOString()}));
+                    toast(`TC actualizado: $${tc.toFixed(2)} MXN ✓`,"success");
+                  }
+                })
+                .catch(()=>toast("No se pudo conectar a la API","error"));
+            }} style={{marginBottom:14,background:"linear-gradient(135deg,#00d4aa,#00a884)"}}><Ic n="chart" size={15}/>Actualizar ahora</Btn>
           </div>
-          <p style={{fontSize:11,color:"#444",margin:0}}>Valor actual: <strong style={{color:"#00d4aa"}}>${config.tipoCambio||"17.50"} MXN</strong> por USD</p>
+          <p style={{fontSize:11,color:"#444",margin:0}}>
+            Valor actual: <strong style={{color:"#00d4aa"}}>${config.tipoCambio||"17.50"} MXN</strong> por USD
+            {!config.tcAuto && <span style={{color:"#555"}}> · Manual</span>}
+          </p>
         </Card>
       </Section>
 
@@ -10074,7 +10118,10 @@ export default function App() {
   const [ngoals]= useData(user?.id||"__none__", "goals");
   const [nmorts]= useData(user?.id||"__none__", "mortgages");
   const [ntrans]= useData(user?.id||"__none__", "transfers");
+  const [, setConfigAuto] = useData(user?.id||"__none__", "config", {});
   const notif   = useNotifications(user, ntxs, naccs, nloans, npres, ngoals, nmorts, ntrans);
+  // ── Tipo de cambio automático (1 vez por hora)
+  useTcAuto(user?.id, setConfigAuto);
   const [toasts, setToasts] = useState([]);
   const [sideOpen, setSideOpen] = useState(false);
   const [mobile, setMobile] = useState(window.innerWidth<768);
