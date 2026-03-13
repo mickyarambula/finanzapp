@@ -4855,12 +4855,13 @@ const Reports = () => {
 
       // Hoja 4: Transacciones del período
       const txData = [
-        ["Fecha","Tipo","Descripción","Categoría","Monto","Cuenta","Origen"],
+        ["Fecha","Tipo","Descripción","Categoría","Monto","Cuenta","Origen","Etiquetas"],
         ...txsRango.sort((a,b)=>new Date(b.date)-new Date(a.date)).map(t=>[
           t.date, t.type==="income"?"Ingreso":"Gasto", t.description,
           t.category||"", parseFloat(t.amount||0),
           accounts.find(a=>a.id===t.accountId)?.name||"",
           t.origen||"Manual",
+          (t.tags||[]).map(tag=>"#"+tag).join(", "),
         ]),
       ];
       const ws4 = XLSX.utils.aoa_to_sheet(txData);
