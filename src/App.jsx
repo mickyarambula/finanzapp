@@ -2709,7 +2709,8 @@ const Transactions = () => {
   const [dateTo, setDateTo] = useState("");
   const [askConfirm, confirmModal] = useConfirm();
   const [showCharts, setShowCharts] = useState(false);
-  const blank = { type:"income", accountId:"", amount:"", description:"", category:"", date:today(), currency:"MXN", notes:"" };
+  const [tagInput, setTagInput] = useState("");
+  const blank = { type:"income", accountId:"", amount:"", description:"", category:"", date:today(), currency:"MXN", notes:"", tags:[] };
   const [form, setForm] = useState(blank);
   const f = k => e => setForm(p=>({...p,[k]:e.target.value}));
 
@@ -2725,8 +2726,8 @@ const Transactions = () => {
   const applyDelta = (accs, id, delta) => accs.map(a=>a.id===id?{...a,balance:a.balance+delta}:a);
 
   const openNew = () => { setEditing(null); setForm({...blank,accountId:accounts[0]?.id||""}); setOpen(true); };
-  const openEdit = tx => { setEditing(tx); setForm({type:tx.type,accountId:tx.accountId,amount:tx.amount.toString(),description:tx.description,category:tx.category||"",date:tx.date,currency:tx.currency,notes:tx.notes||""}); setOpen(true); };
-  const close = () => { setOpen(false); setEditing(null); };
+  const openEdit = tx => { setEditing(tx); setForm({type:tx.type,accountId:tx.accountId,amount:tx.amount.toString(),description:tx.description,category:tx.category||"",date:tx.date,currency:tx.currency,notes:tx.notes||"",tags:tx.tags||[]}); setOpen(true); };
+  const close = () => { setOpen(false); setEditing(null); setTagInput(""); };
 
   const save = () => {
     if (!form.description.trim()||!form.amount||!form.accountId) { toast("Completa los campos requeridos.","error"); return; }
@@ -2759,7 +2760,7 @@ const Transactions = () => {
   const typeColor = {income:"#00d4aa",expense:"#ff4757"};
   const sorted = [...transactions]
     .filter(t => filter==="all" || t.type===filter)
-    .filter(t => !search || t.description.toLowerCase().includes(search.toLowerCase()) || (t.category||"").toLowerCase().includes(search.toLowerCase()))
+    .filter(t => !search || t.description.toLowerCase().includes(search.toLowerCase()) || (t.category||"").toLowerCase().includes(search.toLowerCase()) || (t.tags||[]).some(tag=>("#"+tag).toLowerCase().includes(search.toLowerCase())||tag.toLowerCase().includes(search.replace(/^#/,"").toLowerCase())))
     .filter(t => !dateFrom || t.date >= dateFrom)
     .filter(t => !dateTo   || t.date <= dateTo)
     .sort((a,b)=>new Date(b.date)-new Date(a.date));
@@ -2827,6 +2828,9 @@ const Transactions = () => {
                   <span style={{ fontSize:11, color:"#555" }}>{fmtDate(tx.date)}</span>
                   {tx.category&&<Badge label={tx.category} color={typeColor[tx.type]}/>}
                   {tx.origen&&<Badge label={tx.origen==="prestamo"?"Préstamo":tx.origen==="inversion"?"Inversión":"Hipoteca"} color="#7c3aed"/>}
+                  {(tx.tags||[]).map(tag=>(
+                    <span key={tag} onClick={()=>setSearch("#"+tag)} style={{fontSize:10,fontWeight:600,color:"#a78bfa",background:"rgba(124,58,237,.12)",borderRadius:20,padding:"1px 7px",cursor:"pointer"}}>#{tag}</span>
+                  ))}
                   <span style={{ fontSize:11, color:"#444" }}>{accounts.find(a=>a.id===tx.accountId)?.name||"—"}</span>
                 </div>
               </div>
@@ -2852,6 +2856,51 @@ const Transactions = () => {
           <Sel label="Categoría" value={form.category} onChange={f("category")} options={[{value:"",label:"Sin categoría"},...(cats[form.type]||[]).map(c=>({value:c,label:c}))]}/>
           <Inp label="Fecha" type="date" value={form.date} onChange={f("date")}/>
           <Inp label="Notas (opcional)" value={form.notes} onChange={f("notes")} placeholder="Notas..."/>
+          {/* ── TAGS */}
+          <div>
+            <label style={{fontSize:11,color:"#777",fontWeight:600,textTransform:"uppercase",letterSpacing:.5,display:"block",marginBottom:6}}>Etiquetas</label>
+            {/* chips de tags existentes */}
+            {(form.tags||[]).length>0 && (
+              <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:8}}>
+                {(form.tags||[]).map(tag=>(
+                  <span key={tag} style={{display:"flex",alignItems:"center",gap:4,fontSize:11,fontWeight:600,color:"#a78bfa",background:"rgba(124,58,237,.15)",border:"1px solid rgba(124,58,237,.3)",borderRadius:20,padding:"2px 10px",cursor:"pointer"}}
+                    onClick={()=>setForm(p=>({...p,tags:p.tags.filter(t=>t!==tag)}))}>
+                    #{tag} <span style={{fontSize:12,opacity:.6}}>×</span>
+                  </span>
+                ))}
+              </div>
+            )}
+            {/* input para nuevo tag */}
+            <input
+              value={tagInput}
+              onChange={e=>setTagInput(e.target.value.replace(/[,#\s]/g,""))}
+              onKeyDown={e=>{
+                if((e.key==="Enter"||e.key===","||e.key===" ")&&tagInput.trim()){
+                  e.preventDefault();
+                  const tag=tagInput.trim().toLowerCase();
+                  if(tag&&!(form.tags||[]).includes(tag)){
+                    setForm(p=>({...p,tags:[...(p.tags||[]),tag]}));
+                  }
+                  setTagInput("");
+                }
+                if(e.key==="Backspace"&&!tagInput&&(form.tags||[]).length>0){
+                  setForm(p=>({...p,tags:p.tags.slice(0,-1)}));
+                }
+              }}
+              placeholder="Escribe un tag y presiona Enter (ej: hyrox, viaje, remodelacion)"
+              style={{width:"100%",padding:"8px 10px",background:"rgba(255,255,255,.05)",border:"1px solid rgba(255,255,255,.08)",borderRadius:9,color:"#e0e0e0",fontSize:12,outline:"none",boxSizing:"border-box"}}
+              onFocus={e=>e.target.style.borderColor="#a78bfa"}
+              onBlur={e=>{
+                e.target.style.borderColor="rgba(255,255,255,.08)";
+                if(tagInput.trim()){
+                  const tag=tagInput.trim().toLowerCase();
+                  if(tag&&!(form.tags||[]).includes(tag)) setForm(p=>({...p,tags:[...(p.tags||[]),tag]}));
+                  setTagInput("");
+                }
+              }}
+            />
+            <p style={{fontSize:10,color:"#444",margin:"4px 0 0"}}>Presiona Enter, coma o espacio para agregar. Clic en el tag para eliminarlo.</p>
+          </div>
           <div style={{ display:"flex", gap:8, justifyContent:"flex-end", marginTop:6 }}>
             <Btn variant="secondary" onClick={close}>Cancelar</Btn>
             <Btn onClick={save} disabled={accounts.length===0}><Ic n="check" size={15}/>{editing?"Guardar":"Registrar"}</Btn>
