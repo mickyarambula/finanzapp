@@ -1471,6 +1471,141 @@ const ProyeccionFlujo = ({ recurrents, loans, mortgages, transactions, accounts,
   );
 };
 
+// Comparativo de gastos por categoría — este mes vs mes anterior
+const ComparativoCategorias = ({ transactions, mesKey, mesAnteriorKey }) => {
+  const [modo, setModo] = useState("variacion"); // "variacion" | "top"
+  const [expandido, setExpandido] = useState(false);
+
+  const txMes  = transactions.filter(t=>t.date?.startsWith(mesKey)&&t.type==="expense");
+  const txMesA = transactions.filter(t=>t.date?.startsWith(mesAnteriorKey)&&t.type==="expense");
+
+  // agrupar por categoría
+  const porCat = (txs) => txs.reduce((acc,t)=>{
+    const cat = t.category||"Sin categoría";
+    acc[cat] = (acc[cat]||0) + parseFloat(t.amount||0);
+    return acc;
+  }, {});
+
+  const catMes  = porCat(txMes);
+  const catMesA = porCat(txMesA);
+
+  // unión de todas las categorías
+  const todasCats = [...new Set([...Object.keys(catMes), ...Object.keys(catMesA)])];
+
+  const filas = todasCats.map(cat => {
+    const actual   = catMes[cat]  || 0;
+    const anterior = catMesA[cat] || 0;
+    const delta    = actual - anterior;
+    const deltaPct = anterior > 0 ? (delta/anterior*100) : (actual > 0 ? 100 : 0);
+    return { cat, actual, anterior, delta, deltaPct };
+  }).filter(f => f.actual > 0 || f.anterior > 0);
+
+  // modo variación: ordenar por cambio absoluto
+  const filasVariacion = [...filas]
+    .filter(f=>f.anterior>0||f.actual>0)
+    .sort((a,b)=>Math.abs(b.delta)-Math.abs(a.delta));
+
+  // modo top: ordenar por gasto actual
+  const filasTop = [...filas].sort((a,b)=>b.actual-a.actual);
+
+  const filasVis = (modo==="variacion" ? filasVariacion : filasTop)
+    .slice(0, expandido ? 999 : 5);
+
+  const maxActual = Math.max(...filas.map(f=>Math.max(f.actual,f.anterior)),1);
+
+  const fmtFull = v => new Intl.NumberFormat("es-MX",{style:"currency",currency:"MXN",minimumFractionDigits:0}).format(v);
+  const now = new Date();
+  const mesNombre  = new Date(mesKey+"-01").toLocaleDateString("es-MX",{month:"long"});
+  const mesANombre = new Date(mesAnteriorKey+"-01").toLocaleDateString("es-MX",{month:"long"});
+
+  if (filas.length === 0) return null;
+
+  return (
+    <Card>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,flexWrap:"wrap",gap:8}}>
+        <div>
+          <p style={{fontSize:13,fontWeight:700,color:"#ccc",margin:"0 0 2px"}}>Gastos por Categoría</p>
+          <p style={{fontSize:10,color:"#555",margin:0,textTransform:"capitalize"}}>{mesANombre} vs {mesNombre}</p>
+        </div>
+        <div style={{display:"flex",gap:4}}>
+          {[["variacion","Variación"],["top","Top gasto"]].map(([v,l])=>(
+            <button key={v} onClick={()=>setModo(v)} style={{
+              fontSize:10,fontWeight:700,padding:"3px 10px",borderRadius:6,border:"none",cursor:"pointer",
+              background:modo===v?"#7c3aed":"rgba(255,255,255,.05)",
+              color:modo===v?"#fff":"#555",transition:"all .2s",
+            }}>{l}</button>
+          ))}
+        </div>
+      </div>
+
+      {/* leyenda */}
+      <div style={{display:"flex",gap:16,marginBottom:10}}>
+        <span style={{fontSize:10,color:"#555",display:"flex",alignItems:"center",gap:4}}>
+          <span style={{width:8,height:8,borderRadius:2,background:"rgba(255,255,255,.15)",display:"inline-block"}}/>
+          <span style={{textTransform:"capitalize"}}>{mesANombre}</span>
+        </span>
+        <span style={{fontSize:10,color:"#555",display:"flex",alignItems:"center",gap:4}}>
+          <span style={{width:8,height:8,borderRadius:2,background:"#7c3aed",display:"inline-block"}}/>
+          <span style={{textTransform:"capitalize"}}>{mesNombre}</span>
+        </span>
+      </div>
+
+      <div style={{display:"flex",flexDirection:"column",gap:10}}>
+        {filasVis.map(({cat,actual,anterior,delta,deltaPct})=>{
+          const barA = Math.round((anterior/maxActual)*100);
+          const barB = Math.round((actual/maxActual)*100);
+          const sube = delta > 0;
+          const igual = Math.abs(deltaPct) < 2;
+          const badgeColor = igual?"#555":sube?"#ff4757":"#00d4aa";
+          const badgeBg = igual?"rgba(255,255,255,.05)":sube?"rgba(255,71,87,.1)":"rgba(0,212,170,.1)";
+          return (
+            <div key={cat}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+                <span style={{fontSize:11,color:"#ccc",fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:"50%"}}>{cat}</span>
+                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                  <span style={{fontSize:10,color:"#555"}}>{fmtFull(actual)}</span>
+                  {anterior>0 && (
+                    <span style={{fontSize:9,fontWeight:700,color:badgeColor,background:badgeBg,padding:"1px 6px",borderRadius:10}}>
+                      {igual?"≈":sube?"▲":"▼"}{igual?"":`${Math.abs(deltaPct).toFixed(0)}%`}
+                    </span>
+                  )}
+                  {anterior===0 && actual>0 && (
+                    <span style={{fontSize:9,fontWeight:700,color:"#f39c12",background:"rgba(243,156,18,.1)",padding:"1px 6px",borderRadius:10}}>nuevo</span>
+                  )}
+                </div>
+              </div>
+              {/* barras superpuestas */}
+              <div style={{position:"relative",height:6,borderRadius:3,background:"rgba(255,255,255,.04)"}}>
+                {/* mes anterior */}
+                <div style={{position:"absolute",left:0,top:0,height:"100%",width:`${barA}%`,background:"rgba(255,255,255,.15)",borderRadius:3}}/>
+                {/* mes actual */}
+                <div style={{position:"absolute",left:0,top:0,height:"100%",width:`${barB}%`,background:"#7c3aed",borderRadius:3,opacity:0.85}}/>
+              </div>
+              {anterior>0 && (
+                <div style={{display:"flex",justifyContent:"flex-end",marginTop:2}}>
+                  <span style={{fontSize:9,color:"#444"}}>
+                    {igual?"Sin cambio":sube?`+${fmtFull(delta)} más que ${mesANombre}`:`${fmtFull(Math.abs(delta))} menos que ${mesANombre}`}
+                  </span>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {filas.length > 5 && (
+        <button onClick={()=>setExpandido(e=>!e)} style={{
+          marginTop:12,width:"100%",padding:"6px 0",fontSize:11,color:"#555",
+          background:"rgba(255,255,255,.03)",border:"1px solid rgba(255,255,255,.07)",
+          borderRadius:8,cursor:"pointer",
+        }}>
+          {expandido ? "Ver menos ▲" : `Ver ${filas.length-5} categorías más ▼`}
+        </button>
+      )}
+    </Card>
+  );
+};
+
 // Gráfica de línea — evolución del patrimonio neto en el tiempo
 const LineChartPatrimonio = ({ snapshots, onVerTodo }) => {
   const [rango, setRango] = useState("6m");
@@ -2117,6 +2252,8 @@ const Dashboard = () => {
             </div>
           </Card>
         )}
+
+        <ComparativoCategorias transactions={transactions} mesKey={mesKey} mesAnteriorKey={mesAnteriorKey}/>
 
         {/* ── ÚLTIMOS MOVIMIENTOS */}
         <Card>
