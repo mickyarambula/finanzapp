@@ -9807,10 +9807,7 @@ const ImportarCSV = () => {
     setIaLoading(true);
     try {
       // Tomar solo las primeras 30 filas para no exceder tokens
-      const lineas = csvRawTexto.split(/
-?
-/).filter(l=>l.trim()).slice(0,30).join("
-");
+      const lineas = csvRawTexto.split(/\r?\n/).filter(l=>l.trim()).slice(0,30).join("\n");
       const prompt = `Analiza este archivo CSV de un estado de cuenta bancario mexicano y extrae los movimientos financieros.
 Responde SOLO con un JSON válido, sin texto adicional, sin backticks, con este formato exacto:
 {
@@ -9842,17 +9839,14 @@ ${lineas}`;
       if (!parsed.movimientos?.length) { toast("La IA no detectó movimientos en este archivo","error"); setIaLoading(false); return; }
 
       // Si el CSV tiene más de 30 filas, procesar el resto también
-      const todasLineas = csvRawTexto.split(/
-?
-/).filter(l=>l.trim());
+      const todasLineas = csvRawTexto.split(/\r?\n/).filter(l=>l.trim());
       let todosMovimientos = [...parsed.movimientos];
 
       if (todasLineas.length > 31) {
         // procesar en bloques de 50 filas
         const headers = todasLineas[0];
         for (let i=30; i<todasLineas.length; i+=50) {
-          const bloque = [headers,...todasLineas.slice(i,i+50)].join("
-");
+          const bloque = [headers,...todasLineas.slice(i,i+50)].join("\n");
           const res2 = await fetch("https://api.anthropic.com/v1/messages", {
             method:"POST",
             headers:{"Content-Type":"application/json","x-api-key":ANTHROPIC_KEY,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},
