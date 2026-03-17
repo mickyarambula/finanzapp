@@ -5902,6 +5902,7 @@ const Settings = () => {
       user: { name: user.name, email: user.email },
       accounts, transactions, transfers, loans, investments,
       goals, recurring, mortgages, presupuestos, documents, config,
+      patrimonio_snaps: JSON.parse(localStorage.getItem(`fp_data_${user.id}_patrimonio_snaps`)||"[]"),
     };
     const blob = new Blob([JSON.stringify(data, null, 2)], { type:"application/json" });
     const url  = URL.createObjectURL(blob);
@@ -5937,6 +5938,9 @@ const Settings = () => {
         if (data.presupuestos) setPresupuestos(data.presupuestos);
         if (data.documents)    setDocuments(data.documents);
         if (data.config)       setConfig(data.config);
+        if (data.patrimonio_snaps) {
+          try { localStorage.setItem(`fp_data_${user.id}_patrimonio_snaps`, JSON.stringify(data.patrimonio_snaps)); } catch{}
+        }
         toast("✅ Backup restaurado correctamente","success");
       } catch(err) {
         toast("Error al leer el archivo — verifica que sea un backup válido","error");
@@ -7995,19 +7999,57 @@ const Documents = () => {
         </button>
       </div>
 
-      {/* alertas de vencimiento */}
+      {/* alertas de vencimiento mejoradas */}
       {(vencidos.length>0||proxVencer.length>0)&&(
-        <div style={{marginBottom:14,display:"flex",flexDirection:"column",gap:6}}>
+        <div style={{marginBottom:16,display:"flex",flexDirection:"column",gap:8}}>
+          {/* Vencidos */}
           {vencidos.length>0&&(
-            <div style={{display:"flex",alignItems:"center",gap:10,padding:"9px 14px",background:"rgba(255,71,87,.07)",border:"1px solid rgba(255,71,87,.2)",borderRadius:10,flexWrap:"wrap"}}>
-              <Ic n="warn" size={14} color="#ff4757"/>
-              <span style={{fontSize:12,color:"#ff6b7a",fontWeight:600,flex:1}}>{vencidos.length} documento{vencidos.length>1?"s":""} vencido{vencidos.length>1?"s":""}: {vencidos.map(d=>d.nombre).join(", ")}</span>
+            <div style={{borderRadius:11,border:"1px solid rgba(255,71,87,.25)",background:"rgba(255,71,87,.06)",overflow:"hidden"}}>
+              <div style={{display:"flex",alignItems:"center",gap:8,padding:"9px 14px 7px",borderBottom:"1px solid rgba(255,71,87,.15)"}}>
+                <Ic n="warn" size={14} color="#ff4757"/>
+                <span style={{fontSize:12,fontWeight:700,color:"#ff6b7a"}}>
+                  {vencidos.length} documento{vencidos.length>1?"s":""} vencido{vencidos.length>1?"s":""}
+                </span>
+              </div>
+              <div style={{padding:"6px 8px",display:"flex",flexWrap:"wrap",gap:6}}>
+                {vencidos.map(d=>{
+                  const dias = Math.abs(Math.round((new Date(d.vencimiento+"T12:00:00")-new Date())/86400000));
+                  return (
+                    <button key={d.id} onClick={()=>setPreview(d)}
+                      style={{display:"flex",alignItems:"center",gap:6,padding:"5px 10px",borderRadius:8,background:"rgba(255,71,87,.1)",border:"1px solid rgba(255,71,87,.2)",cursor:"pointer",color:"#ff6b7a",fontSize:11,fontWeight:600}}>
+                      <span>{d.nombre}</span>
+                      <span style={{fontSize:10,opacity:.7}}>hace {dias}d</span>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           )}
+          {/* Próximos a vencer */}
           {proxVencer.length>0&&(
-            <div style={{display:"flex",alignItems:"center",gap:10,padding:"9px 14px",background:"rgba(243,156,18,.07)",border:"1px solid rgba(243,156,18,.2)",borderRadius:10,flexWrap:"wrap"}}>
-              <Ic n="warn" size={14} color="#f39c12"/>
-              <span style={{fontSize:12,color:"#f5a623",fontWeight:600,flex:1}}>{proxVencer.length} documento{proxVencer.length>1?"s":""} próximo{proxVencer.length>1?"s":""} a vencer</span>
+            <div style={{borderRadius:11,border:"1px solid rgba(243,156,18,.25)",background:"rgba(243,156,18,.06)",overflow:"hidden"}}>
+              <div style={{display:"flex",alignItems:"center",gap:8,padding:"9px 14px 7px",borderBottom:"1px solid rgba(243,156,18,.15)"}}>
+                <Ic n="warn" size={14} color="#f39c12"/>
+                <span style={{fontSize:12,fontWeight:700,color:"#f5a623"}}>
+                  {proxVencer.length} próximo{proxVencer.length>1?"s":""} a vencer
+                </span>
+              </div>
+              <div style={{padding:"6px 8px",display:"flex",flexWrap:"wrap",gap:6}}>
+                {proxVencer.sort((a,b)=>a.vencimiento>b.vencimiento?1:-1).map(d=>{
+                  const dias = Math.round((new Date(d.vencimiento+"T12:00:00")-new Date())/86400000);
+                  const urgente = dias<=7;
+                  return (
+                    <button key={d.id} onClick={()=>setPreview(d)}
+                      style={{display:"flex",alignItems:"center",gap:6,padding:"5px 10px",borderRadius:8,
+                        background:urgente?"rgba(255,71,87,.1)":"rgba(243,156,18,.1)",
+                        border:`1px solid ${urgente?"rgba(255,71,87,.2)":"rgba(243,156,18,.2)"}`,
+                        cursor:"pointer",color:urgente?"#ff6b7a":"#f5a623",fontSize:11,fontWeight:600}}>
+                      <span>{d.nombre}</span>
+                      <span style={{fontSize:10,opacity:.7}}>{dias===0?"hoy":`${dias}d`}</span>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           )}
         </div>
