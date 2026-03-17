@@ -2514,50 +2514,78 @@ const Accounts = () => {
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(260px,1fr))",gap:12}}>
           {accounts.map(a=>{
             const color = TIPO_COLOR[a.type]||"#777";
-            const txCount = transactions.filter(t=>t.accountId===a.id).length;
             const isNeg = parseFloat(a.balance||0)<0 && a.type!=="credit";
+            const nowA = new Date();
+            const mesKeyA = `${nowA.getFullYear()}-${String(nowA.getMonth()+1).padStart(2,"0")}`;
+            const txsMes = transactions.filter(t=>t.accountId===a.id&&t.date?.startsWith(mesKeyA));
+            const ingrMes = txsMes.filter(t=>t.type==="income").reduce((s,t)=>s+parseFloat(t.amount||0),0);
+            const gastMes = txsMes.filter(t=>t.type==="expense").reduce((s,t)=>s+parseFloat(t.amount||0),0);
+            const spark = Array.from({length:6},(_,i)=>{
+              const d=new Date(nowA.getFullYear(),nowA.getMonth()-5+i,1);
+              const mk=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
+              const txs=transactions.filter(t=>t.accountId===a.id&&t.date?.startsWith(mk));
+              return txs.filter(t=>t.type==="income").reduce((s,t)=>s+parseFloat(t.amount||0),0)
+                   - txs.filter(t=>t.type==="expense").reduce((s,t)=>s+parseFloat(t.amount||0),0);
+            });
+            const sparkMax = Math.max(...spark.map(Math.abs),1);
             return (
               <Card key={a.id} style={{borderColor:`${color}22`,padding:0,overflow:"hidden",cursor:"pointer",transition:"transform .15s,box-shadow .15s"}}
                 onClick={()=>{setDetailAccount(a);setMesFilter("all");}}
                 onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-2px)";e.currentTarget.style.boxShadow=`0 8px 24px ${color}22`;}}
                 onMouseLeave={e=>{e.currentTarget.style.transform="";e.currentTarget.style.boxShadow="";}}>
-                <div style={{height:4,background:`linear-gradient(90deg,${color},${color}88)`}}/>
+                <div style={{height:3,background:`linear-gradient(90deg,${color},${color}55)`}}/>
                 <div style={{padding:"14px 16px"}}>
+                  {/* Header */}
                   <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
-                    <div>
-                      <p style={{fontSize:14,fontWeight:700,color:"#e0e0e0",margin:"0 0 3px"}}>{a.name}</p>
-                      <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                    <div style={{minWidth:0,flex:1}}>
+                      <p style={{fontSize:14,fontWeight:700,color:"#e0e0e0",margin:"0 0 3px",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{a.name}</p>
+                      <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
                         <Badge label={TIPOS[a.type]||a.type} color={color}/>
-                        <Badge label={a.currency} color="#555"/>
                         {a.bank&&<Badge label={a.bank} color="#444"/>}
                       </div>
                     </div>
-                    <div style={{display:"flex",gap:4}}>
-                      <button onClick={e=>{e.stopPropagation();openEdit(a);}} style={{background:"none",border:"none",cursor:"pointer",color:"#555",padding:4,borderRadius:6}} onMouseEnter={e=>e.currentTarget.style.color="#aaa"} onMouseLeave={e=>e.currentTarget.style.color="#555"}><Ic n="edit" size={15}/></button>
-                      <button onClick={e=>{e.stopPropagation();del(a);}} style={{background:"none",border:"none",cursor:"pointer",color:"#555",padding:4,borderRadius:6}} onMouseEnter={e=>e.currentTarget.style.color="#ff4757"} onMouseLeave={e=>e.currentTarget.style.color="#555"}><Ic n="trash" size={15}/></button>
+                    <div style={{display:"flex",gap:3,flexShrink:0}}>
+                      <button onClick={e=>{e.stopPropagation();openEdit(a);}} style={{background:"none",border:"none",cursor:"pointer",color:"#555",padding:4,borderRadius:6}} onMouseEnter={e=>e.currentTarget.style.color="#aaa"} onMouseLeave={e=>e.currentTarget.style.color="#555"}><Ic n="edit" size={14}/></button>
+                      <button onClick={e=>{e.stopPropagation();del(a);}} style={{background:"none",border:"none",cursor:"pointer",color:"#555",padding:4,borderRadius:6}} onMouseEnter={e=>e.currentTarget.style.color="#ff4757"} onMouseLeave={e=>e.currentTarget.style.color="#555"}><Ic n="trash" size={14}/></button>
                     </div>
                   </div>
-                  <p style={{fontSize:22,fontWeight:800,color:isNeg?"#ff4757":color,margin:"0 0 6px"}}>{fmt(a.balance,a.currency)}</p>
+                  {/* Saldo */}
+                  <p style={{fontSize:24,fontWeight:800,color:isNeg?"#ff4757":color,margin:"0 0 10px",lineHeight:1}}>{fmt(a.balance,a.currency)}</p>
+                  {/* Tarjeta: barra límite + aviso pago */}
                   {a.type==="credit"&&parseFloat(a.creditLimit||0)>0&&(
-                    <div style={{marginBottom:6}}>
+                    <div style={{marginBottom:10}}>
                       <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
-                        <span style={{fontSize:10,color:"#555"}}>Límite: {fmt(a.creditLimit,a.currency)}</span>
+                        <span style={{fontSize:10,color:"#555"}}>Crédito disponible</span>
                         <span style={{fontSize:10,color:"#555"}}>{(Math.abs(parseFloat(a.balance||0))/parseFloat(a.creditLimit)*100).toFixed(0)}% usado</span>
                       </div>
                       <div style={{height:4,borderRadius:2,background:"rgba(255,255,255,.06)"}}>
                         <div style={{height:"100%",borderRadius:2,background:color,width:`${Math.min(Math.abs(parseFloat(a.balance||0))/parseFloat(a.creditLimit)*100,100)}%`}}/>
                       </div>
+                      {a.fechaPago&&(()=>{
+                        const dias=Math.round((new Date(a.fechaPago+"T12:00:00")-nowA)/86400000);
+                        const deuda=Math.abs(Math.min(parseFloat(a.balance||0),0));
+                        return deuda>0?<p style={{fontSize:10,color:dias<0?"#ff4757":dias<=7?"#f39c12":"#555",margin:"4px 0 0",fontWeight:dias<=7?600:400}}>{dias<0?`⚠️ Pago vencido hace ${Math.abs(dias)}d`:dias===0?"⚠️ Paga hoy":`Pago: ${fmtDate(a.fechaPago)} (${dias}d)`}</p>:null;
+                      })()}
                     </div>
                   )}
-                  {a.fechaPago&&<p style={{fontSize:11,color:"#555",margin:"4px 0 0"}}>Próximo pago: {a.fechaPago}</p>}
-                  <p style={{fontSize:10,color:"#444",margin:"4px 0 0"}}>{txCount} transacción{txCount!==1?"es":""}</p>
-                  {a.type==="credit"&&(
-                    <div style={{marginTop:10,paddingTop:10,borderTop:"1px solid rgba(255,255,255,.05)"}}>
-                      <Btn onClick={e=>{e.stopPropagation();abrirPago(a);}} style={{width:"100%",justifyContent:"center",background:"linear-gradient(135deg,rgba(255,71,87,.15),rgba(255,71,87,.08))",border:"1px solid rgba(255,71,87,.25)",color:"#ff6b7a"}}>
-                        <Ic n="transfers" size={13}/>Pagar tarjeta
-                      </Btn>
+                  {/* Flujo del mes */}
+                  {a.type!=="credit"&&(ingrMes>0||gastMes>0)&&(
+                    <div style={{display:"flex",gap:6,marginBottom:10}}>
+                      {ingrMes>0&&<div style={{flex:1,background:"rgba(0,212,170,.07)",border:"1px solid rgba(0,212,170,.15)",borderRadius:7,padding:"5px 8px"}}><p style={{fontSize:9,color:"#555",margin:"0 0 1px",textTransform:"uppercase"}}>Entró</p><p style={{fontSize:12,fontWeight:700,color:"#00d4aa",margin:0}}>+{fmt(ingrMes,a.currency)}</p></div>}
+                      {gastMes>0&&<div style={{flex:1,background:"rgba(255,71,87,.07)",border:"1px solid rgba(255,71,87,.15)",borderRadius:7,padding:"5px 8px"}}><p style={{fontSize:9,color:"#555",margin:"0 0 1px",textTransform:"uppercase"}}>Salió</p><p style={{fontSize:12,fontWeight:700,color:"#ff4757",margin:0}}>-{fmt(gastMes,a.currency)}</p></div>}
                     </div>
                   )}
+                  {/* Sparkline 6 meses */}
+                  {spark.some(v=>v!==0)&&(
+                    <div style={{display:"flex",alignItems:"flex-end",gap:2,height:18,marginBottom:8}}>
+                      {spark.map((v,i)=><div key={i} style={{flex:1,height:`${Math.max(Math.abs(v)/sparkMax*100,4)}%`,borderRadius:2,background:v>=0?"rgba(0,212,170,.45)":"rgba(255,71,87,.45)"}}/>)}
+                    </div>
+                  )}
+                  {/* Footer */}
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                    <span style={{fontSize:10,color:"#444"}}>{a.currency} · {txsMes.length} mov. este mes</span>
+                    {a.type==="credit"&&<button onClick={e=>{e.stopPropagation();abrirPago(a);}} style={{padding:"4px 10px",borderRadius:7,background:"rgba(255,71,87,.1)",border:"1px solid rgba(255,71,87,.2)",color:"#ff6b7a",fontSize:11,fontWeight:600,cursor:"pointer"}}>Pagar</button>}
+                  </div>
                 </div>
               </Card>
             );
