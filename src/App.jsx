@@ -3422,7 +3422,7 @@ const Loans = () => {
   const [openPay,  setOpenPay]  = useState(false);
   const [editing,  setEditing]  = useState(null);
   const [askConfirm, confirmModal] = useConfirm();
-  const blankLoan = { type:"given", name:"", accountId:"", principal:"", currency:"MXN", rateType:"annual", rate:"", startDate:today(), dueDate:"", notes:"" };
+  const blankLoan = { type:"given", name:"", accountId:"", principal:"", currency:"MXN", rateType:"annual", rate:"", startDate:today(), dueDate:"", notes:"", comisionApertura:"", comisionFega:"", otrosGastos:"" };
   const blankPay  = { amount:"", date:today(), paymentType:"interest_only", targetAccountId:"", notes:"", registrarComoTx:true };
   const [lf, setLF] = useState(blankLoan);
   const [pf, setPF] = useState(blankPay);
@@ -3469,12 +3469,35 @@ const Loans = () => {
     if (!lf.name.trim()||!lf.principal||!lf.accountId) { toast("Completa los campos requeridos.","error"); return; }
     const principal=parseFloat(lf.principal);
     if (isNaN(principal)||principal<=0) { toast("Monto inválido.","error"); return; }
+    const comAp   = parseFloat(lf.comisionApertura)||0;
+    const comFega = parseFloat(lf.comisionFega)||0;
+    const otrosG  = parseFloat(lf.otrosGastos)||0;
+    const totalComisiones = (principal * comAp/100) + (principal * comFega/100) + otrosG;
     if (editing) {
       setLoans(loans.map(l=>l.id===editing.id?{...l,...lf,principal}:l));
       toast("Préstamo actualizado.","success");
     } else {
-      setLoans([{id:genId(),...lf,principal,payments:[],createdAt:new Date().toISOString()},...loans]);
-      toast(`Prestamo ${lf.type==="given"?"otorgado":"recibido"} registrado.`,"success");
+      const loanId = genId();
+      // ── Ajustar saldo de la cuenta asociada
+      setAccounts(prev=>prev.map(a=>{
+        if(a.id!==lf.accountId) return a;
+        const delta = lf.type==="given" ? -principal : principal; // prestamos = sale dinero; recibimos = entra dinero
+        return {...a, balance: parseFloat(a.balance||0) + delta};
+      }));
+      // ── Registrar comisiones como gasto si las hay
+      if (totalComisiones>0) {
+        const comTxs = [];
+        if (comAp>0) comTxs.push({id:genId(),date:lf.startDate||today(),type:"expense",amount:principal*comAp/100,description:`Comisión apertura — ${lf.name}`,category:"Pago de deuda",accountId:lf.accountId,currency:lf.currency,origen:"prestamo",origenId:loanId,notes:`${comAp}% apertura`});
+        if (comFega>0) comTxs.push({id:genId(),date:lf.startDate||today(),type:"expense",amount:principal*comFega/100,description:`FEGA — ${lf.name}`,category:"Pago de deuda",accountId:lf.accountId,currency:lf.currency,origen:"prestamo",origenId:loanId,notes:`${comFega}% FEGA`});
+        if (otrosG>0) comTxs.push({id:genId(),date:lf.startDate||today(),type:"expense",amount:otrosG,description:`Gastos adicionales — ${lf.name}`,category:"Pago de deuda",accountId:lf.accountId,currency:lf.currency,origen:"prestamo",origenId:loanId,notes:"Otros gastos"});
+        setTransactions(prev=>[...comTxs,...prev]);
+        // También descontar comisiones del saldo de la cuenta
+        setAccounts(prev=>prev.map(a=>a.id===lf.accountId?{...a,balance:parseFloat(a.balance||0)-totalComisiones}:a));
+        toast(`Préstamo registrado + ${fmt(totalComisiones)} en comisiones descontadas ✓`,"success");
+      } else {
+        toast(`Préstamo ${lf.type==="given"?"otorgado":"recibido"} registrado. Saldo de cuenta ajustado.`,"success");
+      }
+      setLoans([{id:loanId,...lf,principal,payments:[],createdAt:new Date().toISOString()},...loans]);
     }
     closeLoan();
   };
@@ -3824,6 +3847,23 @@ const Loans = () => {
             <Inp label="Vencimiento (opcional)" type="date" value={lf.dueDate} onChange={lc("dueDate")}/>
           </div>
           <Inp label="Notas (opcional)" value={lf.notes} onChange={lc("notes")} placeholder="Condiciones..."/>
+          {/* Comisiones — solo para préstamos recibidos y solo al crear */}
+          {!editing && lf.type==="received" && (
+            <div style={{marginBottom:14,padding:"12px 14px",background:"rgba(243,156,18,.06)",border:"1px solid rgba(243,156,18,.2)",borderRadius:10}}>
+              <p style={{fontSize:12,fontWeight:700,color:"#f39c12",margin:"0 0 10px"}}>💰 Comisiones y gastos iniciales <span style={{fontSize:10,fontWeight:400,color:"#666"}}>(opcionales)</span></p>
+              <p style={{fontSize:11,color:"#666",margin:"0 0 10px",lineHeight:1.4}}>Se descontarán de la cuenta y se registrarán como gasto al guardar.</p>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10}}>
+                <Inp label="Comisión apertura %" type="number" value={lf.comisionApertura} onChange={lc("comisionApertura")} placeholder="0.5" suffix="%"/>
+                <Inp label="FEGA %" type="number" value={lf.comisionFega} onChange={lc("comisionFega")} placeholder="0.5" suffix="%"/>
+                <Inp label="Otros gastos $" type="number" value={lf.otrosGastos} onChange={lc("otrosGastos")} placeholder="0.00"/>
+              </div>
+              {(parseFloat(lf.comisionApertura)||parseFloat(lf.comisionFega)||parseFloat(lf.otrosGastos))>0&&lf.principal&&(()=>{
+                const p=parseFloat(lf.principal)||0;
+                const total=(p*(parseFloat(lf.comisionApertura)||0)/100)+(p*(parseFloat(lf.comisionFega)||0)/100)+(parseFloat(lf.otrosGastos)||0);
+                return total>0?<p style={{fontSize:12,color:"#f39c12",fontWeight:700,margin:"6px 0 0"}}>Total comisiones: {fmt(total,lf.currency)}</p>:null;
+              })()}
+            </div>
+          )}
           <div style={{ display:"flex", gap:8, justifyContent:"flex-end", marginTop:6 }}>
             <Btn variant="secondary" onClick={closeLoan}>Cancelar</Btn>
             <Btn onClick={saveLoan} disabled={accounts.length===0}><Ic n="check" size={15}/>{editing?"Guardar":"Registrar"}</Btn>
@@ -4732,13 +4772,18 @@ const Investments = () => {
                   const base = st.costoTitulos>0?st.costoTitulos:st.totalInvertido;
                   const rendAnualEst = base * (parseFloat(inv.tasaAnual)/100);
                   const rendMensualEst = rendAnualEst/12;
+                  const diasActivos = Math.max(0, Math.round((new Date()-new Date(inv.startDate))/86400000));
+                  const rendAFecha = base * (parseFloat(inv.tasaAnual)/100) / 365 * diasActivos;
                   return (
-                    <div style={{marginBottom:8,padding:"6px 9px",borderRadius:7,background:"rgba(243,156,18,.07)",border:"1px solid rgba(243,156,18,.2)"}}>
-                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                    <div style={{marginBottom:8,padding:"7px 10px",borderRadius:7,background:"rgba(243,156,18,.07)",border:"1px solid rgba(243,156,18,.2)"}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:3}}>
                         <span style={{fontSize:10,color:"#f39c12",fontWeight:600}}>⚡ Proyectado est. ({inv.tasaAnual}% anual)</span>
                         <span style={{fontSize:11,color:"#f39c12",fontWeight:700}}>+{fmt(rendAnualEst,inv.currency)}/año</span>
                       </div>
-                      <span style={{fontSize:10,color:"#777"}}>≈ +{fmt(rendMensualEst,inv.currency)}/mes · solo estimado, no real</span>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                        <span style={{fontSize:10,color:"#888"}}>A la fecha ({diasActivos}d): <strong style={{color:"#f39c12"}}>+{fmt(rendAFecha,inv.currency)}</strong></span>
+                        <span style={{fontSize:10,color:"#666"}}>≈ +{fmt(rendMensualEst,inv.currency)}/mes</span>
+                      </div>
                     </div>
                   );
                 })()}
