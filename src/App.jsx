@@ -2145,7 +2145,7 @@ const Dashboard = () => {
         </Card>
 
         {/* Flujo del mes */}
-        <Card onClick={()=>navigate("transactions")} style={{borderColor:flujoMes>=0?"rgba(0,212,170,.2)":"rgba(255,71,87,.2)",cursor:"pointer",transition:"opacity .2s"}} onMouseEnter={e=>e.currentTarget.style.opacity=".85"} onMouseLeave={e=>e.currentTarget.style.opacity="1"}>
+        <Card onClick={()=>navigate("reports:resultados")} style={{borderColor:flujoMes>=0?"rgba(0,212,170,.2)":"rgba(255,71,87,.2)",cursor:"pointer",transition:"opacity .2s"}} onMouseEnter={e=>e.currentTarget.style.opacity=".85"} onMouseLeave={e=>e.currentTarget.style.opacity="1"}>
           <p style={{fontSize:10,color:"#555",textTransform:"uppercase",letterSpacing:.5,margin:"0 0 6px",fontWeight:700}}>
             Flujo — {now.toLocaleDateString("es-MX",{month:"long"})}
           </p>
@@ -2160,7 +2160,7 @@ const Dashboard = () => {
         </Card>
 
         {/* Score de salud */}
-        <Card onClick={()=>navigate("reports")} style={{cursor:"pointer",transition:"opacity .2s"}} onMouseEnter={e=>e.currentTarget.style.opacity=".85"} onMouseLeave={e=>e.currentTarget.style.opacity="1"}>
+        <Card onClick={()=>navigate("patrimonio")} style={{cursor:"pointer",transition:"opacity .2s"}} onMouseEnter={e=>e.currentTarget.style.opacity=".85"} onMouseLeave={e=>e.currentTarget.style.opacity="1"}>
           <p style={{fontSize:10,color:"#555",textTransform:"uppercase",letterSpacing:.5,margin:"0 0 6px",fontWeight:700}}>Salud Financiera</p>
           <div style={{display:"flex",alignItems:"center",gap:10}}>
             <div style={{position:"relative",width:52,height:52,flexShrink:0}}>
@@ -2182,7 +2182,7 @@ const Dashboard = () => {
         </Card>
 
         {/* Liquidez inmediata */}
-        <Card onClick={()=>navigate("accounts")} style={{cursor:"pointer",transition:"opacity .2s"}} onMouseEnter={e=>e.currentTarget.style.opacity=".85"} onMouseLeave={e=>e.currentTarget.style.opacity="1"}>
+        <Card onClick={()=>navigate("reports:balance")} style={{cursor:"pointer",transition:"opacity .2s"}} onMouseEnter={e=>e.currentTarget.style.opacity=".85"} onMouseLeave={e=>e.currentTarget.style.opacity="1"}>
           <p style={{fontSize:10,color:"#555",textTransform:"uppercase",letterSpacing:.5,margin:"0 0 6px",fontWeight:700}}>Liquidez Disponible</p>
           <p style={{fontSize:22,fontWeight:800,color:"#3b82f6",margin:"0 0 6px"}}>{fmt(liquidezTotal)}</p>
           <div style={{display:"flex",flexDirection:"column",gap:3}}>
@@ -2250,7 +2250,7 @@ const Dashboard = () => {
       </div>
 
       {/* ── GRÁFICA INGRESOS VS GASTOS */}
-      <Card onClick={()=>navigate("reports")} style={{cursor:"pointer",transition:"opacity .2s"}} onMouseEnter={e=>e.currentTarget.style.opacity=".9"} onMouseLeave={e=>e.currentTarget.style.opacity="1"}>
+      <Card onClick={()=>navigate("reports:resultados")} style={{cursor:"pointer",transition:"opacity .2s"}} onMouseEnter={e=>e.currentTarget.style.opacity=".9"} onMouseLeave={e=>e.currentTarget.style.opacity="1"}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:8}}>
           <p style={{fontSize:13,fontWeight:700,color:"#ccc",margin:0}}>Ingresos vs Gastos — Últimos 6 meses</p>
           <div style={{display:"flex",gap:12}}>
@@ -4555,7 +4555,7 @@ const Investments = () => {
 };
 
 // ─── ESTADOS FINANCIEROS ──────────────────────────────────────────────────────
-const Reports = () => {
+const Reports = ({ initialTab="balance" }) => {
   const { user, toast } = useCtx();
   const [transactions] = useData(user.id, "transactions");
   const [accounts]     = useData(user.id, "accounts");
@@ -4564,7 +4564,7 @@ const Reports = () => {
   const [mortgages]    = useData(user.id, "mortgages");
   const [transfers]    = useData(user.id, "transfers");
   const [config]       = useData(user.id, "config", {});
-  const [tab, setTab]  = useState("balance");
+  const [tab, setTab]  = useState(initialTab);
   const [periodo, setPeriodo] = useState("mes");
   const [fechaDesde, setFechaDesde] = useState("");
   const [fechaHasta, setFechaHasta] = useState("");
@@ -10515,6 +10515,9 @@ export default function App() {
       case "calendar":     return <CalendarioFinanciero/>;
       case "documents":    return <Documents/>;
       case "reports":      return <Reports/>;
+      case "reports:resultados": return <Reports initialTab="resultados"/>;
+      case "reports:balance":    return <Reports initialTab="balance"/>;
+      case "reports:flujo":      return <Reports initialTab="flujo"/>;
       case "patrimonio":   return <Patrimonio/>;
       case "asistente":    return <Asistente/>;
       case "settings":     return <Settings/>;
