@@ -3635,6 +3635,59 @@ const Loans = () => {
           {selected.dueDate&&<p style={{ margin:"6px 0 0", fontSize:12, color:new Date(selected.dueDate)<new Date()?"#ff4757":"#666" }}>{new Date(selected.dueDate)<new Date()?"⚠️ Vencido:":"📅 Vence:"} {fmtDate(selected.dueDate)}</p>}
         </Card>
 
+        {/* ── Costos iniciales y costo efectivo */}
+        {(()=>{
+          const txsComisiones = transactions.filter(t=>t.origenId===selected.id&&t.type==="expense"&&(t.description?.includes("Comisión")||t.description?.includes("FEGA")||t.description?.includes("Gastos adicionales")));
+          const totalComisiones = txsComisiones.reduce((s,t)=>s+parseFloat(t.amount||0),0);
+          if(txsComisiones.length===0) return null;
+          // Costo efectivo anual: tasa nominal + impacto comisiones sobre plazo
+          const principal = parseFloat(selected.principal)||0;
+          const tasaNominalAnual = selected.rateType==="annual" ? parseFloat(selected.rate)||0
+            : selected.rateType==="monthly" ? (parseFloat(selected.rate)||0)*12
+            : (parseFloat(selected.rate)||0)*365;
+          const diasVigencia = selected.dueDate
+            ? Math.round((new Date(selected.dueDate)-new Date(selected.startDate))/86400000)
+            : null;
+          const tasaEfectiva = diasVigencia&&principal>0
+            ? tasaNominalAnual + (totalComisiones/principal/diasVigencia*365*100)
+            : null;
+          return (
+            <Card style={{marginBottom:16,borderColor:"rgba(243,156,18,.2)",background:"rgba(243,156,18,.02)"}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,flexWrap:"wrap",gap:8}}>
+                <p style={{fontSize:13,fontWeight:700,color:"#f39c12",margin:0}}>💰 Costos Iniciales del Crédito</p>
+                {tasaEfectiva&&(
+                  <div style={{display:"flex",alignItems:"center",gap:8}}>
+                    <span style={{fontSize:10,color:"#666"}}>Tasa nominal: <strong style={{color:"#ccc"}}>{tasaNominalAnual.toFixed(2)}%</strong></span>
+                    <span style={{fontSize:11,fontWeight:700,color:"#ff6b7a",background:"rgba(255,71,87,.1)",border:"1px solid rgba(255,71,87,.2)",borderRadius:6,padding:"2px 8px"}}>
+                      Costo efectivo: ~{tasaEfectiva.toFixed(2)}% anual
+                    </span>
+                  </div>
+                )}
+              </div>
+              <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:10}}>
+                {txsComisiones.map(t=>(
+                  <div key={t.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 10px",background:"rgba(255,255,255,.03)",borderRadius:8}}>
+                    <div>
+                      <p style={{fontSize:12,fontWeight:600,color:"#e0e0e0",margin:"0 0 1px"}}>{t.description}</p>
+                      <p style={{fontSize:10,color:"#555",margin:0}}>{fmtDate(t.date)} · {t.notes||""}</p>
+                    </div>
+                    <span style={{fontSize:13,fontWeight:700,color:"#ff6b7a",flexShrink:0}}>-{fmt(parseFloat(t.amount||0),selected.currency)}</span>
+                  </div>
+                ))}
+              </div>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 12px",background:"rgba(243,156,18,.08)",borderRadius:8,borderTop:"1px solid rgba(243,156,18,.2)"}}>
+                <span style={{fontSize:12,color:"#f39c12",fontWeight:700}}>Total costos iniciales</span>
+                <span style={{fontSize:14,fontWeight:800,color:"#f39c12"}}>-{fmt(totalComisiones,selected.currency)}</span>
+              </div>
+              {tasaEfectiva&&(
+                <p style={{fontSize:10,color:"#555",margin:"8px 0 0",lineHeight:1.5}}>
+                  ⚠️ Las comisiones incrementan el costo real del crédito. Sobre un capital de {fmt(principal,selected.currency)} a {diasVigencia} días, el costo efectivo total es aproximadamente <strong style={{color:"#f39c12"}}>{tasaEfectiva.toFixed(2)}% anual</strong> vs la tasa nominal de {tasaNominalAnual.toFixed(2)}%.
+                </p>
+              )}
+            </Card>
+          );
+        })()}
+
         <AmortizacionChart loan={selected} pagos={bd.map(p=>({date:p.date,saldoRestante:p.balanceAfter}))}/>
 
         <p style={{ fontSize:14, fontWeight:600, color:"#e0e0e0", marginBottom:10 }}>Historial de Pagos ({bd.length})</p>
