@@ -10421,9 +10421,13 @@ ${presupuestos.filter(p=>p.activo!==false).map(p=>`- ${p.nombre} | Límite: ${fm
 const AsisteFlotante = () => {
   const { user, toast } = useCtx();
   const t = useTheme();
+  const HIST_KEY = `fp_float_hist_${user?.id}`;
+  const BIENVENIDA_KEY = `fp_float_bienvenida_${user?.id}`;
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState("");
-  const [messages, setMessages] = useState([]);
+  const [messages, setMessages] = useState(() => {
+    try { return JSON.parse(localStorage.getItem(HIST_KEY)||"[]"); } catch { return []; }
+  });
   const [loading, setLoading] = useState(false);
   const [adjunto, setAdjunto] = useState(null);
   const [pendingTx, setPendingTx] = useState(null);
@@ -10441,8 +10445,71 @@ const AsisteFlotante = () => {
   const [presupuestos] = useData(user.id, "presupuestos");
   const [config] = useData(user.id, "config", {});
 
+  // Persistir historial en localStorage al cambiar mensajes
+  useEffect(() => {
+    try {
+      // guardar solo los últimos 40 mensajes para no llenar storage
+      const toSave = messages.map(m => ({
+        role: m.role,
+        content: typeof m.content === "string" ? m.content : m.display || "",
+        display: m.display,
+      })).slice(-40);
+      localStorage.setItem(HIST_KEY, JSON.stringify(toSave));
+    } catch {}
+  }, [messages]);
+
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior:"smooth" }); }, [messages, loading]);
   useEffect(() => { if (open) setTimeout(()=>inputRef.current?.focus(), 150); }, [open]);
+
+  // Mensaje de bienvenida inteligente — una vez al día al primer open
+  useEffect(() => {
+    if (!open || !ANTHROPIC_KEY) return;
+    const hoy = new Date().toISOString().split("T")[0];
+    const lastBienvenida = localStorage.getItem(BIENVENIDA_KEY)||"";
+    if (lastBienvenida === hoy) return; // ya se mostró hoy
+    if (messages.length > 0) return; // ya hay historial hoy
+    localStorage.setItem(BIENVENIDA_KEY, hoy);
+
+    // generar saludo con contexto financiero del día
+    const generarBienvenida = async () => {
+      setLoading(true);
+      try {
+        const now = new Date();
+        const mesKey = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}`;
+        const TC = getTc(user.id);
+        const ingrMes = transactions.filter(t=>t.date?.startsWith(mesKey)&&t.type==="income").reduce((s,t)=>s+parseFloat(t.amount||0),0);
+        const gastMes = transactions.filter(t=>t.date?.startsWith(mesKey)&&t.type==="expense").reduce((s,t)=>s+parseFloat(t.amount||0),0);
+        const flujo = ingrMes - gastMes;
+        const diasMes = now.getDate();
+
+        // próximo recurrente o pago de tarjeta
+        const tarjetasConDeuda = accounts.filter(a=>a.type==="credit"&&Math.abs(Math.min(parseFloat(a.balance||0),0))>=1&&a.fechaPago);
+        const proximoPago = tarjetasConDeuda.sort((a,b)=>new Date(a.fechaPago)-new Date(b.fechaPago))[0];
+        const diasAlPago = proximoPago ? Math.round((new Date(proximoPago.fechaPago+"T12:00:00")-now)/86400000) : null;
+
+        const prompt = `Eres el asistente financiero de ${user.name.split(" ")[0]}. 
+Genera un saludo matutino muy breve y amigable (máx 3 líneas) con este resumen del día:
+- Fecha: ${now.toLocaleDateString("es-MX",{weekday:"long",day:"numeric",month:"long"})}
+- Flujo del mes (día ${diasMes}): Ingresos ${fmt(ingrMes)} · Gastos ${fmt(gastMes)} · Neto ${flujo>=0?"+":""}${fmt(flujo)}
+${proximoPago ? `- Próximo pago tarjeta: ${proximoPago.name} en ${diasAlPago} días (${fmt(Math.abs(Math.min(parseFloat(proximoPago.balance||0),0)))})` : "- Sin pagos urgentes de tarjeta"}
+${goals.filter(g=>g.estado==="activa"||!g.estado).length>0 ? `- Metas activas: ${goals.filter(g=>g.estado==="activa"||!g.estado).length}` : ""}
+Sé directo, positivo y usa 1 emoji relevante. No repitas los números exactos si no aportan, solo menciona lo más relevante.`;
+
+        const res = await fetch("https://api.anthropic.com/v1/messages", {
+          method:"POST",
+          headers:{"Content-Type":"application/json","x-api-key":ANTHROPIC_KEY,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},
+          body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:200,messages:[{role:"user",content:prompt}]})
+        });
+        const data = await res.json();
+        const saludo = data.content?.[0]?.text || `Hola ${user.name.split(" ")[0]} 👋 ¿En qué te ayudo hoy?`;
+        setMessages([{role:"assistant",content:saludo}]);
+      } catch {
+        setMessages([{role:"assistant",content:`Hola ${user.name.split(" ")[0]} 👋 ¿En qué te ayudo hoy?`}]);
+      }
+      setLoading(false);
+    };
+    generarBienvenida();
+  }, [open]);
 
   const DEFAULT_CATS = {
     income:["Salario","Freelance","Negocio","Renta","Intereses","Dividendos","Otro"],
@@ -10579,7 +10646,7 @@ Metas: ${goals.map(g=>`${g.nombre||g.name}`).join(", ")||"ninguna"}`;
               <p style={{fontSize:10,color:"#555",margin:0}}>Escribe un gasto o pregunta sobre tus finanzas</p>
             </div>
             {messages.length>0 && (
-              <button onClick={()=>{setMessages([]);setPendingTx(null);}} title="Limpiar chat"
+              <button onClick={()=>{setMessages([]);setPendingTx(null);try{localStorage.removeItem(HIST_KEY);localStorage.removeItem(BIENVENIDA_KEY);}catch{}}} title="Limpiar historial"
                 style={{background:"none",border:"none",cursor:"pointer",color:"#444",fontSize:10,padding:4,borderRadius:6}}>
                 ↺
               </button>
@@ -10588,7 +10655,7 @@ Metas: ${goals.map(g=>`${g.nombre||g.name}`).join(", ")||"ninguna"}`;
 
           {/* Mensajes */}
           <div style={{flex:1,overflowY:"auto",padding:"12px 14px",display:"flex",flexDirection:"column",gap:10}}>
-            {messages.length===0 && (
+            {messages.length===0 && !loading && (
               <div>
                 <p style={{fontSize:12,color:"#555",textAlign:"center",marginBottom:12}}>Hola {user.name.split(" ")[0]} 👋 ¿En qué te ayudo?</p>
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
