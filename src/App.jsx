@@ -4588,18 +4588,40 @@ const Investments = () => {
         <Btn onClick={openNew}><Ic n="plus" size={16}/>Nueva Inversión</Btn>
       </div>
 
-      {investments.length>0 && (
-        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))", gap:10, marginBottom:18 }}>
-          <Card style={{ borderColor:"rgba(0,212,170,.2)" }}>
-            <p style={{ fontSize:11, color:"#666", textTransform:"uppercase", letterSpacing:.4, margin:"0 0 4px" }}>Portafolio MXN</p>
-            <p style={{ fontSize:20, fontWeight:700, color:"#00d4aa", margin:0 }}>{fmt(totalMXN,"MXN")}</p>
-          </Card>
-          <Card style={{ borderColor:"rgba(0,120,255,.2)" }}>
-            <p style={{ fontSize:11, color:"#666", textTransform:"uppercase", letterSpacing:.4, margin:"0 0 4px" }}>Portafolio USD</p>
-            <p style={{ fontSize:20, fontWeight:700, color:"#0078ff", margin:0 }}>{fmt(totalUSD,"USD")}</p>
-          </Card>
-        </div>
-      )}
+      {investments.length>0 && (()=>{
+        const invActivas = investments.filter(i=>i.estado!=="liquidada");
+        const totalAportado = invActivas.reduce((s,i)=>{
+          const st=calcInv(i);
+          const base=st.costoTitulos>0?st.costoTitulos:st.totalInvertido;
+          return s+(i.currency==="USD"?base*TC:base);
+        },0);
+        const totalValor = invActivas.reduce((s,i)=>{
+          const st=calcInv(i);
+          return s+(i.currency==="USD"?st.valorActual*TC:st.valorActual);
+        },0);
+        const rendTotal = totalValor - totalAportado;
+        const rendPctTotal = totalAportado>0?(rendTotal/totalAportado)*100:0;
+        const rendColor = rendTotal>=0?"#00d4aa":"#ff4757";
+        return (
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))", gap:10, marginBottom:18 }}>
+            <Card style={{ borderColor:"rgba(0,212,170,.2)" }}>
+              <p style={{ fontSize:11, color:"#666", textTransform:"uppercase", letterSpacing:.4, margin:"0 0 4px" }}>Portafolio total</p>
+              <p style={{ fontSize:20, fontWeight:700, color:"#00d4aa", margin:0 }}>{fmt(totalMXN,"MXN")}</p>
+              {totalUSD>0&&<p style={{fontSize:11,color:"#0078ff",margin:"2px 0 0"}}>+ {fmt(totalUSD,"USD")}</p>}
+            </Card>
+            <Card style={{ borderColor:`${rendColor}33` }}>
+              <p style={{ fontSize:11, color:"#666", textTransform:"uppercase", letterSpacing:.4, margin:"0 0 4px" }}>Rendimiento neto</p>
+              <p style={{ fontSize:20, fontWeight:700, color:rendColor, margin:0 }}>{rendTotal>=0?"+":""}{fmt(rendTotal,"MXN")}</p>
+              <p style={{fontSize:11,color:rendColor,margin:"2px 0 0",fontWeight:600}}>{rendPctTotal>=0?"+":""}{rendPctTotal.toFixed(2)}%</p>
+            </Card>
+            <Card>
+              <p style={{ fontSize:11, color:"#666", textTransform:"uppercase", letterSpacing:.4, margin:"0 0 4px" }}>Activas</p>
+              <p style={{ fontSize:20, fontWeight:700, color:"#ccc", margin:0 }}>{invActivas.length}</p>
+              {investments.filter(i=>i.estado==="liquidada").length>0&&<p style={{fontSize:11,color:"#444",margin:"2px 0 0"}}>{investments.filter(i=>i.estado==="liquidada").length} liquidada{investments.filter(i=>i.estado==="liquidada").length!==1?"s":""}</p>}
+            </Card>
+          </div>
+        );
+      })()}
 
       {investments.length===0 ? (
         <div style={{ textAlign:"center", padding:"50px 0", color:"#444" }}>
@@ -7702,15 +7724,63 @@ const Recurring = () => {
 
   const acctOpts = [{value:"",label:"— Sin vincular —"},...accounts.map(a=>({value:a.id,label:`${a.name} (${fmt(a.balance||0,a.currency)})`}))];
 
+  // KPIs de recurrentes
+  const activosTotal = recurrents.filter(r=>r.activo!==false);
+  const gastosMensuales = activosTotal.filter(r=>r.tipo==="expense").reduce((s,r)=>{
+    const m=parseFloat(r.monto)||0;
+    if(r.frecuencia==="mensual") return s+m;
+    if(r.frecuencia==="quincenal") return s+m*2;
+    if(r.frecuencia==="semanal") return s+m*4.33;
+    if(r.frecuencia==="anual") return s+m/12;
+    return s;
+  },0);
+  const ingresosMensuales = activosTotal.filter(r=>r.tipo==="income").reduce((s,r)=>{
+    const m=parseFloat(r.monto)||0;
+    if(r.frecuencia==="mensual") return s+m;
+    if(r.frecuencia==="quincenal") return s+m*2;
+    if(r.frecuencia==="semanal") return s+m*4.33;
+    if(r.frecuencia==="anual") return s+m/12;
+    return s;
+  },0);
+
   return (
     <div style={{animation:"fadeUp .25s ease"}}>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:22,flexWrap:"wrap",gap:10}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:10}}>
         <div>
           <h2 style={{fontSize:22,fontFamily:"'Syne',sans-serif",fontWeight:800,color:"#f0f0f0",margin:"0 0 3px"}}>Transacciones Recurrentes</h2>
           <p style={{fontSize:13,color:"#555",margin:0}}>Gastos e ingresos fijos — confirma con un clic cuando se generen</p>
         </div>
         <Btn onClick={()=>{setForm(emptyForm);setShowForm(true);}}><Ic n="plus" size={15}/>Nueva recurrente</Btn>
       </div>
+
+      {/* KPIs resumen mensual */}
+      {activosTotal.length>0&&(
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:10,marginBottom:18}}>
+          {gastosMensuales>0&&(
+            <Card style={{padding:"11px 14px",borderColor:"rgba(255,71,87,.2)"}}>
+              <p style={{fontSize:10,color:"#555",textTransform:"uppercase",letterSpacing:.4,margin:"0 0 3px"}}>Gastos fijos / mes</p>
+              <p style={{fontSize:18,fontWeight:800,color:"#ff4757",margin:0}}>-{fmt(gastosMensuales)}</p>
+              <p style={{fontSize:10,color:"#444",margin:"3px 0 0"}}>{activosTotal.filter(r=>r.tipo==="expense").length} recurrente{activosTotal.filter(r=>r.tipo==="expense").length!==1?"s":""}</p>
+            </Card>
+          )}
+          {ingresosMensuales>0&&(
+            <Card style={{padding:"11px 14px",borderColor:"rgba(0,212,170,.2)"}}>
+              <p style={{fontSize:10,color:"#555",textTransform:"uppercase",letterSpacing:.4,margin:"0 0 3px"}}>Ingresos fijos / mes</p>
+              <p style={{fontSize:18,fontWeight:800,color:"#00d4aa",margin:0}}>+{fmt(ingresosMensuales)}</p>
+              <p style={{fontSize:10,color:"#444",margin:"3px 0 0"}}>{activosTotal.filter(r=>r.tipo==="income").length} recurrente{activosTotal.filter(r=>r.tipo==="income").length!==1?"s":""}</p>
+            </Card>
+          )}
+          {(gastosMensuales>0||ingresosMensuales>0)&&(
+            <Card style={{padding:"11px 14px",borderColor:(ingresosMensuales-gastosMensuales)>=0?"rgba(0,212,170,.15)":"rgba(255,71,87,.15)"}}>
+              <p style={{fontSize:10,color:"#555",textTransform:"uppercase",letterSpacing:.4,margin:"0 0 3px"}}>Flujo fijo neto</p>
+              <p style={{fontSize:18,fontWeight:800,color:(ingresosMensuales-gastosMensuales)>=0?"#00d4aa":"#ff4757",margin:0}}>
+                {(ingresosMensuales-gastosMensuales)>=0?"+":""}{fmt(ingresosMensuales-gastosMensuales)}
+              </p>
+              <p style={{fontSize:10,color:"#444",margin:"3px 0 0"}}>{pendientes.length>0?`${pendientes.length} pendiente${pendientes.length!==1?"s":""}`:activosTotal.length+" activo"+(activosTotal.length!==1?"s":"")}</p>
+            </Card>
+          )}
+        </div>
+      )}
 
       {/* PENDIENTES */}
       {pendientes.length>0 && (
