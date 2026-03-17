@@ -365,7 +365,12 @@ const AuthScreen = ({ onLogin }) => {
               Finanz<span style={{ color:"#00d4aa" }}>app</span>
             </span>
           </div>
-          <p style={{ color:"#555", fontSize:13 }}>Control financiero personal</p>
+          <p style={{ color:"#555", fontSize:13, marginBottom:16 }}>Control financiero personal</p>
+          <div style={{display:"flex",justifyContent:"center",gap:16,flexWrap:"wrap"}}>
+            {["💳 Cuentas y tarjetas","📈 Inversiones y metas","📊 Estados financieros"].map(f=>(
+              <span key={f} style={{fontSize:11,color:"#444",display:"flex",alignItems:"center",gap:4}}>{f}</span>
+            ))}
+          </div>
         </div>
         <div style={{ background:"rgba(255,255,255,.04)", border:"1px solid rgba(255,255,255,.08)", borderRadius:18, padding:28 }}>
           <div style={{ display:"flex", gap:3, marginBottom:24, background:"rgba(255,255,255,.04)", borderRadius:9, padding:3 }}>
@@ -4426,63 +4431,81 @@ const Investments = () => {
             const color = typeColors[inv.type]||"#888";
             const rendColor = st.rendimiento>=0?"#00d4aa":"#ff4757";
             return (
-              <Card key={inv.id} onClick={()=>{setSelected(inv);setView("detail");setDetTab("aportaciones");}}>
-                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:12 }}>
-                  <div style={{ display:"flex", alignItems:"center", gap:9 }}>
-                    <div style={{ width:36, height:36, borderRadius:9, background:`${color}18`, border:`1px solid ${color}33`, display:"flex", alignItems:"center", justifyContent:"center" }}>
-                      <Ic n="investments" size={17} color={color}/>
+              <Card key={inv.id} onClick={()=>{setSelected(inv);setView("detail");setDetTab("aportaciones");}}
+                style={{cursor:"pointer",transition:"border-color .15s",borderColor:st.rendimiento>=0?"rgba(0,212,170,.15)":"rgba(255,71,87,.1)"}}
+                onMouseEnter={e=>e.currentTarget.style.borderColor=color}
+                onMouseLeave={e=>e.currentTarget.style.borderColor=st.rendimiento>=0?"rgba(0,212,170,.15)":"rgba(255,71,87,.1)"}>
+
+                {/* ── Header: nombre + acciones */}
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
+                  <div style={{display:"flex",alignItems:"center",gap:9,minWidth:0}}>
+                    <div style={{width:34,height:34,borderRadius:9,background:`${color}18`,border:`1px solid ${color}33`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                      <Ic n="investments" size={16} color={color}/>
                     </div>
-                    <div>
-                      <p style={{ fontSize:14, fontWeight:700, color:"#f0f0f0", margin:"0 0 2px" }}>{inv.name}</p>
-                      <p style={{ fontSize:11, color:"#666", margin:0 }}>{typeLabels[inv.type]}{inv.platform?` · ${inv.platform}`:""}</p>
+                    <div style={{minWidth:0}}>
+                      <p style={{fontSize:13,fontWeight:700,color:"#f0f0f0",margin:"0 0 1px",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{inv.name}</p>
+                      <div style={{display:"flex",gap:5,flexWrap:"wrap",alignItems:"center"}}>
+                        <span style={{fontSize:10,color:"#555"}}>{typeLabels[inv.type]}</span>
+                        {inv.platform&&<span style={{fontSize:10,color:"#444"}}>· {inv.platform}</span>}
+                        {inv.ticker&&<span style={{fontSize:10,color:color,fontWeight:600}}>{inv.ticker}</span>}
+                      </div>
                     </div>
                   </div>
                   <Actions onEdit={e=>openEdit(inv,e)} onDelete={e=>delInv(inv,e)}/>
                 </div>
 
+                {/* ── Valor actual grande + rendimiento % */}
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-end",marginBottom:8}}>
+                  <div>
+                    <p style={{fontSize:10,color:"#555",margin:"0 0 2px",textTransform:"uppercase",letterSpacing:.4}}>Valor actual</p>
+                    <p style={{fontSize:20,fontWeight:800,color,margin:0,lineHeight:1}}>{fmt(st.valorActual,inv.currency)}</p>
+                  </div>
+                  <div style={{textAlign:"right"}}>
+                    <div style={{display:"inline-flex",alignItems:"center",gap:4,padding:"3px 10px",borderRadius:20,
+                      background:st.rendimiento>=0?"rgba(0,212,170,.12)":"rgba(255,71,87,.12)",
+                      border:`1px solid ${st.rendimiento>=0?"rgba(0,212,170,.25)":"rgba(255,71,87,.25)"}`}}>
+                      <span style={{fontSize:13,fontWeight:800,color:rendColor}}>
+                        {st.rendPct>=0?"+":""}{st.rendPct.toFixed(2)}%
+                      </span>
+                    </div>
+                    <p style={{fontSize:10,color:rendColor,margin:"3px 0 0",fontWeight:600,textAlign:"right"}}>
+                      {st.rendimiento>=0?"+":""}{fmt(st.rendimiento,inv.currency)}
+                    </p>
+                  </div>
+                </div>
+
+                {/* ── Barra de progreso rendimiento */}
                 {(()=>{
-                  // Capital invertido: títulos×costo tiene prioridad; si no, suma de aportaciones
-                  const capitalDisplay = st.costoTitulos > 0
-                    ? st.costoTitulos
-                    : inv.montoUSD && inv.tcCompra
-                      ? parseFloat(inv.montoUSD)*parseFloat(inv.tcCompra)
-                      : st.totalInvertido;
-                  const capitalLabel = st.costoTitulos > 0
-                    ? `${(st.titulos||0).toLocaleString("es-MX",{maximumFractionDigits:8})} ${inv.type==="crypto"?"tok.":"tít."} × ${fmt(st.precioCosto,inv.currency)}`
-                    : "Capital invertido";
+                  const capital = st.costoTitulos>0?st.costoTitulos:inv.montoUSD&&inv.tcCompra?parseFloat(inv.montoUSD)*parseFloat(inv.tcCompra):st.totalInvertido;
+                  const pctBar = capital>0 ? Math.min(Math.abs(st.rendPct),50)/50*100 : 0;
                   return (
-                    <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:10 }}>
-                      <div>
-                        <p style={{ fontSize:11, color:"#555", margin:"0 0 2px" }}>Capital invertido</p>
-                        <p style={{ fontSize:14, fontWeight:600, color:"#888", margin:0 }}>{fmt(capitalDisplay,inv.currency)}</p>
-                        {st.costoTitulos > 0 && (
-                          <p style={{ fontSize:10, color:"#444", margin:"2px 0 0", fontStyle:"italic" }}>{capitalLabel}</p>
-                        )}
+                    <div style={{marginBottom:10}}>
+                      <div style={{height:4,borderRadius:2,background:"rgba(255,255,255,.05)",overflow:"hidden"}}>
+                        <div style={{height:"100%",width:`${pctBar}%`,background:`linear-gradient(90deg,${rendColor},${rendColor}88)`,borderRadius:2,transition:"width .4s"}}/>
                       </div>
-                      <div>
-                        <p style={{ fontSize:11, color:"#555", margin:"0 0 2px" }}>Valor actual</p>
-                        <p style={{ fontSize:14, fontWeight:700, color, margin:0 }}>{fmt(st.valorActual,inv.currency)}</p>
+                      <div style={{display:"flex",justifyContent:"space-between",marginTop:4}}>
+                        <span style={{fontSize:10,color:"#444"}}>Capital: {fmt(capital,inv.currency)}</span>
+                        <span style={{fontSize:10,color:"#444"}}>{st.diasActiva} días activa</span>
                       </div>
                     </div>
                   );
                 })()}
 
-                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"8px 10px", background:"rgba(255,255,255,.03)", borderRadius:8 }}>
-                  <span style={{ fontSize:12, color:"#555" }}>Rendimiento</span>
-                  <div style={{ textAlign:"right" }}>
-                    <span style={{ fontSize:13, fontWeight:700, color:rendColor }}>
-                      {st.rendimiento>=0?"+":""}{fmt(st.rendimiento,inv.currency)}
+                {/* ── Footer: vencimiento o estado */}
+                {inv.endDate ? (
+                  <div style={{display:"flex",alignItems:"center",gap:5,padding:"5px 9px",borderRadius:7,
+                    background:st.diasAlVenc!==null&&st.diasAlVenc<0?"rgba(255,71,87,.1)":st.diasAlVenc!==null&&st.diasAlVenc<=30?"rgba(243,156,18,.1)":"rgba(255,255,255,.03)",
+                    border:`1px solid ${st.diasAlVenc!==null&&st.diasAlVenc<0?"rgba(255,71,87,.2)":st.diasAlVenc!==null&&st.diasAlVenc<=30?"rgba(243,156,18,.2)":"rgba(255,255,255,.06)"}`}}>
+                    <span style={{fontSize:11,color:st.diasAlVenc!==null&&st.diasAlVenc<0?"#ff4757":st.diasAlVenc!==null&&st.diasAlVenc<=30?"#f39c12":"#555"}}>
+                      {st.diasAlVenc!==null&&st.diasAlVenc<0?`⚠️ Venció hace ${Math.abs(st.diasAlVenc)}d`:st.diasAlVenc===0?"⚠️ Vence hoy":`📆 Vence ${fmtDate(inv.endDate)}`}
                     </span>
-                    <span style={{ fontSize:11, color:rendColor, marginLeft:6 }}>
-                      ({st.rendPct>=0?"+":""}{st.rendPct.toFixed(2)}%)
-                    </span>
+                    {st.diasAlVenc!==null&&st.diasAlVenc>0&&<span style={{fontSize:10,color:"#444",marginLeft:"auto"}}>en {st.diasAlVenc}d</span>}
                   </div>
-                </div>
-
-                {inv.endDate && (
-                  <p style={{ margin:"8px 0 0", fontSize:11, color: st.diasAlVenc!==null&&st.diasAlVenc<0?"#ff4757":st.diasAlVenc!==null&&st.diasAlVenc<30?"#f39c12":"#555" }}>
-                    {st.diasAlVenc!==null&&st.diasAlVenc<0 ? `⚠️ Venció hace ${Math.abs(st.diasAlVenc)} días` : st.diasAlVenc===0 ? "⚠️ Vence hoy" : `📆 Vence: ${fmtDate(inv.endDate)}`}
-                  </p>
+                ) : (
+                  <div style={{display:"flex",alignItems:"center",gap:5}}>
+                    <span style={{width:6,height:6,borderRadius:"50%",background:"#00d4aa",display:"inline-block",boxShadow:"0 0 6px #00d4aa"}}/>
+                    <span style={{fontSize:10,color:"#444"}}>Activa · sin fecha de vencimiento</span>
+                  </div>
                 )}
               </Card>
             );
@@ -5473,6 +5496,16 @@ const Reports = ({ initialTab="balance" }) => {
       {/* ══ ESTADO DE RESULTADOS */}
       {tab==="resultados" && (
         <div style={{display:"flex",flexDirection:"column",gap:14}}>
+          {/* Sin datos en el período */}
+          {txsRango.length===0 && (
+            <div style={{display:"flex",alignItems:"center",gap:12,padding:"14px 18px",background:"rgba(243,156,18,.07)",border:"1px solid rgba(243,156,18,.2)",borderRadius:12}}>
+              <Ic n="warn" size={18} color="#f39c12"/>
+              <div>
+                <p style={{fontSize:13,fontWeight:600,color:"#f5a623",margin:"0 0 2px"}}>Sin transacciones en este período</p>
+                <p style={{fontSize:11,color:"#666",margin:0}}>Cambia el período o registra movimientos para ver el Estado de Resultados</p>
+              </div>
+            </div>
+          )}
           {/* KPIs */}
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:10}}>
             {[
@@ -5636,7 +5669,7 @@ const Reports = ({ initialTab="balance" }) => {
           {/* Reconciliación de efectivo */}
           <Card style={{borderColor:"rgba(59,130,246,.25)",background:"linear-gradient(135deg,rgba(59,130,246,.05) 0%,transparent 60%)"}}>
             <p style={{fontSize:12,fontWeight:700,color:"#3b82f6",textTransform:"uppercase",letterSpacing:.5,margin:"0 0 14px"}}>
-              Reconciliación de Efectivo
+              Reconciliación de Efectivo <span style={{fontSize:10,color:"#444",fontWeight:400}}>(estimada)</span>
             </p>
             <p style={{fontSize:11,color:"#555",margin:"0 0 14px",lineHeight:1.5}}>
               Verifica que el saldo inicial + los movimientos del período = el efectivo que tienes hoy en cuentas.
@@ -5645,6 +5678,7 @@ const Reports = ({ initialTab="balance" }) => {
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"9px 14px",background:"rgba(255,255,255,.03)",borderRadius:8,marginBottom:6}}>
               <div>
                 <p style={{fontSize:13,color:"#888",margin:0}}>Saldo inicial de efectivo</p>
+                <p style={{fontSize:10,color:"#444",margin:"2px 0 0"}}>Calculado como: saldo actual − flujo del período</p>
                 <p style={{fontSize:11,color:"#555",margin:"2px 0 0"}}>Estimado: saldo actual menos movimientos del período</p>
               </div>
               <span style={{fontSize:15,fontWeight:700,color:"#ccc",fontVariantNumeric:"tabular-nums"}}>{fmt(flujo.saldoInicialEfectivo)}</span>
