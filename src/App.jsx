@@ -1755,13 +1755,55 @@ const LineChartPatrimonio = ({ snapshots, onVerTodo }) => {
             <rect key={i} x={pts[i][0]-12} y={0} width={24} height={H+10} fill="transparent" onMouseEnter={()=>setHover(i)} style={{cursor:"crosshair"}}/>
           ))}
         </svg>
-        {hover!==null && vis[hover] && (
-          <div style={{position:"absolute",top:0,left:pts[hover][0]/W*100>65?"auto":`${pts[hover][0]/W*100}%`,right:pts[hover][0]/W*100>65?`${(1-pts[hover][0]/W)*100}%`:"auto",transform:"translateY(-2px)",background:"#1e1e3a",border:"1px solid rgba(255,255,255,.1)",borderRadius:8,padding:"6px 10px",pointerEvents:"none",zIndex:10,minWidth:140}}>
-            <p style={{fontSize:10,color:"#777",margin:"0 0 2px"}}>{vis[hover].fecha}</p>
-            <p style={{fontSize:13,fontWeight:800,color,margin:"0 0 2px"}}>{fmtFull(vis[hover].patrimonioNeto||0)}</p>
-            {vis[hover].liquidezTotal!==undefined && <p style={{fontSize:10,color:"#555",margin:0}}>Liquidez {fmtFull(vis[hover].liquidezTotal||0)}</p>}
-          </div>
-        )}
+        {hover!==null && vis[hover] && (()=>{
+          const snap = vis[hover];
+          const prev = hover>0 ? vis[hover-1] : null;
+          const varVsPrev = prev ? (snap.patrimonioNeto||0)-(prev.patrimonioNeto||0) : null;
+          const leftPct = pts[hover][0]/W*100;
+          return (
+            <div style={{
+              position:"absolute",top:-4,
+              left:leftPct>60?"auto":`calc(${leftPct}% + 10px)`,
+              right:leftPct>60?`calc(${(1-pts[hover][0]/W)*100}% + 10px)`:"auto",
+              background:"rgba(18,22,36,.97)",border:"1px solid rgba(255,255,255,.12)",
+              borderRadius:10,padding:"10px 13px",pointerEvents:"none",zIndex:10,minWidth:185,
+              boxShadow:"0 8px 24px rgba(0,0,0,.5)"
+            }}>
+              <p style={{fontSize:10,color:"#555",margin:"0 0 7px",fontWeight:600,textTransform:"uppercase",letterSpacing:.5}}>
+                {new Date(snap.fecha+"T12:00:00").toLocaleDateString("es-MX",{day:"numeric",month:"long",year:"numeric"})}
+              </p>
+              <div style={{marginBottom:7,paddingBottom:7,borderBottom:"1px solid rgba(255,255,255,.06)"}}>
+                <p style={{fontSize:10,color:"#555",margin:"0 0 1px"}}>Patrimonio Neto</p>
+                <p style={{fontSize:17,fontWeight:800,color,margin:0,lineHeight:1}}>{fmtFull(snap.patrimonioNeto||0)}</p>
+                {varVsPrev!==null && (
+                  <p style={{fontSize:10,color:varVsPrev>=0?"#00d4aa":"#ff4757",margin:"2px 0 0",fontWeight:600}}>
+                    {varVsPrev>=0?"▲":"▼"} {fmtFull(Math.abs(varVsPrev))} vs anterior
+                  </p>
+                )}
+              </div>
+              <div style={{display:"flex",flexDirection:"column",gap:4}}>
+                {snap.liquidezTotal!==undefined && (
+                  <div style={{display:"flex",justifyContent:"space-between",gap:12}}>
+                    <span style={{fontSize:11,color:"#555"}}>💧 Liquidez</span>
+                    <span style={{fontSize:11,color:"#3b82f6",fontWeight:600}}>{fmtFull(snap.liquidezTotal||0)}</span>
+                  </div>
+                )}
+                {snap.inversionesMXN!==undefined && snap.inversionesMXN>0 && (
+                  <div style={{display:"flex",justifyContent:"space-between",gap:12}}>
+                    <span style={{fontSize:11,color:"#555"}}>📈 Inversiones</span>
+                    <span style={{fontSize:11,color:"#f39c12",fontWeight:600}}>{fmtFull(snap.inversionesMXN||0)}</span>
+                  </div>
+                )}
+                {snap.deudaTotal!==undefined && snap.deudaTotal>0 && (
+                  <div style={{display:"flex",justifyContent:"space-between",gap:12}}>
+                    <span style={{fontSize:11,color:"#555"}}>📉 Deuda</span>
+                    <span style={{fontSize:11,color:"#ff4757",fontWeight:600}}>-{fmtFull(snap.deudaTotal||0)}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })()}
       </div>
       <div style={{display:"flex",justifyContent:"space-between",marginTop:4}}>
         <span style={{fontSize:9,color:"#333"}}>{vis[0]?.fecha}</span>
@@ -2221,7 +2263,7 @@ const Dashboard = () => {
         </Card>
 
         {/* Liquidez inmediata */}
-        <Card onClick={()=>navigate("reports:balance")} style={{cursor:"pointer",transition:"opacity .2s"}} onMouseEnter={e=>e.currentTarget.style.opacity=".85"} onMouseLeave={e=>e.currentTarget.style.opacity="1"}>
+        <Card onClick={()=>navigate("reports:flujo")} style={{cursor:"pointer",transition:"opacity .2s"}} onMouseEnter={e=>e.currentTarget.style.opacity=".85"} onMouseLeave={e=>e.currentTarget.style.opacity="1"}>
           <p style={{fontSize:10,color:"#555",textTransform:"uppercase",letterSpacing:.5,margin:"0 0 6px",fontWeight:700}}>Liquidez Disponible</p>
           <p style={{fontSize:22,fontWeight:800,color:"#3b82f6",margin:"0 0 6px"}}>{fmt(liquidezTotal)}</p>
           <div style={{display:"flex",flexDirection:"column",gap:3}}>
