@@ -3712,6 +3712,13 @@ const Loans = () => {
     const diasVenc = loan.dueDate ? Math.round((new Date(loan.dueDate+"T12:00:00")-new Date())/86400000) : null;
     const vencido = diasVenc!==null && diasVenc<0;
     const urgente = diasVenc!==null && !vencido && diasVenc<=30;
+    // Días desde último pago
+    const ultPago = (loan.payments||[]).sort((a,b)=>new Date(b.date)-new Date(a.date))[0];
+    const diasSinPago = ultPago
+      ? Math.round((new Date()-new Date(ultPago.date+"T12:00:00"))/86400000)
+      : Math.round((new Date()-new Date(loan.startDate+"T12:00:00"))/86400000);
+    // Alerta interés alto: si supera 5% del capital
+    const interesAlto = st.pendingInterest > parseFloat(loan.principal)*0.05;
     return (
       <Card onClick={()=>{setSelectedId(loan.id);setView("detail");}}
         style={{cursor:"pointer",transition:"border-color .15s",borderColor:vencido?"rgba(255,71,87,.3)":isGiven?"rgba(0,120,255,.15)":"rgba(155,89,182,.15)"}}
@@ -3751,6 +3758,27 @@ const Loans = () => {
             </div>
           </div>
         )}
+        {/* Interés acumulado */}
+        {!st.isPaid && st.pendingInterest>0 && (
+          <div style={{
+            marginBottom:8,padding:"7px 10px",borderRadius:8,
+            background:interesAlto?"rgba(255,71,87,.08)":"rgba(243,156,18,.07)",
+            border:`1px solid ${interesAlto?"rgba(255,71,87,.2)":"rgba(243,156,18,.2)"}`
+          }}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <span style={{fontSize:10,color:interesAlto?"#ff6b7a":"#f39c12",fontWeight:600}}>
+                {interesAlto?"⚠️":"💰"} Interés acumulado{isGiven?" a cobrar":" a pagar"}
+              </span>
+              <span style={{fontSize:12,fontWeight:800,color:interesAlto?"#ff6b7a":"#f39c12"}}>
+                {isGiven?"+":"-"}{fmt(st.pendingInterest,loan.currency)}
+              </span>
+            </div>
+            <div style={{display:"flex",justifyContent:"space-between",marginTop:2}}>
+              <span style={{fontSize:10,color:"#555"}}>{diasSinPago}d desde {ultPago?"último pago":"inicio"}</span>
+              {interesAlto&&<span style={{fontSize:10,color:"#ff6b7a",fontWeight:600}}>Interés alto — considera cobrar/pagar</span>}
+            </div>
+          </div>
+        )}
         {loan.dueDate&&(
           <div style={{padding:"5px 9px",borderRadius:7,
             background:vencido?"rgba(255,71,87,.1)":urgente?"rgba(243,156,18,.1)":"rgba(255,255,255,.03)",
@@ -3765,8 +3793,10 @@ const Loans = () => {
   };
 
   // KPIs de préstamos
-  const totalPorCobrar = activeLoans.filter(l=>l.type==="given").reduce((s,l)=>s+calcState(l).currentBalance,0);
-  const totalPorPagar  = activeLoans.filter(l=>l.type==="received").reduce((s,l)=>s+calcState(l).totalOwed,0);
+  const totalPorCobrar      = activeLoans.filter(l=>l.type==="given").reduce((s,l)=>s+calcState(l).currentBalance,0);
+  const totalPorPagar       = activeLoans.filter(l=>l.type==="received").reduce((s,l)=>s+calcState(l).totalOwed,0);
+  const interesPorCobrar    = activeLoans.filter(l=>l.type==="given").reduce((s,l)=>s+calcState(l).pendingInterest,0);
+  const interesPorPagar     = activeLoans.filter(l=>l.type==="received").reduce((s,l)=>s+calcState(l).pendingInterest,0);
   const interesEsteMes = activeLoans.filter(l=>l.type==="received").reduce((s,l)=>{
     const dr=(parseFloat(l.rate)||0)/100/(l.rateType==="annual"?365:30);
     return s + calcState(l).currentBalance * dr * 30;
@@ -3798,9 +3828,23 @@ const Loans = () => {
               <p style={{fontSize:10,color:"#444",margin:"3px 0 0"}}>{activeLoans.filter(l=>l.type==="received").length} préstamo{activeLoans.filter(l=>l.type==="received").length!==1?"s":""} activo{activeLoans.filter(l=>l.type==="received").length!==1?"s":""}</p>
             </Card>
           )}
+          {interesPorCobrar>0&&(
+            <Card style={{padding:"12px 14px",borderColor:"rgba(0,120,255,.15)",background:"rgba(0,120,255,.03)"}}>
+              <p style={{fontSize:10,color:"#0078ff",textTransform:"uppercase",letterSpacing:.4,margin:"0 0 4px"}}>Interés acumulado a cobrar</p>
+              <p style={{fontSize:18,fontWeight:800,color:"#0078ff",margin:0}}>+{fmt(interesPorCobrar)}</p>
+              <p style={{fontSize:10,color:"#444",margin:"3px 0 0"}}>A la fecha de hoy</p>
+            </Card>
+          )}
+          {interesPorPagar>0&&(
+            <Card style={{padding:"12px 14px",borderColor:"rgba(243,156,18,.2)",background:"rgba(243,156,18,.03)"}}>
+              <p style={{fontSize:10,color:"#f39c12",textTransform:"uppercase",letterSpacing:.4,margin:"0 0 4px"}}>Interés acumulado a pagar</p>
+              <p style={{fontSize:18,fontWeight:800,color:"#f39c12",margin:0}}>-{fmt(interesPorPagar)}</p>
+              <p style={{fontSize:10,color:"#444",margin:"3px 0 0"}}>A la fecha de hoy</p>
+            </Card>
+          )}
           {interesEsteMes>0&&(
             <Card style={{padding:"12px 14px",borderColor:"rgba(243,156,18,.2)"}}>
-              <p style={{fontSize:10,color:"#555",textTransform:"uppercase",letterSpacing:.4,margin:"0 0 4px"}}>Interés est. este mes</p>
+              <p style={{fontSize:10,color:"#555",textTransform:"uppercase",letterSpacing:.4,margin:"0 0 4px"}}>Interés est. próx. 30d</p>
               <p style={{fontSize:18,fontWeight:800,color:"#f39c12",margin:0}}>{fmt(interesEsteMes)}</p>
               <p style={{fontSize:10,color:"#444",margin:"3px 0 0"}}>A pagar aprox.</p>
             </Card>
