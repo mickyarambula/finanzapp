@@ -3686,43 +3686,113 @@ const Loans = () => {
   const LoanCard = ({ loan }) => {
     const st=calcState(loan); const isGiven=loan.type==="given";
     const pct=Math.min(100,((parseFloat(loan.principal)-st.currentBalance)/parseFloat(loan.principal))*100);
+    const diasVenc = loan.dueDate ? Math.round((new Date(loan.dueDate+"T12:00:00")-new Date())/86400000) : null;
+    const vencido = diasVenc!==null && diasVenc<0;
+    const urgente = diasVenc!==null && !vencido && diasVenc<=30;
     return (
-      <Card onClick={()=>{setSelectedId(loan.id);setView("detail");}}>
-        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:10 }}>
-          <div>
-            <p style={{ fontSize:14, fontWeight:700, color:"#f0f0f0", margin:"0 0 4px" }}>{loan.name}</p>
-            <div style={{ display:"flex", gap:5 }}>
-              <Badge label={isGiven?"Prestado":"Recibido"} color={isGiven?"#0078ff":"#9b59b6"}/>
+      <Card onClick={()=>{setSelectedId(loan.id);setView("detail");}}
+        style={{cursor:"pointer",transition:"border-color .15s",borderColor:vencido?"rgba(255,71,87,.3)":isGiven?"rgba(0,120,255,.15)":"rgba(155,89,182,.15)"}}
+        onMouseEnter={e=>e.currentTarget.style.borderColor=isGiven?"rgba(0,120,255,.4)":"rgba(155,89,182,.4)"}
+        onMouseLeave={e=>e.currentTarget.style.borderColor=vencido?"rgba(255,71,87,.3)":isGiven?"rgba(0,120,255,.15)":"rgba(155,89,182,.15)"}>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:8 }}>
+          <div style={{flex:1,minWidth:0}}>
+            <p style={{ fontSize:13, fontWeight:700, color:"#f0f0f0", margin:"0 0 4px", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{loan.name}</p>
+            <div style={{ display:"flex", gap:5, flexWrap:"wrap" }}>
+              <Badge label={isGiven?"💸 Prestado":"🤝 Recibido"} color={isGiven?"#0078ff":"#9b59b6"}/>
               <Badge label={loan.currency} color="#555"/>
+              {loan.rate>0&&<Badge label={`${loan.rate}% ${loan.rateType==="annual"?"anual":"mensual"}`} color="#444"/>}
             </div>
           </div>
-          <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-end", gap:6 }}>
-            <Actions onEdit={e=>openEditLoan(loan,e)} onDelete={e=>delLoan(loan,e)}/>
-            <p style={{ fontSize:15, fontWeight:700, color:st.isPaid?"#00d4aa":"#ff6b6b", margin:"0 0 1px" }}>{st.isPaid?fmt(st.totalPaid,loan.currency):fmt(st.totalOwed,loan.currency)}</p>
-            <p style={{ fontSize:11, color:"#555", margin:0 }}>{st.isPaid?"pagado total":"adeudado"}</p>
+          <Actions onEdit={e=>openEditLoan(loan,e)} onDelete={e=>delLoan(loan,e)}/>
+        </div>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-end",marginBottom:8}}>
+          <div>
+            <p style={{fontSize:10,color:"#555",margin:"0 0 1px"}}>Saldo pendiente</p>
+            <p style={{ fontSize:19, fontWeight:800, color:st.isPaid?"#00d4aa":isGiven?"#0078ff":"#ff6b6b", margin:0,lineHeight:1 }}>
+              {st.isPaid?"✓ Liquidado":fmt(st.currentBalance,loan.currency)}
+            </p>
+          </div>
+          <div style={{textAlign:"right"}}>
+            <p style={{fontSize:10,color:"#555",margin:"0 0 1px"}}>Capital original</p>
+            <p style={{fontSize:12,color:"#666",margin:0}}>{fmt(parseFloat(loan.principal),loan.currency)}</p>
           </div>
         </div>
-        <div style={{ height:4, background:"rgba(255,255,255,.05)", borderRadius:2, overflow:"hidden", marginBottom:7 }}>
-          <div style={{ height:"100%", width:`${pct}%`, background:"linear-gradient(90deg,#00d4aa,#00a884)", borderRadius:2 }}/>
-        </div>
-        <div style={{ display:"flex", justifyContent:"space-between" }}>
-          <span style={{ fontSize:11, color:"#555" }}>Capital: {fmt(loan.principal,loan.currency)}</span>
-          <span style={{ fontSize:11, color:"#555" }}>{loan.rate}% {loan.rateType==="annual"?"anual":"mensual"}</span>
-        </div>
-        {loan.dueDate&&<p style={{ margin:"5px 0 0", fontSize:11, color:new Date(loan.dueDate)<new Date()?"#ff4757":"#555" }}>{new Date(loan.dueDate)<new Date()?"⚠️ Vencido:":"Vence:"} {fmtDate(loan.dueDate)}</p>}
+        {!st.isPaid&&(
+          <div style={{marginBottom:8}}>
+            <div style={{ height:5, background:"rgba(255,255,255,.05)", borderRadius:3, overflow:"hidden" }}>
+              <div style={{ height:"100%", width:`${pct}%`, background:`linear-gradient(90deg,${isGiven?"#0078ff":"#9b59b6"},${isGiven?"#3b82f6":"#a855f7"})`, borderRadius:3,transition:"width .4s" }}/>
+            </div>
+            <div style={{display:"flex",justifyContent:"space-between",marginTop:3}}>
+              <span style={{fontSize:9,color:"#444"}}>{pct.toFixed(1)}% pagado</span>
+              <span style={{fontSize:9,color:"#444"}}>{fmt(st.currentBalance,loan.currency)} restante</span>
+            </div>
+          </div>
+        )}
+        {loan.dueDate&&(
+          <div style={{padding:"5px 9px",borderRadius:7,
+            background:vencido?"rgba(255,71,87,.1)":urgente?"rgba(243,156,18,.1)":"rgba(255,255,255,.03)",
+            border:`1px solid ${vencido?"rgba(255,71,87,.2)":urgente?"rgba(243,156,18,.2)":"rgba(255,255,255,.06)"}`}}>
+            <span style={{fontSize:10,color:vencido?"#ff4757":urgente?"#f39c12":"#555"}}>
+              {vencido?`⚠️ Vencido hace ${Math.abs(diasVenc)}d`:diasVenc===0?"⚠️ Vence hoy":`📅 Vence ${fmtDate(loan.dueDate)} (${diasVenc}d)`}
+            </span>
+          </div>
+        )}
       </Card>
     );
   };
 
+  // KPIs de préstamos
+  const totalPorCobrar = activeLoans.filter(l=>l.type==="given").reduce((s,l)=>s+calcState(l).currentBalance,0);
+  const totalPorPagar  = activeLoans.filter(l=>l.type==="received").reduce((s,l)=>s+calcState(l).totalOwed,0);
+  const interesEsteMes = activeLoans.filter(l=>l.type==="received").reduce((s,l)=>{
+    const dr=(parseFloat(l.rate)||0)/100/(l.rateType==="annual"?365:30);
+    return s + calcState(l).currentBalance * dr * 30;
+  },0);
+
   return (
     <div>
-      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:18, flexWrap:"wrap", gap:10 }}>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:14, flexWrap:"wrap", gap:10 }}>
         <div>
           <h2 style={{ fontSize:21, fontWeight:700, color:"#f0f0f0", marginBottom:3 }}>Préstamos</h2>
           <p style={{ fontSize:13, color:"#555" }}>{activeLoans.length} activo{activeLoans.length!==1?"s":""} · {paidLoans.length} liquidado{paidLoans.length!==1?"s":""}</p>
         </div>
         <Btn onClick={openNewLoan}><Ic n="plus" size={16}/>Nuevo Préstamo</Btn>
       </div>
+      {/* KPIs resumen */}
+      {activeLoans.length>0&&(
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",gap:10,marginBottom:18}}>
+          {totalPorCobrar>0&&(
+            <Card style={{padding:"12px 14px",borderColor:"rgba(0,120,255,.2)"}}>
+              <p style={{fontSize:10,color:"#555",textTransform:"uppercase",letterSpacing:.4,margin:"0 0 4px"}}>Por cobrar</p>
+              <p style={{fontSize:18,fontWeight:800,color:"#0078ff",margin:0}}>{fmt(totalPorCobrar)}</p>
+              <p style={{fontSize:10,color:"#444",margin:"3px 0 0"}}>{activeLoans.filter(l=>l.type==="given").length} préstamo{activeLoans.filter(l=>l.type==="given").length!==1?"s":""} activo{activeLoans.filter(l=>l.type==="given").length!==1?"s":""}</p>
+            </Card>
+          )}
+          {totalPorPagar>0&&(
+            <Card style={{padding:"12px 14px",borderColor:"rgba(155,89,182,.2)"}}>
+              <p style={{fontSize:10,color:"#555",textTransform:"uppercase",letterSpacing:.4,margin:"0 0 4px"}}>Por pagar</p>
+              <p style={{fontSize:18,fontWeight:800,color:"#9b59b6",margin:0}}>{fmt(totalPorPagar)}</p>
+              <p style={{fontSize:10,color:"#444",margin:"3px 0 0"}}>{activeLoans.filter(l=>l.type==="received").length} préstamo{activeLoans.filter(l=>l.type==="received").length!==1?"s":""} activo{activeLoans.filter(l=>l.type==="received").length!==1?"s":""}</p>
+            </Card>
+          )}
+          {interesEsteMes>0&&(
+            <Card style={{padding:"12px 14px",borderColor:"rgba(243,156,18,.2)"}}>
+              <p style={{fontSize:10,color:"#555",textTransform:"uppercase",letterSpacing:.4,margin:"0 0 4px"}}>Interés est. este mes</p>
+              <p style={{fontSize:18,fontWeight:800,color:"#f39c12",margin:0}}>{fmt(interesEsteMes)}</p>
+              <p style={{fontSize:10,color:"#444",margin:"3px 0 0"}}>A pagar aprox.</p>
+            </Card>
+          )}
+          {activeLoans.some(l=>l.dueDate&&new Date(l.dueDate)<new Date())&&(
+            <Card style={{padding:"12px 14px",borderColor:"rgba(255,71,87,.25)",background:"rgba(255,71,87,.05)"}}>
+              <p style={{fontSize:10,color:"#555",textTransform:"uppercase",letterSpacing:.4,margin:"0 0 4px"}}>⚠️ Vencidos</p>
+              <p style={{fontSize:18,fontWeight:800,color:"#ff4757",margin:0}}>
+                {activeLoans.filter(l=>l.dueDate&&new Date(l.dueDate)<new Date()).length}
+              </p>
+              <p style={{fontSize:10,color:"#555",margin:"3px 0 0"}}>Requieren atención</p>
+            </Card>
+          )}
+        </div>
+      )}
       {loans.length===0 ? (
         <div style={{ textAlign:"center", padding:"50px 0", color:"#444" }}>
           <Ic n="loans" size={44} color="#333"/>
