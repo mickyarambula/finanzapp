@@ -2135,7 +2135,7 @@ const Dashboard = () => {
       {/* ── KPIs PRINCIPALES */}
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:10}}>
         {/* Patrimonio Neto */}
-        <Card style={{borderColor:"rgba(0,212,170,.2)",background:"linear-gradient(135deg,rgba(0,212,170,.06) 0%,transparent 70%)"}}>
+        <Card onClick={()=>navigate("patrimonio")} style={{borderColor:"rgba(0,212,170,.2)",background:"linear-gradient(135deg,rgba(0,212,170,.06) 0%,transparent 70%)",cursor:"pointer",transition:"border-color .2s"}} onMouseEnter={e=>e.currentTarget.style.borderColor="rgba(0,212,170,.5)"} onMouseLeave={e=>e.currentTarget.style.borderColor="rgba(0,212,170,.2)"}>
           <p style={{fontSize:10,color:"#555",textTransform:"uppercase",letterSpacing:.5,margin:"0 0 6px",fontWeight:700}}>Patrimonio Neto</p>
           <p style={{fontSize:22,fontWeight:800,color:"#00d4aa",margin:"0 0 6px"}}>{fmt(patrimonioNeto)}</p>
           <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
@@ -2145,7 +2145,7 @@ const Dashboard = () => {
         </Card>
 
         {/* Flujo del mes */}
-        <Card style={{borderColor:flujoMes>=0?"rgba(0,212,170,.2)":"rgba(255,71,87,.2)"}}>
+        <Card onClick={()=>navigate("transactions")} style={{borderColor:flujoMes>=0?"rgba(0,212,170,.2)":"rgba(255,71,87,.2)",cursor:"pointer",transition:"opacity .2s"}} onMouseEnter={e=>e.currentTarget.style.opacity=".85"} onMouseLeave={e=>e.currentTarget.style.opacity="1"}>
           <p style={{fontSize:10,color:"#555",textTransform:"uppercase",letterSpacing:.5,margin:"0 0 6px",fontWeight:700}}>
             Flujo — {now.toLocaleDateString("es-MX",{month:"long"})}
           </p>
@@ -2160,7 +2160,7 @@ const Dashboard = () => {
         </Card>
 
         {/* Score de salud */}
-        <Card>
+        <Card onClick={()=>navigate("reports")} style={{cursor:"pointer",transition:"opacity .2s"}} onMouseEnter={e=>e.currentTarget.style.opacity=".85"} onMouseLeave={e=>e.currentTarget.style.opacity="1"}>
           <p style={{fontSize:10,color:"#555",textTransform:"uppercase",letterSpacing:.5,margin:"0 0 6px",fontWeight:700}}>Salud Financiera</p>
           <div style={{display:"flex",alignItems:"center",gap:10}}>
             <div style={{position:"relative",width:52,height:52,flexShrink:0}}>
@@ -2182,7 +2182,7 @@ const Dashboard = () => {
         </Card>
 
         {/* Liquidez inmediata */}
-        <Card>
+        <Card onClick={()=>navigate("accounts")} style={{cursor:"pointer",transition:"opacity .2s"}} onMouseEnter={e=>e.currentTarget.style.opacity=".85"} onMouseLeave={e=>e.currentTarget.style.opacity="1"}>
           <p style={{fontSize:10,color:"#555",textTransform:"uppercase",letterSpacing:.5,margin:"0 0 6px",fontWeight:700}}>Liquidez Disponible</p>
           <p style={{fontSize:22,fontWeight:800,color:"#3b82f6",margin:"0 0 6px"}}>{fmt(liquidezTotal)}</p>
           <div style={{display:"flex",flexDirection:"column",gap:3}}>
@@ -2250,7 +2250,7 @@ const Dashboard = () => {
       </div>
 
       {/* ── GRÁFICA INGRESOS VS GASTOS */}
-      <Card>
+      <Card onClick={()=>navigate("reports")} style={{cursor:"pointer",transition:"opacity .2s"}} onMouseEnter={e=>e.currentTarget.style.opacity=".9"} onMouseLeave={e=>e.currentTarget.style.opacity="1"}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:8}}>
           <p style={{fontSize:13,fontWeight:700,color:"#ccc",margin:0}}>Ingresos vs Gastos — Últimos 6 meses</p>
           <div style={{display:"flex",gap:12}}>
@@ -2277,13 +2277,13 @@ const Dashboard = () => {
 
         {/* ── METAS + PRESUPUESTOS COMPACTO */}
         {(metasConRitmo.length>0||presRiesgo.length>0) && (
-          <Card>
+          <Card onClick={()=>navigate(metasConRitmo.length>0?"goals":"presupuestos")} style={{cursor:"pointer",transition:"opacity .2s"}} onMouseEnter={e=>e.currentTarget.style.opacity=".9"} onMouseLeave={e=>e.currentTarget.style.opacity="1"}>
             {/* Metas */}
             {metasConRitmo.length>0 && (
               <div style={{marginBottom:presRiesgo.length>0?14:0}}>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
                   <p style={{fontSize:12,fontWeight:700,color:"#ccc",margin:0}}>Metas de ahorro</p>
-                  <button onClick={()=>navigate("goals")} style={{fontSize:10,color:"#00d4aa",background:"none",border:"none",cursor:"pointer",padding:0}}>Ver todas →</button>
+                  <button onClick={e=>{e.stopPropagation();navigate("goals");}} style={{fontSize:10,color:"#00d4aa",background:"none",border:"none",cursor:"pointer",padding:0}}>Ver todas →</button>
                 </div>
                 <div style={{display:"flex",flexDirection:"column",gap:8}}>
                   {metasConRitmo.slice(0,3).map(g=>(
@@ -2305,7 +2305,7 @@ const Dashboard = () => {
               <div>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
                   <p style={{fontSize:12,fontWeight:700,color:"#ccc",margin:0}}>Presupuestos</p>
-                  <button onClick={()=>navigate("presupuestos")} style={{fontSize:10,color:"#00d4aa",background:"none",border:"none",cursor:"pointer",padding:0}}>Ver todos →</button>
+                  <button onClick={e=>{e.stopPropagation();navigate("presupuestos");}} style={{fontSize:10,color:"#00d4aa",background:"none",border:"none",cursor:"pointer",padding:0}}>Ver todos →</button>
                 </div>
                 <div style={{display:"flex",flexDirection:"column",gap:8}}>
                   {presRiesgo.slice(0,3).map(p=>{
@@ -2329,15 +2329,18 @@ const Dashboard = () => {
         )}
 
         {/* ── ÚLTIMOS MOVIMIENTOS */}
-        <Card>
-          <p style={{fontSize:13,fontWeight:700,color:"#ccc",margin:"0 0 12px"}}>Últimos movimientos</p>
+        <Card onClick={()=>navigate("transactions")} style={{cursor:"pointer",transition:"opacity .2s"}} onMouseEnter={e=>e.currentTarget.style.opacity=".9"} onMouseLeave={e=>e.currentTarget.style.opacity="1"}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+            <p style={{fontSize:13,fontWeight:700,color:"#ccc",margin:0}}>Últimos movimientos</p>
+            <button onClick={e=>{e.stopPropagation();navigate("transactions");}} style={{fontSize:10,color:"#00d4aa",background:"none",border:"none",cursor:"pointer",padding:0}}>Ver todos →</button>
+          </div>
           {recent.length===0
             ? <p style={{fontSize:12,color:"#444",textAlign:"center",padding:"16px 0"}}>Sin transacciones registradas</p>
             : <div style={{display:"flex",flexDirection:"column",gap:0}}>
                 {recent.map((t,i)=>{
                   const cta=accounts.find(a=>a.id===t.accountId);
                   return (
-                    <div key={t.id} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 0",borderBottom:i<recent.length-1?"1px solid rgba(255,255,255,.04)":"none"}}>
+                    <div key={t.id} onClick={()=>navigate("transactions")} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 0",borderBottom:i<recent.length-1?"1px solid rgba(255,255,255,.04)":"none",cursor:"pointer",borderRadius:6,transition:"background .15s"}} onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,.03)"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
                       <div style={{width:28,height:28,borderRadius:7,background:t.type==="income"?"rgba(0,212,170,.12)":"rgba(255,71,87,.12)",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
                         <Ic n={t.type==="income"?"plus":"warn"} size={13} color={t.type==="income"?"#00d4aa":"#ff4757"}/>
                       </div>
