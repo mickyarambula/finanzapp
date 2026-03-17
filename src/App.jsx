@@ -2778,6 +2778,7 @@ const Transactions = () => {
   const { user, toast } = useCtx();
   const [transactions, setTransactions] = useData(user.id, "transactions");
   const [accounts, setAccounts] = useData(user.id, "accounts");
+  const [goals, setGoals] = useData(user.id, "goals");
   const [config] = useData(user.id, "config", {});
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(null);
@@ -2788,7 +2789,7 @@ const Transactions = () => {
   const [askConfirm, confirmModal] = useConfirm();
   const [showCharts, setShowCharts] = useState(false);
   const [tagInput, setTagInput] = useState("");
-  const blank = { type:"income", accountId:"", amount:"", description:"", category:"", date:today(), currency:"MXN", notes:"", tags:[] };
+  const blank = { type:"income", accountId:"", amount:"", description:"", category:"", date:today(), currency:"MXN", notes:"", tags:[], metaId:"" };
   const [form, setForm] = useState(blank);
   const f = k => e => setForm(p=>({...p,[k]:e.target.value}));
 
@@ -2804,7 +2805,7 @@ const Transactions = () => {
   const applyDelta = (accs, id, delta) => accs.map(a=>a.id===id?{...a,balance:a.balance+delta}:a);
 
   const openNew = () => { setEditing(null); setForm({...blank,accountId:accounts[0]?.id||""}); setOpen(true); };
-  const openEdit = tx => { setEditing(tx); setForm({type:tx.type,accountId:tx.accountId,amount:tx.amount.toString(),description:tx.description,category:tx.category||"",date:tx.date,currency:tx.currency,notes:tx.notes||"",tags:tx.tags||[]}); setOpen(true); };
+  const openEdit = tx => { setEditing(tx); setForm({type:tx.type,accountId:tx.accountId,amount:tx.amount.toString(),description:tx.description,category:tx.category||"",date:tx.date,currency:tx.currency,notes:tx.notes||"",tags:tx.tags||[],metaId:tx.metaId||""}); setOpen(true); };
   const close = () => { setOpen(false); setEditing(null); setTagInput(""); };
 
   const save = () => {
@@ -2817,12 +2818,38 @@ const Transactions = () => {
       let accs = applyDelta(accounts, editing.accountId, oldDelta);
       accs = applyDelta(accs, form.accountId, newDelta);
       setAccounts(accs);
-      setTransactions(transactions.map(t=>t.id===editing.id?{...t,...form,amount}:t));
+      const txId = editing.id;
+      setTransactions(transactions.map(t=>t.id===txId?{...t,...form,amount}:t));
+      // actualizar aportación en meta si cambió
+      if (form.metaId) {
+        setGoals(prev=>prev.map(g=>{
+          if (g.id!==form.metaId) return g;
+          const aps = (g.aportaciones||[]).map(a=>a.txId===txId ? {...a,monto:amount,fecha:form.date} : a);
+          // si no existía, agregar
+          const existe = (g.aportaciones||[]).some(a=>a.txId===txId);
+          return {...g, aportaciones: existe ? aps : [...(g.aportaciones||[]),{id:genId(),monto:amount,fecha:form.date,notas:form.description,txId}]};
+        }));
+      } else if (editing.metaId) {
+        // si se quitó la meta, eliminar la aportación
+        setGoals(prev=>prev.map(g=>g.id===editing.metaId ? {...g,aportaciones:(g.aportaciones||[]).filter(a=>a.txId!==txId)} : g));
+      }
       toast("Transacción actualizada.","success");
     } else {
+      const txId = genId();
       setAccounts(applyDelta(accounts, form.accountId, newDelta));
-      setTransactions([{id:genId(),...form,amount,createdAt:new Date().toISOString()},...transactions]);
-      toast("Transacción registrada.","success");
+      setTransactions([{id:txId,...form,amount,createdAt:new Date().toISOString()},...transactions]);
+      // agregar aportación a meta si se seleccionó
+      if (form.metaId) {
+        setGoals(prev=>prev.map(g=>g.id===form.metaId
+          ? {...g, aportaciones:[...(g.aportaciones||[]),{id:genId(),monto:amount,fecha:form.date,notas:form.description,txId}]}
+          : g
+        ));
+        const meta = goals.find(g=>g.id===form.metaId);
+        if (meta) toast(`Transacción registrada y aportada a "${meta.nombre||meta.name}" ✓`,"success");
+        else toast("Transacción registrada.","success");
+      } else {
+        toast("Transacción registrada.","success");
+      }
     }
     close();
   };
@@ -2832,6 +2859,13 @@ const Transactions = () => {
     if (!ok) return;
     setAccounts(applyDelta(accounts, tx.accountId, tx.type==="income"?-tx.amount:tx.amount));
     setTransactions(transactions.filter(t=>t.id!==tx.id));
+    // remover aportación de meta si estaba vinculada
+    if (tx.metaId) {
+      setGoals(prev=>prev.map(g=>g.id===tx.metaId
+        ? {...g, aportaciones:(g.aportaciones||[]).filter(a=>a.txId!==tx.id)}
+        : g
+      ));
+    }
     toast("Transacción eliminada y saldo revertido.","warning");
   };
 
@@ -2906,6 +2940,10 @@ const Transactions = () => {
                   <span style={{ fontSize:11, color:"#555" }}>{fmtDate(tx.date)}</span>
                   {tx.category&&<Badge label={tx.category} color={typeColor[tx.type]}/>}
                   {tx.origen&&<Badge label={tx.origen==="prestamo"?"Préstamo":tx.origen==="inversion"?"Inversión":"Hipoteca"} color="#7c3aed"/>}
+                  {tx.metaId&&(()=>{
+                    const g=goals.find(x=>x.id===tx.metaId);
+                    return g?<span style={{fontSize:10,fontWeight:600,color:"#a78bfa",background:"rgba(124,58,237,.12)",borderRadius:20,padding:"1px 7px"}}>🎯 {g.nombre||g.name}</span>:null;
+                  })()}
                   {(tx.tags||[]).map(tag=>(
                     <span key={tag} onClick={()=>setSearch("#"+tag)} style={{fontSize:10,fontWeight:600,color:"#a78bfa",background:"rgba(124,58,237,.12)",borderRadius:20,padding:"1px 7px",cursor:"pointer"}}>#{tag}</span>
                   ))}
@@ -2934,6 +2972,45 @@ const Transactions = () => {
           <Sel label="Categoría" value={form.category} onChange={f("category")} options={[{value:"",label:"Sin categoría"},...(cats[form.type]||[]).map(c=>({value:c,label:c}))]}/>
           <Inp label="Fecha" type="date" value={form.date} onChange={f("date")}/>
           <Inp label="Notas (opcional)" value={form.notes} onChange={f("notes")} placeholder="Notas..."/>
+          {/* ── META VINCULADA */}
+          {goals.filter(g=>g.estado==="activa"||!g.estado).length>0 && (
+            <div style={{marginBottom:14}}>
+              <label style={{fontSize:11,color:"#777",fontWeight:600,textTransform:"uppercase",letterSpacing:.5,display:"block",marginBottom:6}}>
+                Vincular a meta <span style={{color:"#555",textTransform:"none",fontWeight:400,fontSize:10}}>(opcional)</span>
+              </label>
+              <select value={form.metaId} onChange={e=>setForm(p=>({...p,metaId:e.target.value}))}
+                style={{width:"100%",padding:"10px 13px",background:"rgba(255,255,255,.05)",border:"1px solid rgba(255,255,255,.1)",borderRadius:9,color:form.metaId?"#e0e0e0":"#555",fontSize:13,outline:"none",cursor:"pointer"}}
+                onFocus={e=>e.target.style.borderColor="#a78bfa"}
+                onBlur={e=>e.target.style.borderColor="rgba(255,255,255,.1)"}>
+                <option value="">— Sin vincular —</option>
+                {goals.filter(g=>g.estado==="activa"||!g.estado).map(g=>{
+                  const aportado=(g.aportaciones||[]).reduce((s,a)=>s+parseFloat(a.monto||0),0);
+                  const meta=parseFloat(g.meta||g.target||0);
+                  const pct=meta>0?Math.min(aportado/meta*100,100):0;
+                  return <option key={g.id} value={g.id}>{g.nombre||g.name} ({pct.toFixed(0)}%)</option>;
+                })}
+              </select>
+              {form.metaId && (()=>{
+                const g=goals.find(x=>x.id===form.metaId);
+                if(!g) return null;
+                const aportado=(g.aportaciones||[]).reduce((s,a)=>s+parseFloat(a.monto||0),0);
+                const meta=parseFloat(g.meta||g.target||0);
+                const pct=meta>0?Math.min(aportado/meta*100,100):0;
+                return (
+                  <div style={{marginTop:6,padding:"7px 10px",borderRadius:8,background:"rgba(124,58,237,.08)",border:"1px solid rgba(124,58,237,.2)"}}>
+                    <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
+                      <span style={{fontSize:11,color:"#a78bfa",fontWeight:600}}>{g.nombre||g.name}</span>
+                      <span style={{fontSize:11,color:"#a78bfa"}}>{fmt(aportado)} / {fmt(meta)}</span>
+                    </div>
+                    <div style={{height:4,borderRadius:2,background:"rgba(255,255,255,.06)"}}>
+                      <div style={{height:"100%",width:`${pct}%`,background:"#7c3aed",borderRadius:2}}/>
+                    </div>
+                    <p style={{fontSize:10,color:"#666",margin:"4px 0 0"}}>Esta transacción se sumará automáticamente como aportación</p>
+                  </div>
+                );
+              })()}
+            </div>
+          )}
           {/* ── TAGS */}
           <div>
             <label style={{fontSize:11,color:"#777",fontWeight:600,textTransform:"uppercase",letterSpacing:.5,display:"block",marginBottom:6}}>Etiquetas</label>
