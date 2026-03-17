@@ -1139,20 +1139,37 @@ const GlobalSearch = ({ onNavigate }) => {
   const results = q.length < 1 ? [] : (() => {
     const groups = [];
 
-    // Transacciones
+    // Transacciones (incluye búsqueda por tags con o sin #)
+    const qTag = q.startsWith("#") ? q.slice(1) : q;
     const txs = transactions.filter(t =>
       t.description?.toLowerCase().includes(q) ||
       t.category?.toLowerCase().includes(q) ||
-      String(t.amount).includes(q)
+      String(t.amount).includes(q) ||
+      (t.tags||[]).some(tag=>tag.toLowerCase().includes(qTag))
     ).slice(0,5);
     if (txs.length) groups.push({
       modulo:"transactions", label:"Transacciones", icon:"transactions", color:"#00d4aa",
       items: txs.map(t=>({
         id:t.id, titulo:t.description,
-        subtitulo:`${t.type==="income"?"+ ":"- "}${fmt(t.amount)} · ${t.date} · ${t.category||"Sin categoría"}`,
+        subtitulo:`${t.type==="income"?"+ ":"- "}${fmt(t.amount)} · ${t.date} · ${t.category||"Sin categoría"}${(t.tags||[]).length>0?" · #"+(t.tags||[]).join(" #"):""}`,
         color: t.type==="income"?"#00d4aa":"#ff4757",
       }))
     });
+    // Búsqueda por tag — grupo especial si query empieza con #
+    if (q.startsWith("#") && qTag.length>0) {
+      const txsByTag = transactions.filter(t=>(t.tags||[]).some(tag=>tag.toLowerCase().includes(qTag)));
+      if (txsByTag.length>0) {
+        const total = txsByTag.reduce((s,t)=>s+(t.type==="income"?1:-1)*parseFloat(t.amount||0),0);
+        groups.unshift({
+          modulo:"transactions", label:`Etiqueta #${qTag}`, icon:"transactions", color:"#a78bfa",
+          items:[{
+            id:"tag_"+qTag, titulo:`${txsByTag.length} transacción${txsByTag.length!==1?"es":""} con #${qTag}`,
+            subtitulo:`Saldo neto: ${total>=0?"+":""}${fmt(Math.abs(total))}`,
+            color:"#a78bfa",
+          }]
+        });
+      }
+    }
 
     // Cuentas
     const accs = accounts.filter(a =>
@@ -1291,7 +1308,7 @@ const GlobalSearch = ({ onNavigate }) => {
             ref={inputRef}
             value={query}
             onChange={e=>setQuery(e.target.value)}
-            placeholder="Buscar transacciones, cuentas, préstamos, inversiones..."
+            placeholder="Buscar transacciones, cuentas, #tags, préstamos, inversiones..."
             style={{flex:1,background:"none",border:"none",outline:"none",color:"#f0f0f0",fontSize:15}}
           />
           {query && (
@@ -3233,16 +3250,37 @@ const Transfers = () => {
   };
 
   const sorted = [...transfers].sort((a,b)=>new Date(b.date)-new Date(a.date));
+  const now = new Date();
+  const mesKey = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}`;
+  const txMes = transfers.filter(t=>t.date?.startsWith(mesKey));
+  const totalMes = txMes.filter(t=>t.tipoPago!=="pago_tarjeta").reduce((s,t)=>s+parseFloat(t.amount||0),0);
+  const pagosMes = txMes.filter(t=>t.tipoPago==="pago_tarjeta").reduce((s,t)=>s+parseFloat(t.amount||0),0);
+  const divisaMes = txMes.filter(t=>t.fromCurrency!==t.toCurrency).length;
 
   return (
     <div>
-      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:18, flexWrap:"wrap", gap:10 }}>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:14, flexWrap:"wrap", gap:10 }}>
         <div>
           <h2 style={{ fontSize:21, fontWeight:700, color:"#f0f0f0", marginBottom:3 }}>Transferencias</h2>
-          <p style={{ fontSize:13, color:"#555" }}>{transfers.length} transferencia{transfers.length!==1?"s":""}</p>
+          <p style={{ fontSize:13, color:"#555" }}>{transfers.length} transferencia{transfers.length!==1?"s":""} · {txMes.length} este mes</p>
         </div>
         <Btn onClick={openNew} disabled={accounts.length<2}><Ic n="plus" size={16}/>Nueva</Btn>
       </div>
+      {/* KPIs del mes */}
+      {txMes.length>0&&(
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:10,marginBottom:16}}>
+          {[
+            {label:"Transferido este mes", valor:fmt(totalMes), color:"#3b82f6"},
+            ...(pagosMes>0?[{label:"Pagos de tarjeta", valor:fmt(pagosMes), color:"#ff6b7a"}]:[]),
+            ...(divisaMes>0?[{label:"Cambios de divisa", valor:divisaMes, color:"#f39c12"}]:[]),
+          ].map(k=>(
+            <Card key={k.label} style={{padding:"11px 14px"}}>
+              <p style={{fontSize:10,color:"#555",textTransform:"uppercase",letterSpacing:.4,margin:"0 0 3px"}}>{k.label}</p>
+              <p style={{fontSize:16,fontWeight:700,color:k.color,margin:0}}>{k.valor}</p>
+            </Card>
+          ))}
+        </div>
+      )}
       {accounts.length<2 && <Alert>Necesitas al menos 2 cuentas para hacer transferencias.</Alert>}
       {sorted.length===0 ? (
         <div style={{ textAlign:"center", padding:"50px 0", color:"#444" }}>
@@ -3262,14 +3300,19 @@ const Transfers = () => {
                   <Ic n={isPagoTj?"accounts":isCross?"exchange":"transfers"} size={17} color={iconColor}/>
                 </div>
                 <div style={{ flex:1, minWidth:0 }}>
-                  <p style={{ fontSize:13, fontWeight:600, color:"#e0e0e0", margin:"0 0 2px" }}>{tr.description||`${tr.fromName} → ${tr.toName}`}</p>
-                  <div style={{ display:"flex", gap:6, alignItems:"center", flexWrap:"wrap" }}>
-                    <span style={{ fontSize:11, color:"#555" }}>{tr.fromName} → {tr.toName}</span>
-                    <span style={{ fontSize:11, color:"#444" }}>· {fmtDate(tr.date)}</span>
-                    {isPagoTj&&<Badge label="Pago de tarjeta" color="#ff6b7a"/>}
-                    {isCross&&!isPagoTj&&<Badge label="Cambio divisa" color="#f39c12"/>}
+                  {tr.description&&<p style={{ fontSize:13, fontWeight:600, color:"#e0e0e0", margin:"0 0 3px", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{tr.description}</p>}
+                  {/* flecha origen → destino */}
+                  <div style={{display:"flex",alignItems:"center",gap:5,flexWrap:"wrap",marginBottom:2}}>
+                    <span style={{fontSize:12,fontWeight:600,color:"#ccc",maxWidth:120,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{tr.fromName}</span>
+                    <span style={{fontSize:13,color:iconColor,fontWeight:700}}>→</span>
+                    <span style={{fontSize:12,fontWeight:600,color:"#ccc",maxWidth:120,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{tr.toName}</span>
                   </div>
-                  {isCross&&tr.exchangeRate&&<p style={{ fontSize:11, color:"#555", margin:"2px 0 0" }}>1 USD = ${parseFloat(tr.exchangeRate).toFixed(2)} MXN</p>}
+                  <div style={{ display:"flex", gap:6, alignItems:"center", flexWrap:"wrap" }}>
+                    <span style={{ fontSize:10, color:"#444" }}>{fmtDate(tr.date)}</span>
+                    {isPagoTj&&<Badge label="Pago tarjeta" color="#ff6b7a"/>}
+                    {isCross&&!isPagoTj&&<Badge label="Cambio divisa" color="#f39c12"/>}
+                    {isCross&&tr.exchangeRate&&<span style={{fontSize:10,color:"#555"}}>TC: ${parseFloat(tr.exchangeRate).toFixed(2)}</span>}
+                  </div>
                 </div>
                 <div style={{ textAlign:"right", flexShrink:0 }}>
                   <p style={{ fontSize:13, fontWeight:700, color:"#ff6b6b", margin:"0 0 1px" }}>-{fmt(tr.amount,tr.fromCurrency)}</p>
