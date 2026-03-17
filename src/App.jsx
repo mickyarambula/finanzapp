@@ -10436,8 +10436,9 @@ const AsisteFlotante = () => {
   const inputRef = useRef(null);
   const ANTHROPIC_KEY = import.meta.env.VITE_ANTHROPIC_KEY;
 
-  const [accounts] = useData(user.id, "accounts");
+  const [accounts, setAccounts] = useData(user.id, "accounts");
   const [transactions, setTransactions] = useData(user.id, "transactions");
+  const [recurrents, setRecurrents] = useData(user.id, "recurrents");
   const [loans] = useData(user.id, "loans");
   const [investments] = useData(user.id, "investments");
   const [goals] = useData(user.id, "goals");
@@ -10518,6 +10519,44 @@ Sé directo, positivo y usa 1 emoji relevante. No repitas los números exactos s
   const cats = {
     income:[...new Set([...(config.categorias?.income||DEFAULT_CATS.income)])],
     expense:[...new Set([...(config.categorias?.expense||DEFAULT_CATS.expense)])],
+  };
+
+  // ── Lógica de recurrentes pendientes
+  const calcNextFlot = (r) => {
+    const last = r.ultimoRegistro
+      ? new Date(r.ultimoRegistro+"T12:00:00")
+      : new Date((r.fechaInicio||today())+"T12:00:00");
+    const next = new Date(last);
+    if (r.frecuencia==="mensual")    next.setMonth(next.getMonth()+1);
+    else if (r.frecuencia==="quincenal") next.setDate(next.getDate()+15);
+    else if (r.frecuencia==="semanal")   next.setDate(next.getDate()+7);
+    else if (r.frecuencia==="anual")     next.setFullYear(next.getFullYear()+1);
+    return next;
+  };
+  const recPendientes = (recurrents||[]).filter(r=>r.activo!==false && calcNextFlot(r) <= new Date());
+
+  const confirmarRecurrente = (r) => {
+    const monto = parseFloat(r.monto)||0;
+    const newTx = {
+      id:genId(), date:today(), amount:monto,
+      type:r.tipo, description:r.nombre,
+      category:r.categoria||"", accountId:r.cuentaId,
+      currency:accounts.find(a=>a.id===r.cuentaId)?.currency||"MXN",
+      notes:"Recurrente confirmado",
+    };
+    setTransactions(p=>[newTx,...p]);
+    if (r.cuentaId) {
+      setAccounts(p=>p.map(a=>a.id===r.cuentaId
+        ? {...a, balance:parseFloat(a.balance||0)+(r.tipo==="income"?monto:-monto)}
+        : a));
+    }
+    setRecurrents(p=>p.map(x=>x.id===r.id?{...x,ultimoRegistro:today()}:x));
+    toast(`"${r.nombre}" registrado ✓`);
+  };
+
+  const saltarRecurrente = (r) => {
+    setRecurrents(p=>p.map(x=>x.id===r.id?{...x,ultimoRegistro:today()}:x));
+    toast(`"${r.nombre}" pospuesto para el siguiente período`,"warning");
   };
 
   const buildContext = () => {
@@ -10624,6 +10663,20 @@ Metas: ${goals.map(g=>`${g.nombre||g.name}`).join(", ")||"ninguna"}`;
         title="Asistente financiero"
       >
         {open ? <Ic n="close" size={22} color="#fff"/> : <Ic n="asistente" size={22} color="#fff"/>}
+        {/* badge de recurrentes pendientes */}
+        {!open && recPendientes.length>0 && (
+          <span style={{
+            position:"absolute", top:-3, right:-3,
+            minWidth:18, height:18, borderRadius:9,
+            background:"#f39c12", color:"#fff",
+            fontSize:9, fontWeight:800,
+            display:"flex", alignItems:"center", justifyContent:"center",
+            padding:"0 4px", lineHeight:1,
+            boxShadow:"0 2px 6px rgba(0,0,0,.4)",
+          }}>
+            {recPendientes.length}
+          </span>
+        )}
       </button>
 
       {/* Panel flotante */}
@@ -10657,7 +10710,43 @@ Metas: ${goals.map(g=>`${g.nombre||g.name}`).join(", ")||"ninguna"}`;
           <div style={{flex:1,overflowY:"auto",padding:"12px 14px",display:"flex",flexDirection:"column",gap:10}}>
             {messages.length===0 && !loading && (
               <div>
-                <p style={{fontSize:12,color:"#555",textAlign:"center",marginBottom:12}}>Hola {user.name.split(" ")[0]} 👋 ¿En qué te ayudo?</p>
+                {/* ── Recurrentes pendientes */}
+                {recPendientes.length>0 && (
+                  <div style={{marginBottom:12,borderRadius:11,border:"1px solid rgba(243,156,18,.25)",background:"rgba(243,156,18,.06)",overflow:"hidden"}}>
+                    <div style={{padding:"9px 12px 6px",display:"flex",alignItems:"center",gap:7,borderBottom:"1px solid rgba(243,156,18,.15)"}}>
+                      <Ic n="recurring" size={13} color="#f39c12"/>
+                      <span style={{fontSize:11,fontWeight:700,color:"#f39c12"}}>
+                        {recPendientes.length} recurrente{recPendientes.length>1?"s":""} pendiente{recPendientes.length>1?"s":""}
+                      </span>
+                    </div>
+                    <div style={{maxHeight:200,overflowY:"auto"}}>
+                      {recPendientes.map(r=>(
+                        <div key={r.id} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 12px",borderBottom:"1px solid rgba(255,255,255,.04)"}}>
+                          <div style={{flex:1,minWidth:0}}>
+                            <p style={{fontSize:12,fontWeight:600,color:"#e0e0e0",margin:"0 0 1px",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.nombre}</p>
+                            <p style={{fontSize:10,color:"#555",margin:0}}>
+                              {r.tipo==="income"?"+" : "-"}{fmt(parseFloat(r.monto||0))} · {r.frecuencia}
+                            </p>
+                          </div>
+                          <div style={{display:"flex",gap:5,flexShrink:0}}>
+                            <button onClick={()=>confirmarRecurrente(r)}
+                              style={{padding:"4px 10px",borderRadius:7,background:"rgba(0,212,170,.15)",border:"1px solid rgba(0,212,170,.3)",color:"#00d4aa",fontSize:10,fontWeight:700,cursor:"pointer"}}>
+                              ✓
+                            </button>
+                            <button onClick={()=>saltarRecurrente(r)}
+                              style={{padding:"4px 8px",borderRadius:7,background:"rgba(255,255,255,.04)",border:"1px solid rgba(255,255,255,.08)",color:"#555",fontSize:10,cursor:"pointer"}}>
+                              →
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <div style={{padding:"6px 12px"}}>
+                      <p style={{fontSize:9,color:"#444",margin:0}}>✓ confirmar · → saltar al siguiente período</p>
+                    </div>
+                  </div>
+                )}
+                <p style={{fontSize:12,color:"#555",textAlign:"center",marginBottom:12}}>¿En qué más te ayudo?</p>
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
                   {SUGERENCIAS_RAPIDAS.map((s,i)=>(
                     <button key={i} onClick={()=>setInput(s)}
