@@ -8686,26 +8686,82 @@ const Patrimonio = () => {
   })();
 
   const BarChart = ({ data, keys, colors, height=120 }) => {
+    const [hoverIdx, setHoverIdx] = React.useState(null);
     if(!data||data.length===0) return null;
     const maxVal = Math.max(...data.flatMap(d=>keys.map(k=>Math.abs(d[k]||0))),1);
     const W=600, H=height, barW=W/data.length*0.25;
+    const LABELS = { ingresos:"Ingresos", gastos:"Gastos", utilidad:"Utilidad" };
+    const fmtBar = v => new Intl.NumberFormat("es-MX",{style:"currency",currency:"MXN",minimumFractionDigits:0,maximumFractionDigits:0}).format(v||0);
     return (
-      <svg viewBox={`0 0 ${W} ${H+24}`} style={{width:"100%",height:height+24}} preserveAspectRatio="none">
-        {data.map((d,i)=>{
-          const x=(i/(data.length))*W+(W/data.length)*0.1;
+      <div style={{position:"relative"}}>
+        <svg viewBox={`0 0 ${W} ${H+24}`} style={{width:"100%",height:height+24}} preserveAspectRatio="none"
+          onMouseLeave={()=>setHoverIdx(null)}>
+          {data.map((d,i)=>{
+            const x=(i/(data.length))*W+(W/data.length)*0.1;
+            const slotW = W/data.length;
+            return (
+              <g key={i}>
+                {keys.map((k,ki)=>{
+                  const val=Math.abs(d[k]||0);
+                  const bh=(val/maxVal)*(H-10);
+                  const bx=x+ki*(barW+2);
+                  return (
+                    <rect key={k} x={bx} y={H-bh} width={barW} height={bh}
+                      fill={d[k]<0&&k==="utilidad"?"#ff4757":colors[ki]}
+                      rx={2} opacity={hoverIdx===i?1:0.75}
+                      style={{transition:"opacity .15s"}}/>
+                  );
+                })}
+                <rect x={i/data.length*W} y={0} width={slotW} height={H+10}
+                  fill="transparent" style={{cursor:"crosshair"}}
+                  onMouseEnter={()=>setHoverIdx(i)}/>
+                <text x={x+(keys.length*(barW+2))/2} y={H+16} textAnchor="middle"
+                  fill={hoverIdx===i?"#ccc":"#555"} fontSize={9}
+                  style={{transition:"fill .15s"}}>{d.label}</text>
+              </g>
+            );
+          })}
+        </svg>
+        {hoverIdx!==null && data[hoverIdx] && (()=>{
+          const d = data[hoverIdx];
+          const pct = hoverIdx/data.length;
           return (
-            <g key={i}>
+            <div style={{
+              position:"absolute", top:0,
+              left:pct>0.6?"auto":`calc(${pct*100}% + 14px)`,
+              right:pct>0.6?`calc(${(1-pct)*100}% + 14px)`:"auto",
+              background:"rgba(18,22,36,.97)",
+              border:"1px solid rgba(255,255,255,.12)",
+              borderRadius:10, padding:"10px 13px",
+              pointerEvents:"none", zIndex:10, minWidth:170,
+              boxShadow:"0 8px 24px rgba(0,0,0,.5)"
+            }}>
+              <p style={{fontSize:11,fontWeight:700,color:"#ccc",margin:"0 0 8px",textTransform:"uppercase",letterSpacing:.5}}>{d.label}</p>
               {keys.map((k,ki)=>{
-                const val=Math.abs(d[k]||0);
-                const bh=(val/maxVal)*(H-10);
-                const bx=x+ki*(barW+2);
-                return <rect key={k} x={bx} y={H-bh} width={barW} height={bh} fill={d[k]<0&&k==="utilidad"?"#ff4757":colors[ki]} rx={2} opacity={0.85}/>;
+                const val = d[k]||0;
+                const col = val<0&&k==="utilidad"?"#ff4757":colors[ki];
+                return (
+                  <div key={k} style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:14,marginBottom:4}}>
+                    <div style={{display:"flex",alignItems:"center",gap:5}}>
+                      <span style={{width:8,height:8,borderRadius:2,background:col,display:"inline-block",flexShrink:0}}/>
+                      <span style={{fontSize:11,color:"#666"}}>{LABELS[k]||k}</span>
+                    </div>
+                    <span style={{fontSize:12,fontWeight:700,color:col}}>{fmtBar(Math.abs(val))}</span>
+                  </div>
+                );
               })}
-              <text x={x+(keys.length*(barW+2))/2} y={H+16} textAnchor="middle" fill="#555" fontSize={9}>{d.label}</text>
-            </g>
+              {d.ingresos>0&&(
+                <div style={{marginTop:6,paddingTop:6,borderTop:"1px solid rgba(255,255,255,.06)",display:"flex",justifyContent:"space-between"}}>
+                  <span style={{fontSize:10,color:"#555"}}>Margen</span>
+                  <span style={{fontSize:11,fontWeight:700,color:(d.utilidad||0)>=0?"#00d4aa":"#ff4757"}}>
+                    {d.ingresos>0?((d.utilidad||0)/d.ingresos*100).toFixed(1):0}%
+                  </span>
+                </div>
+              )}
+            </div>
           );
-        })}
-      </svg>
+        })()}
+      </div>
     );
   };
 
