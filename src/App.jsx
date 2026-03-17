@@ -392,25 +392,47 @@ const AuthScreen = ({ onLogin }) => {
 };
 
 // ─── SIDEBAR ──────────────────────────────────────────────────────────────────
-const NAV = [
-  { id:"dashboard",    label:"Dashboard",       icon:"dashboard" },
-  { id:"accounts",     label:"Cuentas",         icon:"accounts" },
-  { id:"transactions", label:"Transacciones",   icon:"transactions" },
-  { id:"calendar",     label:"Calendario",      icon:"calendar" },
-  { id:"recurring",    label:"Recurrentes",     icon:"recurring" },
-  { id:"transfers",    label:"Transferencias",  icon:"transfers" },
-  { id:"loans",        label:"Préstamos",       icon:"loans" },
-  { id:"investments",  label:"Inversiones",     icon:"investments" },
-  { id:"mortgage",      label:"Crédito Casa",    icon:"mortgage" },
-  { id:"goals",        label:"Metas de Ahorro", icon:"goals" },
-  { id:"presupuestos", label:"Presupuestos",    icon:"presupuesto" },
-  { id:"importar",     label:"Importar CSV",    icon:"importar" },
-  { id:"documents",    label:"Documentos",      icon:"documents" },
-  { id:"reports",      label:"Estados Financieros", icon:"reports" },
-  { id:"patrimonio",   label:"Patrimonio",      icon:"patrimonio" },
-  { id:"asistente",    label:"Asistente IA",    icon:"asistente" },
-  { id:"settings",     label:"Configuración",   icon:"settings" },
+const NAV_GROUPS = [
+  {
+    label: "Día a día",
+    items: [
+      { id:"dashboard",    label:"Dashboard",      icon:"dashboard" },
+      { id:"transactions", label:"Transacciones",  icon:"transactions" },
+      { id:"recurring",    label:"Recurrentes",    icon:"recurring" },
+      { id:"accounts",     label:"Cuentas",        icon:"accounts" },
+      { id:"transfers",    label:"Transferencias", icon:"transfers" },
+    ]
+  },
+  {
+    label: "Patrimonio",
+    items: [
+      { id:"investments",  label:"Inversiones",    icon:"investments" },
+      { id:"loans",        label:"Préstamos",      icon:"loans" },
+      { id:"mortgage",     label:"Crédito Casa",   icon:"mortgage" },
+      { id:"goals",        label:"Metas",          icon:"goals" },
+    ]
+  },
+  {
+    label: "Análisis",
+    items: [
+      { id:"reports",      label:"Est. Financieros", icon:"reports" },
+      { id:"patrimonio",   label:"Patrimonio",     icon:"patrimonio" },
+      { id:"presupuestos", label:"Presupuestos",   icon:"presupuesto" },
+      { id:"calendar",     label:"Calendario",     icon:"calendar" },
+      { id:"documents",    label:"Documentos",     icon:"documents" },
+    ]
+  },
+  {
+    label: "Herramientas",
+    items: [
+      { id:"asistente",    label:"Asistente IA",   icon:"asistente" },
+      { id:"importar",     label:"Importar CSV",   icon:"importar" },
+      { id:"settings",     label:"Configuración",  icon:"settings" },
+    ]
+  },
 ];
+// flat list para compatibilidad (badges, búsqueda, etc.)
+const NAV = NAV_GROUPS.flatMap(g => g.items);
 
 
 const Sidebar = ({ active, setActive, user, onLogout, mobile, open, onClose, notif, theme, onToggleTheme }) => {
@@ -469,29 +491,41 @@ const Sidebar = ({ active, setActive, user, onLogout, mobile, open, onClose, not
           )}
         </div>
       )}
-      <nav style={{ flex:1, padding:"10px 8px", overflowY:"auto" }}>
-        {NAV.map(item => {
-          const on = active===item.id;
-          const itemAlerts = notif?notif.alertas.filter(a=>a.modulo===item.id):[];
-          const hasErr = itemAlerts.some(a=>a.nivel==="error");
-          const hasWarn = itemAlerts.some(a=>a.nivel==="warning");
-          const dotColor = hasErr?"#ff4757":hasWarn?"#f39c12":null;
-          return (
-            <button key={item.id} onClick={() => { setActive(item.id); if(mobile) onClose(); }} style={{
-              width:"100%", display:"flex", alignItems:"center", gap:10, padding:"9px 11px", marginBottom:1,
-              borderRadius:9, border:"none", cursor:"pointer", textAlign:"left",
-              background:on?"rgba(0,212,170,.1)":"transparent", color:on?"#00d4aa":"#777",
-              borderLeft:on?"3px solid #00d4aa":"3px solid transparent", transition:"all .12s",
-            }}
-              onMouseEnter={e=>{ if(!on){e.currentTarget.style.background="rgba(255,255,255,.04)";e.currentTarget.style.color="#bbb";}}}
-              onMouseLeave={e=>{ if(!on){e.currentTarget.style.background="transparent";e.currentTarget.style.color="#777";}}}
-            >
-              <Ic n={item.icon} size={17} color="currentColor" />
-              <span style={{ fontSize:13, fontWeight:on?600:400, flex:1 }}>{item.label}</span>
-              {dotColor&&<span style={{width:6,height:6,borderRadius:"50%",background:dotColor,flexShrink:0}}/>}
-            </button>
-          );
-        })}
+      <nav style={{ flex:1, padding:"8px 8px 10px", overflowY:"auto" }}>
+        {NAV_GROUPS.map((group, gi) => (
+          <div key={group.label} style={{ marginBottom: gi < NAV_GROUPS.length-1 ? 6 : 0 }}>
+            {/* etiqueta de grupo */}
+            <p style={{
+              fontSize:9, fontWeight:700, color:"#3a4255", textTransform:"uppercase",
+              letterSpacing:1.2, margin:"0 0 2px", padding:"4px 11px 2px",
+            }}>{group.label}</p>
+            {group.items.map(item => {
+              const on = active===item.id || active.startsWith(item.id+":");
+              const itemAlerts = notif?notif.alertas.filter(a=>a.modulo===item.id):[];
+              const hasErr = itemAlerts.some(a=>a.nivel==="error");
+              const hasWarn = itemAlerts.some(a=>a.nivel==="warning");
+              const dotColor = hasErr?"#ff4757":hasWarn?"#f39c12":null;
+              return (
+                <button key={item.id} onClick={() => { setActive(item.id); if(mobile) onClose(); }} style={{
+                  width:"100%", display:"flex", alignItems:"center", gap:10, padding:"7px 11px", marginBottom:1,
+                  borderRadius:9, border:"none", cursor:"pointer", textAlign:"left",
+                  background:on?"rgba(0,212,170,.1)":"transparent", color:on?"#00d4aa":"#666",
+                  borderLeft:on?"3px solid #00d4aa":"3px solid transparent", transition:"all .12s",
+                }}
+                  onMouseEnter={e=>{ if(!on){e.currentTarget.style.background="rgba(255,255,255,.04)";e.currentTarget.style.color="#bbb";}}}
+                  onMouseLeave={e=>{ if(!on){e.currentTarget.style.background="transparent";e.currentTarget.style.color="#666";}}}
+                >
+                  <Ic n={item.icon} size={16} color="currentColor" />
+                  <span style={{ fontSize:12, fontWeight:on?600:400, flex:1 }}>{item.label}</span>
+                  {dotColor&&<span style={{width:6,height:6,borderRadius:"50%",background:dotColor,flexShrink:0}}/>}
+                </button>
+              );
+            })}
+            {gi < NAV_GROUPS.length-1 && (
+              <div style={{height:1,background:"rgba(255,255,255,.04)",margin:"6px 4px 4px"}}/>
+            )}
+          </div>
+        ))}
       </nav>
       <div style={{ padding:"10px 8px", borderTop:"1px solid rgba(255,255,255,.05)" }}>
         {/* theme toggle */}
