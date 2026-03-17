@@ -9508,7 +9508,10 @@ const ImportarCSV = () => {
   const [preview, setPreview]   = useState([]);
   const [cuentaId, setCuentaId] = useState("");
   const [selected, setSelected] = useState({});
+  const [iaLoading, setIaLoading] = useState(false);
+  const [csvRawTexto, setCsvRawTexto] = useState("");
   const fileRef = useRef(null);
+  const ANTHROPIC_KEY = import.meta.env.VITE_ANTHROPIC_KEY;
 
   // ══════════════════════════════════════════════════
   // PARSERS POR BANCO
@@ -9687,6 +9690,7 @@ const ImportarCSV = () => {
     reader.onload = (e) => {
       try {
         const texto = e.target.result;
+        setCsvRawTexto(texto); // guardar para análisis IA si es necesario
         const allRows = parsearCSVTexto(texto);
         if (allRows.length < 2) { toast("El archivo parece estar vacío","error"); return; }
 
@@ -9734,6 +9738,96 @@ const ImportarCSV = () => {
     reader.readAsText(file, "UTF-8");
   };
 
+  // ── Analizar CSV desconocido con IA
+  const analizarConIA = async () => {
+    if (!ANTHROPIC_KEY) { toast("Falta VITE_ANTHROPIC_KEY","error"); return; }
+    if (!csvRawTexto) { toast("No hay archivo cargado","error"); return; }
+    setIaLoading(true);
+    try {
+      // Tomar solo las primeras 30 filas para no exceder tokens
+      const lineas = csvRawTexto.split(/
+?
+/).filter(l=>l.trim()).slice(0,30).join("
+");
+      const prompt = `Analiza este archivo CSV de un estado de cuenta bancario mexicano y extrae los movimientos financieros.
+Responde SOLO con un JSON válido, sin texto adicional, sin backticks, con este formato exacto:
+{
+  "banco": "nombre del banco detectado o Desconocido",
+  "movimientos": [
+    {"fecha":"YYYY-MM-DD","descripcion":"texto","tipo":"income|expense","monto":0.00}
+  ]
+}
+Reglas:
+- tipo "income" = abono/depósito/crédito (dinero que entra)
+- tipo "expense" = cargo/débito/retiro (dinero que sale)
+- monto siempre positivo
+- fecha en formato YYYY-MM-DD
+- omite filas de saldo, totales o encabezados
+CSV:
+${lineas}`;
+
+      const res = await fetch("https://api.anthropic.com/v1/messages", {
+        method:"POST",
+        headers:{"Content-Type":"application/json","x-api-key":ANTHROPIC_KEY,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},
+        body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:4096,messages:[{role:"user",content:prompt}]})
+      });
+      const data = await res.json();
+      const texto = data.content?.[0]?.text||"";
+      // limpiar posibles backticks
+      const limpio = texto.replace(/```json|```/g,"").trim();
+      const parsed = JSON.parse(limpio);
+
+      if (!parsed.movimientos?.length) { toast("La IA no detectó movimientos en este archivo","error"); setIaLoading(false); return; }
+
+      // Si el CSV tiene más de 30 filas, procesar el resto también
+      const todasLineas = csvRawTexto.split(/
+?
+/).filter(l=>l.trim());
+      let todosMovimientos = [...parsed.movimientos];
+
+      if (todasLineas.length > 31) {
+        // procesar en bloques de 50 filas
+        const headers = todasLineas[0];
+        for (let i=30; i<todasLineas.length; i+=50) {
+          const bloque = [headers,...todasLineas.slice(i,i+50)].join("
+");
+          const res2 = await fetch("https://api.anthropic.com/v1/messages", {
+            method:"POST",
+            headers:{"Content-Type":"application/json","x-api-key":ANTHROPIC_KEY,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},
+            body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:4096,messages:[{role:"user",content:`Extrae movimientos de este fragmento CSV. Responde SOLO JSON: {"movimientos":[{"fecha":"YYYY-MM-DD","descripcion":"texto","tipo":"income|expense","monto":0.00}]}
+CSV:
+${bloque}`}]})
+          });
+          const data2 = await res2.json();
+          const t2 = (data2.content?.[0]?.text||"").replace(/```json|```/g,"").trim();
+          try { const p2=JSON.parse(t2); todosMovimientos=[...todosMovimientos,...(p2.movimientos||[])]; } catch{}
+        }
+      }
+
+      setBanco(parsed.banco||"ia");
+      const prev = todosMovimientos
+        .filter(m=>m.fecha&&m.monto>0)
+        .map((m,i)=>({
+          _id:genId(), _idx:i,
+          _dup: transactions.some(t=>t.date===m.fecha&&Math.abs(parseFloat(t.amount||0)-m.monto)<0.01&&t.description?.toLowerCase()===m.descripcion?.toLowerCase()),
+          fecha:m.fecha, desc:m.descripcion||"Sin descripción",
+          tipo:m.tipo==="income"?"income":"expense",
+          monto:parseFloat(m.monto||0), categoria:"",
+        }));
+
+      setPreview(prev);
+      const sel={};
+      prev.forEach(r=>{ if(!r._dup) sel[r._id]=true; });
+      setSelected(sel);
+      setStep("preview");
+      toast(`IA detectó ${prev.length} movimientos de ${parsed.banco||"banco desconocido"} ✓`,"success");
+    } catch(e) {
+      console.error(e);
+      toast("Error al analizar con IA. Verifica tu API key.","error");
+    }
+    setIaLoading(false);
+  };
+
   const confirmarImportacion = () => {
     if (!cuentaId) { toast("Selecciona una cuenta destino","error"); return; }
     const toImport = preview.filter(r=>selected[r._id]);
@@ -9774,7 +9868,7 @@ const ImportarCSV = () => {
     <div style={{animation:"fadeUp .25s ease"}}>
       <div style={{marginBottom:20}}>
         <h2 style={{fontSize:22,fontFamily:"'Syne',sans-serif",fontWeight:800,color:"#f0f0f0",margin:"0 0 3px"}}>Importar CSV</h2>
-        <p style={{fontSize:13,color:"#555",margin:0}}>Importa movimientos bancarios desde archivos CSV · Santander · BBVA · Banamex · Banorte</p>
+        <p style={{fontSize:13,color:"#555",margin:0}}>Importa movimientos bancarios desde archivos CSV · Santander · BBVA · Banamex · Banorte · <span style={{color:"#a78bfa"}}>cualquier banco con IA ✨</span></p>
       </div>
 
       {/* ── PASO 1: UPLOAD */}
@@ -9809,6 +9903,30 @@ const ImportarCSV = () => {
               <span style={{fontSize:11,color:"#333",background:"rgba(255,255,255,.04)",padding:"3px 10px",borderRadius:5}}>Acepta .csv y .txt</span>
               <input ref={fileRef} type="file" accept=".csv,.txt" onChange={e=>handleFile(e.target.files[0])} style={{display:"none"}}/>
             </div>
+            {/* Botón IA para banco no reconocido */}
+            {csvRawTexto && banco==="generico" && (
+              <div style={{marginTop:14,padding:"12px 14px",borderRadius:10,background:"rgba(124,58,237,.08)",border:"1px solid rgba(124,58,237,.25)"}}>
+                <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+                  <div style={{flex:1,minWidth:0}}>
+                    <p style={{fontSize:12,fontWeight:700,color:"#a78bfa",margin:"0 0 2px"}}>⚠️ Formato no reconocido automáticamente</p>
+                    <p style={{fontSize:11,color:"#666",margin:0}}>Puedes usar IA para analizar cualquier formato de estado de cuenta</p>
+                  </div>
+                  <button onClick={analizarConIA} disabled={iaLoading}
+                    style={{padding:"8px 16px",borderRadius:9,background:iaLoading?"rgba(124,58,237,.2)":"linear-gradient(135deg,#7c3aed,#6d28d9)",border:"none",color:"#fff",fontSize:12,fontWeight:700,cursor:iaLoading?"not-allowed":"pointer",display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
+                    {iaLoading ? <><span style={{animation:"pulse 1s infinite"}}>⏳</span> Analizando...</> : <><Ic n="asistente" size={13} color="#fff"/>Analizar con IA</>}
+                  </button>
+                </div>
+              </div>
+            )}
+            {/* Botón IA siempre disponible como alternativa */}
+            {csvRawTexto && banco!=="generico" && (
+              <div style={{marginTop:10,display:"flex",justifyContent:"flex-end"}}>
+                <button onClick={analizarConIA} disabled={iaLoading}
+                  style={{padding:"6px 12px",borderRadius:8,background:"transparent",border:"1px solid rgba(124,58,237,.3)",color:"#a78bfa",fontSize:11,cursor:iaLoading?"not-allowed":"pointer",display:"flex",alignItems:"center",gap:5}}>
+                  {iaLoading?"Analizando...":<><Ic n="asistente" size={12} color="#a78bfa"/>Re-analizar con IA</>}
+                </button>
+              </div>
+            )}
           </Card>
         </div>
       )}
@@ -9819,8 +9937,14 @@ const ImportarCSV = () => {
           {/* info del archivo */}
           <div style={{display:"flex",gap:10,marginBottom:14,flexWrap:"wrap",alignItems:"center"}}>
             <Card style={{padding:"10px 16px",display:"inline-flex",alignItems:"center",gap:10,flexShrink:0}}>
-              <div style={{width:8,height:8,borderRadius:"50%",background:BANCOS[banco||"generico"].color}}/>
-              <span style={{fontSize:13,fontWeight:700,color:"#ccc"}}>{BANCOS[banco||"generico"].nombre}</span>
+              {banco==="ia" ? (
+                <Ic n="asistente" size={14} color="#a78bfa"/>
+              ) : (
+                <div style={{width:8,height:8,borderRadius:"50%",background:BANCOS[banco||"generico"]?.color||"#555"}}/>
+              )}
+              <span style={{fontSize:13,fontWeight:700,color:banco==="ia"?"#a78bfa":"#ccc"}}>
+                {banco==="ia" ? "Analizado con IA ✨" : (BANCOS[banco||"generico"]?.nombre||banco)}
+              </span>
               <span style={{fontSize:11,color:"#555"}}>{preview.length} movimientos detectados</span>
             </Card>
             <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
