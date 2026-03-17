@@ -10186,6 +10186,272 @@ ${presupuestos.filter(p=>p.activo!==false).map(p=>`- ${p.nombre} | Límite: ${fm
   );
 };
 
+
+// ─── ASISTENTE FLOTANTE ───────────────────────────────────────────────────────
+const AsisteFlotante = () => {
+  const { user, toast } = useCtx();
+  const t = useTheme();
+  const [open, setOpen] = useState(false);
+  const [input, setInput] = useState("");
+  const [messages, setMessages] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [adjunto, setAdjunto] = useState(null);
+  const [pendingTx, setPendingTx] = useState(null);
+  const bottomRef = useRef(null);
+  const fileRef = useRef(null);
+  const inputRef = useRef(null);
+  const ANTHROPIC_KEY = import.meta.env.VITE_ANTHROPIC_KEY;
+
+  const [accounts] = useData(user.id, "accounts");
+  const [transactions, setTransactions] = useData(user.id, "transactions");
+  const [loans] = useData(user.id, "loans");
+  const [investments] = useData(user.id, "investments");
+  const [goals] = useData(user.id, "goals");
+  const [mortgages] = useData(user.id, "mortgages");
+  const [presupuestos] = useData(user.id, "presupuestos");
+  const [config] = useData(user.id, "config", {});
+
+  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior:"smooth" }); }, [messages, loading]);
+  useEffect(() => { if (open) setTimeout(()=>inputRef.current?.focus(), 150); }, [open]);
+
+  const DEFAULT_CATS = {
+    income:["Salario","Freelance","Negocio","Renta","Intereses","Dividendos","Otro"],
+    expense:["Alimentación","Transporte","Salud","Educación","Entretenimiento","Ropa","Servicios","Hipoteca / Vivienda","Pago de deuda","Otro"],
+  };
+  const cats = {
+    income:[...new Set([...(config.categorias?.income||DEFAULT_CATS.income)])],
+    expense:[...new Set([...(config.categorias?.expense||DEFAULT_CATS.expense)])],
+  };
+
+  const buildContext = () => {
+    const now = new Date();
+    const mesKey = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}`;
+    const TC = getTc(user.id);
+    const liquidez = accounts.filter(a=>a.type!=="credit").reduce((s,a)=>s+(a.currency==="USD"?parseFloat(a.balance||0)*TC:parseFloat(a.balance||0)),0);
+    const deudaTarjetas = accounts.filter(a=>a.type==="credit").reduce((s,a)=>s+Math.abs(Math.min(parseFloat(a.balance||0),0)),0);
+    const invTotal = investments.reduce((s,i)=>{ const ti=parseFloat(i.titulos)||0,p=parseFloat(i.precioActual)||0,ap=(i.aportaciones||[]).reduce((ss,a)=>ss+parseFloat(a.amount||0),0),val=ti>0&&p>0?ti*p:parseFloat(i.currentValue)||ap; return s+(i.currency==="USD"?val*TC:val); },0);
+    const txMes = transactions.filter(tx=>tx.date?.startsWith(mesKey));
+    const ingrMes = txMes.filter(tx=>tx.type==="income").reduce((s,tx)=>s+parseFloat(tx.amount||0),0);
+    const gastMes = txMes.filter(tx=>tx.type==="expense").reduce((s,tx)=>s+parseFloat(tx.amount||0),0);
+    return `Eres un asistente financiero personal integrado en Finanzapp, la app de ${user.name}. Responde siempre en español, de forma concisa y directa — estás en un chat flotante pequeño, sé breve.
+Cuando el usuario mencione un gasto o ingreso (ej: "gasté 350 en gasolina", "cobré la renta"), extrae los datos y responde con:
+TRANSACCIONES_JSON:[{"type":"expense|income","amount":0,"date":"YYYY-MM-DD","category":"...","description":"...","account":"ID_CUENTA"}]
+Categorías expense: ${cats.expense.join(", ")} | income: ${cats.income.join(", ")}
+Cuentas: ${accounts.map(a=>`ID:${a.id} | ${a.name} | ${a.currency}`).join(" | ")||"Sin cuentas"}
+=== RESUMEN ===
+TC: ${TC} | Liquidez: ${fmt(liquidez)} | Inversiones: ${fmt(invTotal)} | Deuda: ${fmt(deudaTarjetas)}
+Flujo ${now.toLocaleDateString("es-MX",{month:"long"})}: +${fmt(ingrMes)} / -${fmt(gastMes)}
+Préstamos: ${loans.map(l=>`${l.name} [${l.type==="received"?"pagar":"cobrar"}]`).join(", ")||"ninguno"}
+Metas: ${goals.map(g=>`${g.nombre||g.name}`).join(", ")||"ninguna"}`;
+  };
+
+  const readFile = (file) => new Promise((res,rej)=>{ const r=new FileReader(); r.onload=e=>res(e.target.result.split(",")[1]); r.onerror=rej; r.readAsDataURL(file); });
+
+  const handleFile = async (e) => {
+    const file = e.target.files?.[0]; if (!file) return;
+    const allowed = ["image/jpeg","image/png","image/webp","image/gif","application/pdf"];
+    if (!allowed.includes(file.type)) { toast("Formato no soportado","error"); return; }
+    if (file.size > 20*1024*1024) { toast("Archivo muy grande (máx 20MB)","error"); return; }
+    const base64 = await readFile(file);
+    setAdjunto({ name:file.name, type:file.type, base64, mediaType:file.type });
+    e.target.value = "";
+  };
+
+  const parseTxJson = (text) => {
+    const match = text.match(/TRANSACCIONES_JSON:(\[[\s\S]*?\])/);
+    if (!match) return null;
+    try { const arr=JSON.parse(match[1]); return arr.filter(tx=>tx.amount&&tx.type); } catch { return null; }
+  };
+
+  const guardarTxs = (txs) => {
+    const nuevas = txs.map(tx=>({ ...tx, id:genId(), amount:Math.abs(parseFloat(tx.amount)||0), date:tx.date||today(), category:tx.category||"Otro", description:tx.description||"Sin descripción", accountId:tx.account||accounts[0]?.id||"", createdAt:new Date().toISOString() }));
+    setTransactions(p=>[...nuevas,...p]);
+    toast(`${nuevas.length} transacción${nuevas.length!==1?"es":""} registrada${nuevas.length!==1?"s":""} ✓`);
+    setPendingTx(null);
+    setMessages(p=>[...p,{role:"assistant",content:`✅ Listo. Registré ${nuevas.length} transacción${nuevas.length!==1?"es":""}.`}]);
+  };
+
+  const send = async () => {
+    const text = input.trim();
+    if ((!text && !adjunto) || loading) return;
+    if (!ANTHROPIC_KEY) { setMessages(p=>[...p,{role:"assistant",content:"⚠️ Falta VITE_ANTHROPIC_KEY en Vercel."}]); return; }
+
+    let userContent;
+    const displayText = text || (adjunto ? `📎 ${adjunto.name}` : "");
+    if (adjunto) {
+      const parts = [];
+      if (adjunto.type==="application/pdf") parts.push({type:"document",source:{type:"base64",media_type:"application/pdf",data:adjunto.base64}});
+      else parts.push({type:"image",source:{type:"base64",media_type:adjunto.mediaType,data:adjunto.base64}});
+      parts.push({type:"text",text:text||"Analiza este documento y extrae los movimientos financieros."});
+      userContent = parts;
+    } else { userContent = text; }
+
+    const userMsg = {role:"user",content:userContent,display:displayText};
+    const newMsgs = [...messages,userMsg];
+    setMessages(newMsgs); setInput(""); setAdjunto(null); setLoading(true);
+
+    try {
+      const apiMessages = newMsgs.map(m=>({role:m.role,content:m.content}));
+      const res = await fetch("https://api.anthropic.com/v1/messages",{
+        method:"POST",
+        headers:{"Content-Type":"application/json","x-api-key":ANTHROPIC_KEY,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},
+        body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:1024,system:buildContext(),messages:apiMessages})
+      });
+      const data = await res.json();
+      const reply = data.content?.[0]?.text || "Sin respuesta.";
+      const txs = parseTxJson(reply);
+      const replyLimpio = reply.replace(/TRANSACCIONES_JSON:\[[\s\S]*?\]/,"").trim();
+      setMessages(p=>[...p,{role:"assistant",content:replyLimpio}]);
+      if (txs&&txs.length>0) setPendingTx(txs);
+    } catch { setMessages(p=>[...p,{role:"assistant",content:"❌ Error al conectar con la API."}]); }
+    setLoading(false);
+  };
+
+  const SUGERENCIAS_RAPIDAS = ["¿Cuánto gasté este mes?","¿Cómo está mi patrimonio?","Resumen financiero","¿Voy bien con mis metas?"];
+
+  return (
+    <>
+      {/* Botón flotante */}
+      <button
+        onClick={()=>setOpen(o=>!o)}
+        style={{
+          position:"fixed", bottom:24, right:24, zIndex:1200,
+          width:54, height:54, borderRadius:"50%",
+          background:"linear-gradient(135deg,#00d4aa,#3b82f6)",
+          border:"none", cursor:"pointer", boxShadow:"0 4px 24px rgba(0,212,170,.4)",
+          display:"flex", alignItems:"center", justifyContent:"center",
+          transition:"transform .2s, box-shadow .2s",
+        }}
+        onMouseEnter={e=>{ e.currentTarget.style.transform="scale(1.08)"; e.currentTarget.style.boxShadow="0 6px 32px rgba(0,212,170,.55)"; }}
+        onMouseLeave={e=>{ e.currentTarget.style.transform="scale(1)"; e.currentTarget.style.boxShadow="0 4px 24px rgba(0,212,170,.4)"; }}
+        title="Asistente financiero"
+      >
+        {open ? <Ic n="close" size={22} color="#fff"/> : <Ic n="asistente" size={22} color="#fff"/>}
+      </button>
+
+      {/* Panel flotante */}
+      {open && (
+        <div style={{
+          position:"fixed", bottom:88, right:24, zIndex:1199,
+          width:360, height:520,
+          background:"#161b27", border:"1px solid rgba(255,255,255,.1)",
+          borderRadius:18, boxShadow:"0 16px 60px rgba(0,0,0,.6)",
+          display:"flex", flexDirection:"column", overflow:"hidden",
+          animation:"fadeUp .2s ease",
+        }}>
+          {/* Header */}
+          <div style={{padding:"13px 16px", borderBottom:"1px solid rgba(255,255,255,.07)", display:"flex", alignItems:"center", gap:10, flexShrink:0, background:"linear-gradient(135deg,rgba(0,212,170,.08),rgba(59,130,246,.05))"}}>
+            <div style={{width:32,height:32,borderRadius:10,background:"linear-gradient(135deg,#00d4aa,#3b82f6)",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+              <Ic n="asistente" size={16} color="#fff"/>
+            </div>
+            <div style={{flex:1,minWidth:0}}>
+              <p style={{fontSize:13,fontWeight:700,color:"#f0f0f0",margin:0}}>Asistente Financiero</p>
+              <p style={{fontSize:10,color:"#555",margin:0}}>Escribe un gasto o pregunta sobre tus finanzas</p>
+            </div>
+            {messages.length>0 && (
+              <button onClick={()=>{setMessages([]);setPendingTx(null);}} title="Limpiar chat"
+                style={{background:"none",border:"none",cursor:"pointer",color:"#444",fontSize:10,padding:4,borderRadius:6}}>
+                ↺
+              </button>
+            )}
+          </div>
+
+          {/* Mensajes */}
+          <div style={{flex:1,overflowY:"auto",padding:"12px 14px",display:"flex",flexDirection:"column",gap:10}}>
+            {messages.length===0 && (
+              <div>
+                <p style={{fontSize:12,color:"#555",textAlign:"center",marginBottom:12}}>Hola {user.name.split(" ")[0]} 👋 ¿En qué te ayudo?</p>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
+                  {SUGERENCIAS_RAPIDAS.map((s,i)=>(
+                    <button key={i} onClick={()=>setInput(s)}
+                      style={{textAlign:"left",padding:"8px 10px",borderRadius:9,border:"1px solid rgba(255,255,255,.07)",background:"rgba(255,255,255,.03)",cursor:"pointer",fontSize:11,color:"#777",lineHeight:1.4}}>
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {messages.map((m,i)=>(
+              <div key={i} style={{display:"flex",justifyContent:m.role==="user"?"flex-end":"flex-start",gap:6,alignItems:"flex-start"}}>
+                {m.role==="assistant"&&(
+                  <div style={{width:22,height:22,borderRadius:6,background:"linear-gradient(135deg,#00d4aa,#3b82f6)",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginTop:1}}>
+                    <Ic n="asistente" size={11} color="#fff"/>
+                  </div>
+                )}
+                <div style={{maxWidth:"82%",padding:"8px 12px",borderRadius:m.role==="user"?"12px 12px 3px 12px":"12px 12px 12px 3px",background:m.role==="user"?"linear-gradient(135deg,#00d4aa,#00a884)":"rgba(255,255,255,.06)",border:m.role==="user"?"none":"1px solid rgba(255,255,255,.07)",fontSize:12,color:m.role==="user"?"#fff":"#d0d0d0",lineHeight:1.6,whiteSpace:"pre-wrap",wordBreak:"break-word"}}>
+                  {m.display||(typeof m.content==="string"?m.content:m.content?.find?.(c=>c.type==="text")?.text||"")}
+                </div>
+              </div>
+            ))}
+
+            {loading && (
+              <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                <div style={{width:22,height:22,borderRadius:6,background:"linear-gradient(135deg,#00d4aa,#3b82f6)",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                  <Ic n="asistente" size={11} color="#fff"/>
+                </div>
+                <div style={{padding:"8px 12px",borderRadius:"12px 12px 12px 3px",background:"rgba(255,255,255,.06)",border:"1px solid rgba(255,255,255,.07)",fontSize:12,color:"#555"}}>
+                  <span style={{animation:"pulse 1s infinite"}}>•••</span>
+                </div>
+              </div>
+            )}
+
+            {/* Confirmar transacciones */}
+            {pendingTx && (
+              <div style={{border:"1px solid rgba(0,212,170,.3)",borderRadius:10,padding:10,background:"rgba(0,212,170,.05)"}}>
+                <p style={{fontSize:11,fontWeight:700,color:"#00d4aa",margin:"0 0 8px"}}>📋 {pendingTx.length} transacción{pendingTx.length!==1?"es":""} detectada{pendingTx.length!==1?"s":""}</p>
+                {pendingTx.map((tx,i)=>(
+                  <div key={i} style={{fontSize:11,color:"#aaa",marginBottom:4,display:"flex",justifyContent:"space-between"}}>
+                    <span>{tx.description}</span>
+                    <span style={{color:tx.type==="income"?"#00d4aa":"#ff4757",fontWeight:700}}>{tx.type==="income"?"+":"-"}{fmt(parseFloat(tx.amount||0))}</span>
+                  </div>
+                ))}
+                <div style={{display:"flex",gap:6,marginTop:8}}>
+                  <button onClick={()=>guardarTxs(pendingTx)} style={{flex:1,padding:"6px 0",borderRadius:8,background:"#00d4aa",border:"none",color:"#fff",fontSize:11,fontWeight:700,cursor:"pointer"}}>✓ Registrar</button>
+                  <button onClick={()=>setPendingTx(null)} style={{flex:1,padding:"6px 0",borderRadius:8,background:"rgba(255,71,87,.15)",border:"1px solid rgba(255,71,87,.3)",color:"#ff4757",fontSize:11,fontWeight:600,cursor:"pointer"}}>✕ Cancelar</button>
+                </div>
+              </div>
+            )}
+
+            <div ref={bottomRef}/>
+          </div>
+
+          {/* Adjunto preview */}
+          {adjunto && (
+            <div style={{padding:"6px 14px",borderTop:"1px solid rgba(255,255,255,.05)",display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
+              <span style={{fontSize:11,color:"#00d4aa",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>📎 {adjunto.name}</span>
+              <button onClick={()=>setAdjunto(null)} style={{background:"none",border:"none",cursor:"pointer",color:"#555",fontSize:14,lineHeight:1}}>×</button>
+            </div>
+          )}
+
+          {/* Input */}
+          <div style={{padding:"10px 12px",borderTop:"1px solid rgba(255,255,255,.07)",display:"flex",gap:8,alignItems:"center",flexShrink:0}}>
+            <input ref={fileRef} type="file" accept="image/*,.pdf" style={{display:"none"}} onChange={handleFile}/>
+            <button onClick={()=>fileRef.current?.click()} title="Adjuntar imagen o PDF"
+              style={{background:"none",border:"1px solid rgba(255,255,255,.07)",borderRadius:8,cursor:"pointer",color:"#555",width:32,height:32,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+              <Ic n="attach" size={15}/>
+            </button>
+            <input
+              ref={inputRef}
+              value={input}
+              onChange={e=>setInput(e.target.value)}
+              onKeyDown={e=>{ if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();send();} }}
+              placeholder="Gasté 350 en gasolina..."
+              style={{flex:1,padding:"8px 10px",background:"rgba(255,255,255,.05)",border:"1px solid rgba(255,255,255,.08)",borderRadius:9,color:"#e0e0e0",fontSize:12,outline:"none"}}
+              onFocus={e=>e.target.style.borderColor="rgba(0,212,170,.4)"}
+              onBlur={e=>e.target.style.borderColor="rgba(255,255,255,.08)"}
+            />
+            <button onClick={send} disabled={loading||(!input.trim()&&!adjunto)}
+              style={{width:32,height:32,borderRadius:9,background:loading||(!input.trim()&&!adjunto)?"rgba(255,255,255,.05)":"linear-gradient(135deg,#00d4aa,#00a884)",border:"none",cursor:loading||(!input.trim()&&!adjunto)?"not-allowed":"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,transition:"background .2s"}}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill={loading||(!input.trim()&&!adjunto)?"#444":"#fff"}><path d="M2 21l21-9L2 3v7l15 2-15 2v7z"/></svg>
+            </button>
+          </div>
+        </div>
+      )}
+    </>
+  );
+};
+
 // ─── APP SHELL ────────────────────────────────────────────────────────────────
 export default function App() {
   const [user, setUser]   = useState(null);
@@ -10297,6 +10563,7 @@ export default function App() {
           </div>
         </div>
       </div>
+      <AsisteFlotante/>
     </Ctx.Provider>
   );
 }
