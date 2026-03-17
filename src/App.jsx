@@ -2273,68 +2273,60 @@ const Dashboard = () => {
 
       <LineChartPatrimonio snapshots={snapshots} onVerTodo={()=>navigate("patrimonio")}/>
 
-      <ProyeccionFlujo recurrents={recurrents} loans={loans} mortgages={mortgages} transactions={transactions} accounts={accounts} TC={TC}/>
-
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))",gap:14}}>
 
-        {/* ── PRESUPUESTOS EN RIESGO */}
-        {presRiesgo.length>0 && (
+        {/* ── METAS + PRESUPUESTOS COMPACTO */}
+        {(metasConRitmo.length>0||presRiesgo.length>0) && (
           <Card>
-            <p style={{fontSize:13,fontWeight:700,color:"#ccc",margin:"0 0 12px"}}>Presupuestos del mes</p>
-            <div style={{display:"flex",flexDirection:"column",gap:10}}>
-              {presRiesgo.map(p=>{
-                const color=p.pct>100?"#ff4757":p.pct>80?"#f39c12":p.color||"#00d4aa";
-                return (
-                  <div key={p.id}>
-                    <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
-                      <span style={{fontSize:12,color:"#ccc",fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:"55%"}}>{p.nombre}</span>
-                      <span style={{fontSize:11,color,fontWeight:700}}>{fmt(p.gastado)} <span style={{color:"#555",fontWeight:400}}>/ {fmt(p.limite)}</span></span>
-                    </div>
-                    <div style={{height:6,borderRadius:3,background:"rgba(255,255,255,.05)",overflow:"hidden"}}>
-                      <div style={{height:"100%",width:`${Math.min(p.pct,100)}%`,background:color,borderRadius:3,transition:"width .4s"}}/>
-                    </div>
-                    <div style={{display:"flex",justifyContent:"space-between",marginTop:2}}>
-                      <span style={{fontSize:9,color:"#444"}}>{p.pct.toFixed(0)}% consumido</span>
-                      <span style={{fontSize:9,color:p.pct>100?"#ff4757":"#444"}}>
-                        {p.pct>100?`Excedido ${fmt(p.gastado-p.limite)}`:`Quedan ${fmt(p.limite-p.gastado)}`}
-                      </span>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </Card>
-        )}
-
-        {/* ── METAS CON PROYECCIÓN */}
-        {metasConRitmo.length>0 && (
-          <Card>
-            <p style={{fontSize:13,fontWeight:700,color:"#ccc",margin:"0 0 12px"}}>Metas de ahorro</p>
-            <div style={{display:"flex",flexDirection:"column",gap:12}}>
-              {metasConRitmo.map(g=>(
-                <div key={g.id}>
-                  <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
-                    <span style={{fontSize:12,color:"#ccc",fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:"60%"}}>{g.name}</span>
-                    <span style={{fontSize:11,color:"#00d4aa",fontWeight:700}}>{g.pct.toFixed(0)}%</span>
-                  </div>
-                  <div style={{height:6,borderRadius:3,background:"rgba(255,255,255,.05)",overflow:"hidden",marginBottom:4}}>
-                    <div style={{height:"100%",width:`${g.pct}%`,background:"linear-gradient(90deg,#00d4aa,#00a884)",borderRadius:3}}/>
-                  </div>
-                  <div style={{display:"flex",justifyContent:"space-between"}}>
-                    <span style={{fontSize:9,color:"#555"}}>{fmt(g.saved)} de {fmt(g.target)}</span>
-                    {g.porMesSugerido!==null && (
-                      <span style={{fontSize:9,color:g.alcanzable?"#00d4aa":"#f39c12"}}>
-                        {g.alcanzable?"✓":"⚠"} Ahorrar {fmt(g.porMesSugerido)}/mes · {g.mesesRestantes} mes{g.mesesRestantes!==1?"es":""}
-                      </span>
-                    )}
-                  </div>
+            {/* Metas */}
+            {metasConRitmo.length>0 && (
+              <div style={{marginBottom:presRiesgo.length>0?14:0}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                  <p style={{fontSize:12,fontWeight:700,color:"#ccc",margin:0}}>Metas de ahorro</p>
+                  <button onClick={()=>navigate("goals")} style={{fontSize:10,color:"#00d4aa",background:"none",border:"none",cursor:"pointer",padding:0}}>Ver todas →</button>
                 </div>
-              ))}
-            </div>
+                <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                  {metasConRitmo.slice(0,3).map(g=>(
+                    <div key={g.id}>
+                      <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
+                        <span style={{fontSize:11,color:"#ccc",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:"65%"}}>{g.name||g.nombre}</span>
+                        <span style={{fontSize:11,color:"#00d4aa",fontWeight:700}}>{g.pct.toFixed(0)}%</span>
+                      </div>
+                      <div style={{height:5,borderRadius:3,background:"rgba(255,255,255,.05)",overflow:"hidden"}}>
+                        <div style={{height:"100%",width:`${g.pct}%`,background:"linear-gradient(90deg,#00d4aa,#00a884)",borderRadius:3}}/>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {/* Presupuestos */}
+            {presRiesgo.length>0 && (
+              <div>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                  <p style={{fontSize:12,fontWeight:700,color:"#ccc",margin:0}}>Presupuestos</p>
+                  <button onClick={()=>navigate("presupuestos")} style={{fontSize:10,color:"#00d4aa",background:"none",border:"none",cursor:"pointer",padding:0}}>Ver todos →</button>
+                </div>
+                <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                  {presRiesgo.slice(0,3).map(p=>{
+                    const color=p.pct>100?"#ff4757":p.pct>80?"#f39c12":p.color||"#00d4aa";
+                    return (
+                      <div key={p.id}>
+                        <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
+                          <span style={{fontSize:11,color:"#ccc",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:"65%"}}>{p.nombre}</span>
+                          <span style={{fontSize:11,color,fontWeight:700}}>{p.pct.toFixed(0)}%</span>
+                        </div>
+                        <div style={{height:5,borderRadius:3,background:"rgba(255,255,255,.05)",overflow:"hidden"}}>
+                          <div style={{height:"100%",width:`${Math.min(p.pct,100)}%`,background:color,borderRadius:3,transition:"width .4s"}}/>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </Card>
         )}
-
-        <ComparativoCategorias transactions={transactions} mesKey={mesKey} mesAnteriorKey={mesAnteriorKey}/>
 
         {/* ── ÚLTIMOS MOVIMIENTOS */}
         <Card>
