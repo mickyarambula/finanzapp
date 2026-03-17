@@ -10169,15 +10169,17 @@ const Asistente = () => {
     const txMes   = transactions.filter(tx=>tx.date?.startsWith(mesKey));
     const ingrMes = txMes.filter(tx=>tx.type==="income").reduce((s,tx)=>s+parseFloat(tx.amount||0),0);
     const gastMes = txMes.filter(tx=>tx.type==="expense").reduce((s,tx)=>s+parseFloat(tx.amount||0),0);
+    const hoyAsistente = today();
     return `Eres un experto en finanzas personales integrado en Finanzapp, la app de ${user.name}.
 Tienes acceso en tiempo real a todos sus datos. Responde siempre en español, claro y directo.
+FECHA DE HOY: ${hoyAsistente} — USA SIEMPRE ESTA FECHA para transacciones sin fecha explícita.
 
 Cuando el usuario suba un documento (ticket, factura, estado de cuenta, comprobante):
 1. Extrae TODOS los movimientos o el movimiento principal: fecha, monto, descripción, tipo (ingreso/gasto).
 2. Sugiere la categoría más adecuada de esta lista — expense: ${cats.expense.join(", ")} | income: ${cats.income.join(", ")}
 3. Sugiere la cuenta más adecuada de las disponibles.
 4. Responde con un JSON al final de tu mensaje con este formato exacto (sin markdown, sin backticks):
-TRANSACCIONES_JSON:[{"type":"expense|income","amount":0,"date":"YYYY-MM-DD","category":"...","description":"...","account":"ID_CUENTA"}]
+TRANSACCIONES_JSON:[{"type":"expense|income","amount":0,"date":"${hoyAsistente}","category":"...","description":"...","account":"ID_CUENTA"}]
 Si hay múltiples movimientos (como en un estado de cuenta), inclúyelos todos en el array.
 Si no puedes determinar algún campo, usa null.
 
@@ -10631,9 +10633,11 @@ Sé directo, positivo y usa 1 emoji relevante. No repitas los números exactos s
     const txMes = transactions.filter(tx=>tx.date?.startsWith(mesKey));
     const ingrMes = txMes.filter(tx=>tx.type==="income").reduce((s,tx)=>s+parseFloat(tx.amount||0),0);
     const gastMes = txMes.filter(tx=>tx.type==="expense").reduce((s,tx)=>s+parseFloat(tx.amount||0),0);
+    const hoyStr = today();
     return `Eres un asistente financiero personal integrado en Finanzapp, la app de ${user.name}. Responde siempre en español, de forma concisa y directa — estás en un chat flotante pequeño, sé breve.
+FECHA DE HOY: ${hoyStr} — USA SIEMPRE ESTA FECHA para registrar transacciones salvo que el usuario indique otra fecha explícitamente.
 Cuando el usuario mencione un gasto o ingreso (ej: "gasté 350 en gasolina", "cobré la renta"), extrae los datos y responde con:
-TRANSACCIONES_JSON:[{"type":"expense|income","amount":0,"date":"YYYY-MM-DD","category":"...","description":"...","account":"ID_CUENTA"}]
+TRANSACCIONES_JSON:[{"type":"expense|income","amount":0,"date":"${hoyStr}","category":"...","description":"...","account":"ID_CUENTA"}]
 Categorías expense: ${cats.expense.join(", ")} | income: ${cats.income.join(", ")}
 Cuentas: ${accounts.map(a=>`ID:${a.id} | ${a.name} | ${a.currency}`).join(" | ")||"Sin cuentas"}
 === RESUMEN ===
