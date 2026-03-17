@@ -4349,13 +4349,29 @@ const Investments = () => {
         </Card>
 
         {proy && (
-          <Card style={{ marginBottom:16, borderColor:"rgba(243,156,18,.2)" }}>
+          <Card style={{ marginBottom:16, borderColor:"rgba(243,156,18,.2)", background:"rgba(243,156,18,.02)" }}>
             <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12, flexWrap:"wrap", gap:8 }}>
               <div>
-                <p style={{ fontSize:13, fontWeight:700, color:"#f39c12", margin:"0 0 2px" }}>📊 Proyección Estimada</p>
-                <p style={{ fontSize:11, color:"#555", margin:0 }}>Basada en tasa anual de {proy.tasa}% sobre {fmt(proy.base, selected.currency)}</p>
+                <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3}}>
+                  <p style={{ fontSize:13, fontWeight:700, color:"#f39c12", margin:0 }}>⚡ Proyección Estimada</p>
+                  <span style={{fontSize:10,padding:"2px 7px",borderRadius:10,background:"rgba(243,156,18,.15)",color:"#f39c12",fontWeight:700}}>NO AFECTA TOTALES REALES</span>
+                </div>
+                <p style={{ fontSize:11, color:"#555", margin:0 }}>Basada en {proy.tasa}% anual sobre {fmt(proy.base, selected.currency)} · Solo orientativo</p>
               </div>
               <Badge label={`${proy.tasa}% anual`} color="#f39c12"/>
+            </div>
+            {/* Comparativa real vs proyectado */}
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12,padding:"10px 12px",background:"rgba(0,0,0,.2)",borderRadius:9}}>
+              <div>
+                <p style={{fontSize:9,color:"#555",textTransform:"uppercase",letterSpacing:.5,margin:"0 0 3px"}}>Rendimiento real actual</p>
+                <p style={{fontSize:15,fontWeight:800,color:st.rendimiento>=0?"#00d4aa":"#ff4757",margin:0}}>{st.rendimiento>=0?"+":""}{fmt(st.rendimiento,selected.currency)}</p>
+                <p style={{fontSize:10,color:"#555",margin:"1px 0 0"}}>{st.rendPct>=0?"+":""}{st.rendPct.toFixed(2)}% acumulado</p>
+              </div>
+              <div>
+                <p style={{fontSize:9,color:"#f39c12",textTransform:"uppercase",letterSpacing:.5,margin:"0 0 3px"}}>Proyección año completo</p>
+                <p style={{fontSize:15,fontWeight:800,color:"#f39c12",margin:0}}>+{fmt(proy.rendAnual,selected.currency)}</p>
+                <p style={{fontSize:10,color:"#666",margin:"1px 0 0"}}>+{fmt(proy.rendMensual,selected.currency)}/mes estimado</p>
+              </div>
             </div>
             <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))", gap:8, marginBottom: proy.valorAlVenc ? 10 : 0 }}>
               {[
@@ -4602,6 +4618,14 @@ const Investments = () => {
         const rendTotal = totalValor - totalAportado;
         const rendPctTotal = totalAportado>0?(rendTotal/totalAportado)*100:0;
         const rendColor = rendTotal>=0?"#00d4aa":"#ff4757";
+        // Rendimiento proyectado anual — solo inversiones con tasaAnual
+        const invConTasa = invActivas.filter(i=>parseFloat(i.tasaAnual)>0);
+        const rendProyAnual = invConTasa.reduce((s,i)=>{
+          const st=calcInv(i);
+          const base = st.costoTitulos>0?st.costoTitulos:st.totalInvertido;
+          const rend = base * (parseFloat(i.tasaAnual)/100);
+          return s+(i.currency==="USD"?rend*TC:rend);
+        },0);
         return (
           <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))", gap:10, marginBottom:18 }}>
             <Card style={{ borderColor:"rgba(0,212,170,.2)" }}>
@@ -4610,10 +4634,17 @@ const Investments = () => {
               {totalUSD>0&&<p style={{fontSize:11,color:"#0078ff",margin:"2px 0 0"}}>+ {fmt(totalUSD,"USD")}</p>}
             </Card>
             <Card style={{ borderColor:`${rendColor}33` }}>
-              <p style={{ fontSize:11, color:"#666", textTransform:"uppercase", letterSpacing:.4, margin:"0 0 4px" }}>Rendimiento neto</p>
+              <p style={{ fontSize:11, color:"#666", textTransform:"uppercase", letterSpacing:.4, margin:"0 0 4px" }}>Rendimiento real neto</p>
               <p style={{ fontSize:20, fontWeight:700, color:rendColor, margin:0 }}>{rendTotal>=0?"+":""}{fmt(rendTotal,"MXN")}</p>
               <p style={{fontSize:11,color:rendColor,margin:"2px 0 0",fontWeight:600}}>{rendPctTotal>=0?"+":""}{rendPctTotal.toFixed(2)}%</p>
             </Card>
+            {rendProyAnual>0&&(
+              <Card style={{ borderColor:"rgba(243,156,18,.25)", background:"rgba(243,156,18,.03)" }}>
+                <p style={{ fontSize:11, color:"#f39c12", textTransform:"uppercase", letterSpacing:.4, margin:"0 0 4px" }}>⚡ Rend. proyectado / año</p>
+                <p style={{ fontSize:20, fontWeight:700, color:"#f39c12", margin:0 }}>+{fmt(rendProyAnual,"MXN")}</p>
+                <p style={{fontSize:10,color:"#666",margin:"2px 0 0"}}>{invConTasa.length} inversión{invConTasa.length!==1?"es":""} con tasa · estimado</p>
+              </Card>
+            )}
             <Card>
               <p style={{ fontSize:11, color:"#666", textTransform:"uppercase", letterSpacing:.4, margin:"0 0 4px" }}>Activas</p>
               <p style={{ fontSize:20, fontWeight:700, color:"#ccc", margin:0 }}>{invActivas.length}</p>
@@ -4696,6 +4727,21 @@ const Investments = () => {
                   );
                 })()}
 
+                {/* ── Proyección anual estimada */}
+                {parseFloat(inv.tasaAnual)>0&&(()=>{
+                  const base = st.costoTitulos>0?st.costoTitulos:st.totalInvertido;
+                  const rendAnualEst = base * (parseFloat(inv.tasaAnual)/100);
+                  const rendMensualEst = rendAnualEst/12;
+                  return (
+                    <div style={{marginBottom:8,padding:"6px 9px",borderRadius:7,background:"rgba(243,156,18,.07)",border:"1px solid rgba(243,156,18,.2)"}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                        <span style={{fontSize:10,color:"#f39c12",fontWeight:600}}>⚡ Proyectado est. ({inv.tasaAnual}% anual)</span>
+                        <span style={{fontSize:11,color:"#f39c12",fontWeight:700}}>+{fmt(rendAnualEst,inv.currency)}/año</span>
+                      </div>
+                      <span style={{fontSize:10,color:"#777"}}>≈ +{fmt(rendMensualEst,inv.currency)}/mes · solo estimado, no real</span>
+                    </div>
+                  );
+                })()}
                 {/* ── Footer: vencimiento o estado */}
                 {inv.endDate ? (
                   <div style={{display:"flex",alignItems:"center",gap:5,padding:"5px 9px",borderRadius:7,
