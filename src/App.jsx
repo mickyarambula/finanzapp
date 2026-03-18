@@ -11075,7 +11075,8 @@ const AsisteFlotante = () => {
   const [loans] = useData(user.id, "loans");
   const [investments] = useData(user.id, "investments");
   const [goals] = useData(user.id, "goals");
-  const [mortgages] = useData(user.id, "mortgages");
+  const [mortgages, setMortgages] = useData(user.id, "mortgages");
+  const [transfers, setTransfers] = useData(user.id, "transfers");
   const [presupuestos] = useData(user.id, "presupuestos");
   const [config] = useData(user.id, "config", {});
 
@@ -11261,12 +11262,35 @@ Sé directo, positivo y usa 1 emoji relevante. No repitas los números exactos s
           return s+saldo;
         },0);
 
+    const loansActivos = loans.filter(l=>!calcLoanState(l).total<=0);
     return `Eres el asistente financiero personal de ${user.name} en Finanzapp. Responde siempre en español, conciso y directo.
 FECHA HOY: ${hoyStr}
-Cuando el usuario mencione un gasto/ingreso, registra con:
+Puedes registrar CUALQUIERA de estas operaciones usando el JSON correspondiente al FINAL de tu respuesta:
+
+1. TRANSACCIÓN (gasto/ingreso):
 TRANSACCIONES_JSON:[{"type":"expense|income","amount":0,"date":"${hoyStr}","category":"...","description":"...","account":"ID_CUENTA"}]
+
+2. PAGO DE PRÉSTAMO (capital+interés o solo interés):
+PAGO_PRESTAMO_JSON:{"loanId":"ID_PRESTAMO","amount":0,"date":"${hoyStr}","paymentType":"mixed|interest_only","account":"ID_CUENTA","notes":""}
+
+3. APORTACIÓN A META:
+APORTACION_META_JSON:{"goalId":"ID_META","monto":0,"fecha":"${hoyStr}","notas":""}
+
+4. PAGO DE HIPOTECA:
+PAGO_HIPOTECA_JSON:{"mortgageId":"ID_HIPOTECA","account":"ID_CUENTA","date":"${hoyStr}","notas":""}
+
+5. TRANSFERENCIA ENTRE CUENTAS:
+TRANSFERENCIA_JSON:{"fromId":"ID_CUENTA_ORIGEN","toId":"ID_CUENTA_DESTINO","amount":0,"date":"${hoyStr}","description":""}
+
+6. APORTACIÓN A INVERSIÓN:
+APORTACION_INVERSION_JSON:{"invId":"ID_INVERSION","amount":0,"date":"${hoyStr}","account":"ID_CUENTA","notes":""}
+
 Cats expense: ${cats.expense.join(", ")} | income: ${cats.income.join(", ")}
 Cuentas (usa el ID exacto): ${accounts.map(a=>`[${a.id}] ${a.name} ${a.currency} ${fmt(parseFloat(a.balance||0),a.currency)}`).join(" | ")||"Sin cuentas"}
+Préstamos activos: ${loans.map(l=>`[${l.id}] ${l.name} (${l.type==="received"?"debo":"me deben"})`).join(" | ")||"Ninguno"}
+Metas activas: ${goals.filter(g=>g.estado!=="completada").map(g=>`[${g.id}] ${g.nombre||g.name}`).join(" | ")||"Ninguna"}
+Hipotecas: ${(mortgages||[]).map(m=>`[${m.id}] ${m.nombre||m.banco||"Hipoteca"}`).join(" | ")||"Ninguna"}
+Inversiones activas: ${investments.filter(i=>i.estado!=="liquidada").map(i=>`[${i.id}] ${i.name}`).join(" | ")||"Ninguna"}
 
 === SITUACIÓN FINANCIERA ACTUAL ===
 TC USD→MXN: ${TC}
@@ -11301,18 +11325,174 @@ ${presInfo.length>0?presInfo.join("\n"):"Sin presupuestos"}`;
     e.target.value = "";
   };
 
+  // ── Parser multi-acción
+  const parseAcciones = (text) => {
+    const acciones = [];
+    // 1. Transacciones
+    const mTx = text.match(/TRANSACCIONES_JSON:(\[[\s\S]*?\])/);
+    if (mTx) { try { const arr=JSON.parse(mTx[1]); if(arr.length) acciones.push({tipo:"transacciones",data:arr.filter(tx=>tx.amount&&tx.type)}); } catch{} }
+    // 2. Pago préstamo
+    const mPr = text.match(/PAGO_PRESTAMO_JSON:(\{[\s\S]*?\})/);
+    if (mPr) { try { const obj=JSON.parse(mPr[1]); if(obj.loanId&&obj.amount) acciones.push({tipo:"pago_prestamo",data:obj}); } catch{} }
+    // 3. Aportación meta
+    const mMt = text.match(/APORTACION_META_JSON:(\{[\s\S]*?\})/);
+    if (mMt) { try { const obj=JSON.parse(mMt[1]); if(obj.goalId&&obj.monto) acciones.push({tipo:"aportacion_meta",data:obj}); } catch{} }
+    // 4. Pago hipoteca
+    const mHip = text.match(/PAGO_HIPOTECA_JSON:(\{[\s\S]*?\})/);
+    if (mHip) { try { const obj=JSON.parse(mHip[1]); if(obj.mortgageId) acciones.push({tipo:"pago_hipoteca",data:obj}); } catch{} }
+    // 5. Transferencia
+    const mTr = text.match(/TRANSFERENCIA_JSON:(\{[\s\S]*?\})/);
+    if (mTr) { try { const obj=JSON.parse(mTr[1]); if(obj.fromId&&obj.toId&&obj.amount) acciones.push({tipo:"transferencia",data:obj}); } catch{} }
+    // 6. Aportación inversión
+    const mInv = text.match(/APORTACION_INVERSION_JSON:(\{[\s\S]*?\})/);
+    if (mInv) { try { const obj=JSON.parse(mInv[1]); if(obj.invId&&obj.amount) acciones.push({tipo:"aportacion_inversion",data:obj}); } catch{} }
+    return acciones.length>0 ? acciones : null;
+  };
+
+  const limpiarReply = (text) => text
+    .replace(/TRANSACCIONES_JSON:\[[\s\S]*?\]/g,"")
+    .replace(/PAGO_PRESTAMO_JSON:\{[\s\S]*?\}/g,"")
+    .replace(/APORTACION_META_JSON:\{[\s\S]*?\}/g,"")
+    .replace(/PAGO_HIPOTECA_JSON:\{[\s\S]*?\}/g,"")
+    .replace(/TRANSFERENCIA_JSON:\{[\s\S]*?\}/g,"")
+    .replace(/APORTACION_INVERSION_JSON:\{[\s\S]*?\}/g,"")
+    .trim();
+
+  // ── Calcular estado de préstamo (para saber interés acumulado)
+  const calcLoanStateFlot = (loan) => {
+    const dr=(parseFloat(loan.rate)||0)/100/(loan.rateType==="annual"?365:loan.rateType==="monthly"?30:1);
+    let bal=parseFloat(loan.principal||0), last=new Date(loan.startDate), totalPaid=0;
+    for(const p of [...(loan.payments||[])].sort((a,b)=>new Date(a.date)-new Date(b.date))){
+      const days=Math.max(0,Math.round((new Date(p.date)-last)/86400000));
+      const accrued=bal*dr*days;
+      if(p.paymentType==="interest_only"){totalPaid+=p.amount;last=new Date(p.date);}
+      else{const toInt=Math.min(p.amount,accrued);bal=Math.max(0,bal-(p.amount-toInt));totalPaid+=p.amount;last=new Date(p.date);}
+    }
+    const daysSince=Math.max(0,Math.round((new Date()-last)/86400000));
+    const interest=bal*dr*daysSince;
+    return {bal,interest,total:bal+interest,totalPaid,dr,lastDate:last};
+  };
+
+  const ejecutarAcciones = (acciones) => {
+    let mensajes = [];
+    let newAccounts = [...accounts];
+    let newTransactions = [...transactions];
+    let newLoans = [...loans];
+    let newGoals = [...goals];
+    let newMortgages = [...(mortgages||[])];
+    let newInvestments = [...investments];
+    let newTransfers = [...(transfers||[])];
+
+    for (const accion of acciones) {
+      if (accion.tipo==="transacciones") {
+        const nuevas = accion.data.map(tx=>({
+          ...tx, id:genId(), amount:Math.abs(parseFloat(tx.amount)||0),
+          date:tx.date||today(), category:tx.category||"Otro",
+          description:tx.description||"Sin descripción",
+          accountId:tx.account||accounts[0]?.id||"",
+          createdAt:new Date().toISOString()
+        }));
+        newTransactions = [...nuevas,...newTransactions];
+        // actualizar saldo de cuentas
+        nuevas.forEach(tx=>{
+          newAccounts = newAccounts.map(a=>a.id===tx.accountId?{...a,balance:parseFloat(a.balance||0)+(tx.type==="income"?tx.amount:-tx.amount)}:a);
+        });
+        mensajes.push(`✅ ${nuevas.length} transacción${nuevas.length!==1?"es":""} registrada${nuevas.length!==1?"s":""}`);
+      }
+
+      else if (accion.tipo==="pago_prestamo") {
+        const {loanId,amount,date,paymentType,account:accId,notes} = accion.data;
+        const loan = newLoans.find(l=>l.id===loanId);
+        if (!loan) { mensajes.push("❌ No encontré ese préstamo"); continue; }
+        const amt = Math.abs(parseFloat(amount)||0);
+        const targetId = accId || loan.accountId;
+        const st = calcLoanStateFlot(loan);
+        // ajustar saldo de cuenta
+        newAccounts = newAccounts.map(a=>a.id===targetId?{...a,balance:parseFloat(a.balance||0)+(loan.type==="given"?amt:-amt)}:a);
+        // agregar pago al préstamo
+        const toInt = paymentType==="interest_only" ? amt : Math.min(st.interest, amt);
+        const toCap = paymentType==="interest_only" ? 0 : Math.max(0, amt-toInt);
+        const newPmt = {id:genId(),date:date||today(),amount:amt,paymentType:paymentType||"mixed",targetAccountId:targetId,notes:notes||""};
+        newLoans = newLoans.map(l=>l.id===loanId?{...l,payments:[...(l.payments||[]),newPmt]}:l);
+        // registrar transacción
+        const isIngreso = loan.type==="given";
+        if (toInt>0) newTransactions = [{id:genId(),date:date||today(),amount:toInt,type:isIngreso?"income":"expense",description:isIngreso?`Intereses cobrados — ${loan.name}`:`Pago intereses — ${loan.name}`,category:isIngreso?"Intereses cobrados":"Pago de deuda",accountId:targetId,currency:loan.currency||"MXN",origen:"prestamo",origenId:loanId,notes:notes||},...newTransactions];
+        if (toCap>0) newTransactions = [{id:genId(),date:date||today(),amount:toCap,type:isIngreso?"income":"expense",description:isIngreso?`Recuperación capital — ${loan.name}`:`Abono capital — ${loan.name}`,category:isIngreso?"Recuperación de capital":"Abono a capital",accountId:targetId,currency:loan.currency||"MXN",origen:"prestamo",origenId:loanId,notes:notes||},...newTransactions];
+        mensajes.push(`✅ Pago de ${fmt(amt)} al préstamo "${loan.name}" registrado`);
+      }
+
+      else if (accion.tipo==="aportacion_meta") {
+        const {goalId,monto,fecha,notas} = accion.data;
+        const goal = newGoals.find(g=>g.id===goalId);
+        if (!goal) { mensajes.push("❌ No encontré esa meta"); continue; }
+        const m = Math.abs(parseFloat(monto)||0);
+        newGoals = newGoals.map(g=>g.id===goalId?{...g,aportaciones:[...(g.aportaciones||[]),{id:genId(),monto:m,fecha:fecha||today(),notas:notas||"Desde asistente"}]}:g);
+        mensajes.push(`✅ ${fmt(m)} aportados a la meta "${goal.nombre||goal.name}"`);
+      }
+
+      else if (accion.tipo==="pago_hipoteca") {
+        const {mortgageId,account:accId,date,notas} = accion.data;
+        const mort = newMortgages.find(m=>m.id===mortgageId);
+        if (!mort) { mensajes.push("❌ No encontré esa hipoteca"); continue; }
+        const prog = (() => {
+          const P=parseFloat(mort.monto)||0,n=(parseFloat(mort.plazoAnios)||0)*12,r=(parseFloat(mort.tasaAnual)||0)/100/12;
+          if(!P||!n||!r) return {cuota:0,saldo:P};
+          const cuota=mort.tipo==="fijo"?(P*r*Math.pow(1+r,n))/(Math.pow(1+r,n)-1):P/n;
+          let saldo=P; const pagados=(mort.pagosRealizados||[]).length;
+          for(let i=0;i<pagados;i++){const int=saldo*r,cap=mort.tipo==="fijo"?cuota-int:P/n;saldo=Math.max(saldo-cap,0);}
+          return {cuota:mort.cuotaReal?parseFloat(mort.cuotaReal):cuota,saldo};
+        })();
+        const targetId = accId || (accounts[0]?.id||"");
+        newAccounts = newAccounts.map(a=>a.id===targetId?{...a,balance:parseFloat(a.balance||0)-prog.cuota}:a);
+        newMortgages = newMortgages.map(m=>m.id===mortgageId?{...m,pagosRealizados:[...(m.pagosRealizados||[]),{id:genId(),fecha:date||today(),monto:prog.cuota,interes:prog.saldo*((parseFloat(mort.tasaAnual)||0)/100/12),cuentaId:targetId,notas:notas||"Desde asistente"}]}:m);
+        mensajes.push(`✅ Pago de hipoteca "${mort.nombre||mort.banco}" registrado: ${fmt(prog.cuota)}`);
+      }
+
+      else if (accion.tipo==="transferencia") {
+        const {fromId,toId,amount,date,description} = accion.data;
+        const fromAcc = newAccounts.find(a=>a.id===fromId);
+        const toAcc = newAccounts.find(a=>a.id===toId);
+        if (!fromAcc||!toAcc) { mensajes.push("❌ No encontré una de las cuentas"); continue; }
+        const amt = Math.abs(parseFloat(amount)||0);
+        newAccounts = newAccounts.map(a=>a.id===fromId?{...a,balance:parseFloat(a.balance||0)-amt}:a.id===toId?{...a,balance:parseFloat(a.balance||0)+amt}:a);
+        newTransfers = [{id:genId(),fromId,toId,amount:amt,toAmount:amt,date:date||today(),description:description||"Transferencia",fromName:fromAcc.name,toName:toAcc.name,fromCurrency:fromAcc.currency,toCurrency:toAcc.currency,createdAt:new Date().toISOString()},...newTransfers];
+        mensajes.push(`✅ Transferencia de ${fmt(amt)} de "${fromAcc.name}" a "${toAcc.name}"`);
+      }
+
+      else if (accion.tipo==="aportacion_inversion") {
+        const {invId,amount,date,account:accId,notes} = accion.data;
+        const inv = newInvestments.find(i=>i.id===invId);
+        if (!inv) { mensajes.push("❌ No encontré esa inversión"); continue; }
+        const amt = Math.abs(parseFloat(amount)||0);
+        const targetId = accId;
+        if (targetId) newAccounts = newAccounts.map(a=>a.id===targetId?{...a,balance:parseFloat(a.balance||0)-amt}:a);
+        newInvestments = newInvestments.map(i=>i.id===invId?{...i,aportaciones:[...(i.aportaciones||[]),{id:genId(),amount:amt,date:date||today(),accountId:targetId,notes:notes||"Desde asistente"}]}:i);
+        mensajes.push(`✅ ${fmt(amt)} aportados a "${inv.name}"`);
+      }
+    }
+
+    // Aplicar todos los cambios de una vez
+    setAccounts(newAccounts);
+    setTransactions(newTransactions);
+    setLoans(newLoans);
+    setGoals(newGoals);
+    setMortgages(newMortgages);
+    setInvestments(newInvestments);
+    setTransfers(newTransfers);
+    setPendingTx(null);
+    const resumen = mensajes.join("\n");
+    setMessages(p=>[...p,{role:"assistant",content:resumen}]);
+    toast("Operaciones registradas ✓");
+  };
+
+  // mantener compatibilidad con el flujo anterior
   const parseTxJson = (text) => {
     const match = text.match(/TRANSACCIONES_JSON:(\[[\s\S]*?\])/);
     if (!match) return null;
     try { const arr=JSON.parse(match[1]); return arr.filter(tx=>tx.amount&&tx.type); } catch { return null; }
   };
-
   const guardarTxs = (txs) => {
-    const nuevas = txs.map(tx=>({ ...tx, id:genId(), amount:Math.abs(parseFloat(tx.amount)||0), date:tx.date||today(), category:tx.category||"Otro", description:tx.description||"Sin descripción", accountId:tx.account||accounts[0]?.id||"", createdAt:new Date().toISOString() }));
-    setTransactions(p=>[...nuevas,...p]);
-    toast(`${nuevas.length} transacción${nuevas.length!==1?"es":""} registrada${nuevas.length!==1?"s":""} ✓`);
-    setPendingTx(null);
-    setMessages(p=>[...p,{role:"assistant",content:`✅ Listo. Registré ${nuevas.length} transacción${nuevas.length!==1?"es":""}.`}]);
+    ejecutarAcciones([{tipo:"transacciones",data:txs}]);
   };
 
   const send = async () => {
@@ -11343,10 +11523,10 @@ ${presInfo.length>0?presInfo.join("\n"):"Sin presupuestos"}`;
       });
       const data = await res.json();
       const reply = data.content?.[0]?.text || "Sin respuesta.";
-      const txs = parseTxJson(reply);
-      const replyLimpio = reply.replace(/TRANSACCIONES_JSON:\[[\s\S]*?\]/,"").trim();
+      const acciones = parseAcciones(reply);
+      const replyLimpio = limpiarReply(reply);
       setMessages(p=>[...p,{role:"assistant",content:replyLimpio}]);
-      if (txs&&txs.length>0) setPendingTx(txs);
+      if (acciones) setPendingTx(acciones);
     } catch { setMessages(p=>[...p,{role:"assistant",content:"❌ Error al conectar con la API."}]); }
     setLoading(false);
   };
@@ -11493,15 +11673,31 @@ ${presInfo.length>0?presInfo.join("\n"):"Sin presupuestos"}`;
             {/* Confirmar transacciones */}
             {pendingTx && (
               <div style={{border:"1px solid rgba(0,212,170,.3)",borderRadius:10,padding:10,background:"rgba(0,212,170,.05)"}}>
-                <p style={{fontSize:11,fontWeight:700,color:"#00d4aa",margin:"0 0 8px"}}>📋 {pendingTx.length} transacción{pendingTx.length!==1?"es":""} detectada{pendingTx.length!==1?"s":""}</p>
-                {pendingTx.map((tx,i)=>(
-                  <div key={i} style={{fontSize:11,color:"#aaa",marginBottom:4,display:"flex",justifyContent:"space-between"}}>
-                    <span>{tx.description}</span>
-                    <span style={{color:tx.type==="income"?"#00d4aa":"#ff4757",fontWeight:700}}>{tx.type==="income"?"+":"-"}{fmt(parseFloat(tx.amount||0))}</span>
-                  </div>
-                ))}
+                <p style={{fontSize:11,fontWeight:700,color:"#00d4aa",margin:"0 0 8px"}}>📋 {pendingTx.length} operación{pendingTx.length!==1?"es":""} detectada{pendingTx.length!==1?"s":""}</p>
+                {pendingTx.map((accion,i)=>{
+                  const iconos = {transacciones:"💳",pago_prestamo:"💰",aportacion_meta:"🎯",pago_hipoteca:"🏠",transferencia:"↔️",aportacion_inversion:"📈"};
+                  const labels = {transacciones:"Transacción",pago_prestamo:"Pago préstamo",aportacion_meta:"Aportación meta",pago_hipoteca:"Pago hipoteca",transferencia:"Transferencia",aportacion_inversion:"Aportación inversión"};
+                  const getResumen = (a) => {
+                    if(a.tipo==="transacciones") return a.data.map(tx=>`${tx.type==="income"?"+":"-"}${fmt(parseFloat(tx.amount||0))} ${tx.description}`).join(", ");
+                    if(a.tipo==="pago_prestamo") { const l=loans.find(x=>x.id===a.data.loanId); return `${fmt(parseFloat(a.data.amount||0))} → ${l?.name||"Préstamo"}`; }
+                    if(a.tipo==="aportacion_meta") { const g=goals.find(x=>x.id===a.data.goalId); return `${fmt(parseFloat(a.data.monto||0))} → ${g?.nombre||g?.name||"Meta"}`; }
+                    if(a.tipo==="pago_hipoteca") { const m=(mortgages||[]).find(x=>x.id===a.data.mortgageId); return `Mensualidad ${m?.nombre||m?.banco||"Hipoteca"}`; }
+                    if(a.tipo==="transferencia") { const f=accounts.find(x=>x.id===a.data.fromId),t=accounts.find(x=>x.id===a.data.toId); return `${fmt(parseFloat(a.data.amount||0))} ${f?.name||"?"} → ${t?.name||"?"}`; }
+                    if(a.tipo==="aportacion_inversion") { const inv=investments.find(x=>x.id===a.data.invId); return `${fmt(parseFloat(a.data.amount||0))} → ${inv?.name||"Inversión"}`; }
+                    return "";
+                  };
+                  return (
+                    <div key={i} style={{fontSize:11,color:"#aaa",marginBottom:5,display:"flex",gap:6,alignItems:"flex-start"}}>
+                      <span>{iconos[accion.tipo]||"📌"}</span>
+                      <div style={{flex:1,minWidth:0}}>
+                        <span style={{fontSize:10,color:"#555",display:"block"}}>{labels[accion.tipo]||accion.tipo}</span>
+                        <span style={{color:"#ccc",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"block"}}>{getResumen(accion)}</span>
+                      </div>
+                    </div>
+                  );
+                })}
                 <div style={{display:"flex",gap:6,marginTop:8}}>
-                  <button onClick={()=>guardarTxs(pendingTx)} style={{flex:1,padding:"6px 0",borderRadius:8,background:"#00d4aa",border:"none",color:"#fff",fontSize:11,fontWeight:700,cursor:"pointer"}}>✓ Registrar</button>
+                  <button onClick={()=>ejecutarAcciones(pendingTx)} style={{flex:1,padding:"6px 0",borderRadius:8,background:"#00d4aa",border:"none",color:"#fff",fontSize:11,fontWeight:700,cursor:"pointer"}}>✓ Confirmar todo</button>
                   <button onClick={()=>setPendingTx(null)} style={{flex:1,padding:"6px 0",borderRadius:8,background:"rgba(255,71,87,.15)",border:"1px solid rgba(255,71,87,.3)",color:"#ff4757",fontSize:11,fontWeight:600,cursor:"pointer"}}>✕ Cancelar</button>
                 </div>
               </div>
