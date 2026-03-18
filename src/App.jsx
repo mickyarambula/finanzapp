@@ -7754,13 +7754,19 @@ const Goals = () => {
                         return [...(g.aportaciones||[])].sort((a,b)=>new Date(b.fecha)-new Date(a.fecha)).map(a=>{
                           acum+=parseFloat(a.monto);
                           return (
-                            <tr key={a.id} style={{borderBottom:"1px solid rgba(255,255,255,.03)"}}>
-                              <td style={{padding:"7px 10px",color:"#888",textAlign:"right"}}>{fmtDate(a.fecha)}</td>
+                            <tr key={a.id} style={{borderBottom:"1px solid rgba(255,255,255,.03)",background:a.txId?"rgba(0,212,170,.02)":"transparent"}}>
+                              <td style={{padding:"7px 10px",textAlign:"right"}}>
+                                <span style={{fontSize:12,color:"#888",display:"block"}}>{fmtDate(a.fecha)}</span>
+                                {a.txId&&<span style={{fontSize:9,color:"#00d4aa",fontWeight:700,background:"rgba(0,212,170,.1)",borderRadius:4,padding:"1px 5px"}}>📎 TX</span>}
+                              </td>
                               <td style={{padding:"7px 10px",color:g.color||"#00d4aa",textAlign:"right",fontWeight:600}}>{fmt(parseFloat(a.monto),g.moneda)}</td>
                               <td style={{padding:"7px 10px",color:"#ccc",textAlign:"right"}}>{fmt(acum,g.moneda)}</td>
-                              <td style={{padding:"7px 10px",color:"#555",textAlign:"right",maxWidth:140,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{a.notas||"—"}</td>
+                              <td style={{padding:"7px 10px",color:"#555",textAlign:"right",maxWidth:140,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                                {a.txId?<span style={{color:"#444",fontStyle:"italic"}}>Desde transacción</span>:(a.notas||"—")}
+                              </td>
                               <td style={{padding:"7px 10px",textAlign:"right"}}>
-                                {!completada && <button onClick={()=>eliminarAporte(g,a.id)} style={{background:"rgba(255,71,87,.08)",border:"none",cursor:"pointer",color:"#ff4757",padding:"4px 7px",borderRadius:6,display:"flex",alignItems:"center"}}><Ic n="trash" size={13}/></button>}
+                                {!completada && !a.txId && <button onClick={()=>eliminarAporte(g,a.id)} style={{background:"rgba(255,71,87,.08)",border:"none",cursor:"pointer",color:"#ff4757",padding:"4px 7px",borderRadius:6,display:"flex",alignItems:"center"}}><Ic n="trash" size={13}/></button>}
+                                {!completada && a.txId && <span style={{fontSize:9,color:"#444"}}>Auto</span>}
                               </td>
                             </tr>
                           );
@@ -11190,24 +11196,97 @@ Sé directo, positivo y usa 1 emoji relevante. No repitas los números exactos s
     const now = new Date();
     const mesKey = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}`;
     const TC = getTc(user.id);
+    const hoyStr = today();
+
+    // Liquidez y patrimonio
     const liquidez = accounts.filter(a=>a.type!=="credit").reduce((s,a)=>s+(a.currency==="USD"?parseFloat(a.balance||0)*TC:parseFloat(a.balance||0)),0);
     const deudaTarjetas = accounts.filter(a=>a.type==="credit").reduce((s,a)=>s+Math.abs(Math.min(parseFloat(a.balance||0),0)),0);
-    const invTotal = investments.reduce((s,i)=>{ const ti=parseFloat(i.titulos)||0,p=parseFloat(i.precioActual)||0,ap=(i.aportaciones||[]).reduce((ss,a)=>ss+parseFloat(a.amount||0),0),val=ti>0&&p>0?ti*p:parseFloat(i.currentValue)||ap; return s+(i.currency==="USD"?val*TC:val); },0);
+    const invTotal = investments.filter(i=>i.estado!=="liquidada").reduce((s,i)=>{ const ti=parseFloat(i.titulos)||0,p=parseFloat(i.precioActual)||0,ap=(i.aportaciones||[]).reduce((ss,a)=>ss+parseFloat(a.amount||0),0),val=ti>0&&p>0?ti*p:parseFloat(i.currentValue)||ap; return s+(i.currency==="USD"?val*TC:val); },0);
+
+    // Flujo del mes
     const txMes = transactions.filter(tx=>tx.date?.startsWith(mesKey));
     const ingrMes = txMes.filter(tx=>tx.type==="income").reduce((s,tx)=>s+parseFloat(tx.amount||0),0);
     const gastMes = txMes.filter(tx=>tx.type==="expense").reduce((s,tx)=>s+parseFloat(tx.amount||0),0);
-    const hoyStr = today();
-    return `Eres un asistente financiero personal integrado en Finanzapp, la app de ${user.name}. Responde siempre en español, de forma concisa y directa — estás en un chat flotante pequeño, sé breve.
-FECHA DE HOY: ${hoyStr} — USA SIEMPRE ESTA FECHA para registrar transacciones salvo que el usuario indique otra fecha explícitamente.
-Cuando el usuario mencione un gasto o ingreso (ej: "gasté 350 en gasolina", "cobré la renta"), extrae los datos y responde con:
+
+    // Préstamos con saldo e interés acumulado
+    const calcLoanState = (loan) => {
+      const dr=(parseFloat(loan.rate)||0)/100/(loan.rateType==="annual"?365:loan.rateType==="monthly"?30:1);
+      let bal=parseFloat(loan.principal||0), last=new Date(loan.startDate);
+      for(const p of [...(loan.payments||[])].sort((a,b)=>new Date(a.date)-new Date(b.date))){
+        const days=Math.max(0,Math.round((new Date(p.date)-last)/86400000));
+        bal=Math.max(0,bal-(p.amount-Math.min(p.amount,bal*dr*days))); last=new Date(p.date);
+      }
+      const daysSince=Math.max(0,Math.round((new Date()-last)/86400000));
+      const interest=bal*dr*daysSince;
+      return {bal,interest,total:bal+interest};
+    };
+    const loansInfo = loans.map(l=>{
+      const st=calcLoanState(l);
+      return `${l.name} [${l.type==="received"?"DEBO":"ME DEBEN"}]: capital ${fmt(st.bal,l.currency)} + interés acum. ${fmt(st.interest,l.currency)} = total ${fmt(st.total,l.currency)} @ ${l.rate}% ${l.rateType==="annual"?"anual":"mensual"}`;
+    });
+
+    // Hipotecas con saldo
+    const mortgagesInfo = (mortgages||[]).map(m=>{
+      const P=parseFloat(m.monto)||0,n=(parseFloat(m.plazoAnios)||0)*12,r=(parseFloat(m.tasaAnual)||0)/100/12;
+      if(!P||!n||!r) return `${m.nombre||"Hipoteca"}: ${fmt(P)}`;
+      const cuota=m.tipo==="fijo"?(P*r*Math.pow(1+r,n))/(Math.pow(1+r,n)-1):P/n;
+      let saldo=P; const pagados=(m.pagosRealizados||[]).length;
+      for(let i=0;i<pagados;i++){const int=saldo*r,cap=m.tipo==="fijo"?cuota-int:P/n;saldo=Math.max(saldo-cap,0);}
+      return `${m.nombre||m.banco||"Hipoteca"}: saldo ${fmt(saldo,m.moneda)}, cuota ${fmt(cuota,m.moneda)}/mes`;
+    });
+
+    // Metas con progreso
+    const metasInfo = goals.filter(g=>g.estado!=="completada").map(g=>{
+      const aportado=(g.aportaciones||[]).reduce((s,a)=>s+parseFloat(a.monto||0),0);
+      const meta=parseFloat(g.meta||g.target||0);
+      const pct=meta>0?Math.min(aportado/meta*100,100):0;
+      return `${g.nombre||g.name}: ${fmt(aportado)}/${fmt(meta)} (${pct.toFixed(1)}%)`;
+    });
+
+    // Presupuestos activos
+    const presInfo = (presupuestos||[]).filter(p=>p.activo!==false&&p.tipo!=="global").slice(0,5).map(p=>{
+      const gastado=transactions.filter(t=>t.date?.startsWith(mesKey)&&t.type==="expense"&&t.category===p.categoria).reduce((s,t)=>s+parseFloat(t.amount||0),0);
+      const pct=(gastado/(parseFloat(p.montoLimite)||1)*100).toFixed(0);
+      return `${p.nombre}: ${fmt(gastado)}/${fmt(parseFloat(p.montoLimite))} (${pct}%)`;
+    });
+
+    const patrimonioNeto = liquidez + invTotal - deudaTarjetas
+      - loans.filter(l=>l.type==="received").reduce((s,l)=>s+calcLoanState(l).total,0)
+      - (mortgages||[]).reduce((s,m)=>{
+          const P=parseFloat(m.monto)||0,n=(parseFloat(m.plazoAnios)||0)*12,r=(parseFloat(m.tasaAnual)||0)/100/12;
+          if(!P||!n||!r) return s+P;
+          const cuota=m.tipo==="fijo"?(P*r*Math.pow(1+r,n))/(Math.pow(1+r,n)-1):P/n;
+          let saldo=P; const pagados=(m.pagosRealizados||[]).length;
+          for(let i=0;i<pagados;i++){const int=saldo*r,cap=m.tipo==="fijo"?cuota-int:P/n;saldo=Math.max(saldo-cap,0);}
+          return s+saldo;
+        },0);
+
+    return `Eres el asistente financiero personal de ${user.name} en Finanzapp. Responde siempre en español, conciso y directo.
+FECHA HOY: ${hoyStr}
+Cuando el usuario mencione un gasto/ingreso, registra con:
 TRANSACCIONES_JSON:[{"type":"expense|income","amount":0,"date":"${hoyStr}","category":"...","description":"...","account":"ID_CUENTA"}]
-Categorías expense: ${cats.expense.join(", ")} | income: ${cats.income.join(", ")}
-Cuentas: ${accounts.map(a=>`ID:${a.id} | ${a.name} | ${a.currency}`).join(" | ")||"Sin cuentas"}
-=== RESUMEN ===
-TC: ${TC} | Liquidez: ${fmt(liquidez)} | Inversiones: ${fmt(invTotal)} | Deuda: ${fmt(deudaTarjetas)}
-Flujo ${now.toLocaleDateString("es-MX",{month:"long"})}: +${fmt(ingrMes)} / -${fmt(gastMes)}
-Préstamos: ${loans.map(l=>`${l.name} [${l.type==="received"?"pagar":"cobrar"}]`).join(", ")||"ninguno"}
-Metas: ${goals.map(g=>`${g.nombre||g.name}`).join(", ")||"ninguna"}`;
+Cats expense: ${cats.expense.join(", ")} | income: ${cats.income.join(", ")}
+Cuentas (usa el ID exacto): ${accounts.map(a=>`[${a.id}] ${a.name} ${a.currency} ${fmt(parseFloat(a.balance||0),a.currency)}`).join(" | ")||"Sin cuentas"}
+
+=== SITUACIÓN FINANCIERA ACTUAL ===
+TC USD→MXN: ${TC}
+Patrimonio neto: ${fmt(patrimonioNeto)}
+Liquidez total: ${fmt(liquidez)} | Inversiones: ${fmt(invTotal)} | Deuda tarjetas: ${fmt(deudaTarjetas)}
+Flujo ${now.toLocaleDateString("es-MX",{month:"long"})}: +${fmt(ingrMes)} ingresos / -${fmt(gastMes)} gastos = ${fmt(ingrMes-gastMes)} neto
+
+PRÉSTAMOS (${loans.length}):
+${loansInfo.length>0?loansInfo.join("\n"):"Ninguno"}
+
+HIPOTECAS (${(mortgages||[]).length}):
+${mortgagesInfo.length>0?mortgagesInfo.join("\n"):"Ninguna"}
+
+INVERSIONES activas (${investments.filter(i=>i.estado!=="liquidada").length}): ${investments.filter(i=>i.estado!=="liquidada").map(i=>i.name).join(", ")||"Ninguna"}
+
+METAS (${goals.filter(g=>g.estado!=="completada").length}):
+${metasInfo.length>0?metasInfo.join("\n"):"Ninguna"}
+
+PRESUPUESTOS este mes:
+${presInfo.length>0?presInfo.join("\n"):"Sin presupuestos"}`;
   };
 
   const readFile = (file) => new Promise((res,rej)=>{ const r=new FileReader(); r.onload=e=>res(e.target.result.split(",")[1]); r.onerror=rej; r.readAsDataURL(file); });
