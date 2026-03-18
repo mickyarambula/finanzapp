@@ -1900,6 +1900,23 @@ const Dashboard = () => {
   const deltaGastos = gastMesA>0 ? ((gastMes-gastMesA)/gastMesA*100) : 0;
   const deltaIngresos = ingrMesA>0 ? ((ingrMes-ingrMesA)/ingrMesA*100) : 0;
 
+  // ── recurrentes pendientes del mes (proyección)
+  const calcNextRec = (r) => {
+    const last = r.ultimoRegistro
+      ? new Date(r.ultimoRegistro+"T12:00:00")
+      : new Date((r.fechaInicio||today())+"T12:00:00");
+    const next = new Date(last);
+    if(r.frecuencia==="mensual") next.setMonth(next.getMonth()+1);
+    else if(r.frecuencia==="quincenal") next.setDate(next.getDate()+15);
+    else if(r.frecuencia==="semanal") next.setDate(next.getDate()+7);
+    else if(r.frecuencia==="anual") next.setFullYear(next.getFullYear()+1);
+    return next;
+  };
+  const recPendientesMes = (recurrents||[]).filter(r=>r.activo!==false&&calcNextRec(r)<=now);
+  const ingrRecPend = recPendientesMes.filter(r=>r.tipo==="income").reduce((s,r)=>s+parseFloat(r.monto||0),0);
+  const gastRecPend = recPendientesMes.filter(r=>r.tipo==="expense").reduce((s,r)=>s+parseFloat(r.monto||0),0);
+  const flujoProy = (ingrMes+ingrRecPend) - (gastMes+gastRecPend);
+
   // ── gráfica 6 meses ingresos vs gastos
   const ultimos6Meses = (() => {
     const meses = [];
@@ -2247,14 +2264,21 @@ const Dashboard = () => {
           <p style={{fontSize:10,color:"#555",textTransform:"uppercase",letterSpacing:.5,margin:"0 0 6px",fontWeight:700}}>
             Flujo — {now.toLocaleDateString("es-MX",{month:"long"})}
           </p>
-          <p style={{fontSize:22,fontWeight:800,color:flujoMes>=0?"#00d4aa":"#ff4757",margin:"0 0 6px"}}>
+          <p style={{fontSize:22,fontWeight:800,color:flujoMes>=0?"#00d4aa":"#ff4757",margin:"0 0 4px"}}>
             {flujoMes>=0?"+":""}{fmt(flujoMes)}
           </p>
-          <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+          <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:recPendientesMes.length>0?4:0}}>
             <span style={{fontSize:10,color:"#555"}}>↑ <strong style={{color:"#00d4aa"}}>{fmt(ingrMes)}</strong></span>
             <span style={{fontSize:10,color:"#555"}}>↓ <strong style={{color:"#ff4757"}}>{fmt(gastMes)}</strong></span>
-            {deltaGastos!==0&&<span style={{fontSize:10,color:deltaGastos>0?"#ff4757":"#00d4aa"}}>{deltaGastos>0?"▲":"▼"}{Math.abs(deltaGastos).toFixed(0)}% gastos vs mes ant.</span>}
+            {deltaGastos!==0&&<span style={{fontSize:10,color:deltaGastos>0?"#ff4757":"#00d4aa"}}>{deltaGastos>0?"▲":"▼"}{Math.abs(deltaGastos).toFixed(0)}% vs mes ant.</span>}
           </div>
+          {recPendientesMes.length>0&&(
+            <div style={{padding:"4px 7px",borderRadius:6,background:"rgba(124,58,237,.1)",border:"1px solid rgba(124,58,237,.2)"}}>
+              <span style={{fontSize:10,color:"#a78bfa",fontWeight:600}}>
+                {recPendientesMes.length} recurrente{recPendientesMes.length>1?"s":""} pendiente{recPendientesMes.length>1?"s":""} · Proy: {flujoProy>=0?"+":""}{fmt(flujoProy)}
+              </span>
+            </div>
+          )}
         </Card>
 
         {/* Score de salud */}
@@ -6764,6 +6788,40 @@ const Mortgage = () => {
         </div>
       </div>
 
+      {/* KPIs globales hipotecas */}
+      {mortgages.length>0&&(()=>{
+        const totalSaldo = mortgages.reduce((s,m)=>s+calcProgreso(m).saldoActual,0);
+        const totalAmortizado = mortgages.reduce((s,m)=>s+(parseFloat(m.monto)||0)-calcProgreso(m).saldoActual,0);
+        const totalIntPagados = mortgages.reduce((s,m)=>s+calcProgreso(m).totalInteresesPagados,0);
+        const totalCuotaMes = mortgages.reduce((s,m)=>{
+          const {cuota}=calcAmort(m.monto,m.tasaAnual,m.plazoAnios,m.tipo,m.pagosCapital||[]);
+          return s+(m.cuotaReal?parseFloat(m.cuotaReal):cuota);
+        },0);
+        return (
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(155px,1fr))",gap:10,marginBottom:18}}>
+            <Card style={{padding:"12px 14px",borderColor:"rgba(255,71,87,.2)"}}>
+              <p style={{fontSize:10,color:"#555",textTransform:"uppercase",letterSpacing:.4,margin:"0 0 3px"}}>Saldo total pendiente</p>
+              <p style={{fontSize:18,fontWeight:800,color:"#ff6b7a",margin:0}}>{fmt(totalSaldo)}</p>
+              <p style={{fontSize:10,color:"#444",margin:"3px 0 0"}}>{mortgages.length} crédito{mortgages.length!==1?"s":""}</p>
+            </Card>
+            <Card style={{padding:"12px 14px",borderColor:"rgba(0,212,170,.2)"}}>
+              <p style={{fontSize:10,color:"#555",textTransform:"uppercase",letterSpacing:.4,margin:"0 0 3px"}}>Capital amortizado</p>
+              <p style={{fontSize:18,fontWeight:800,color:"#00d4aa",margin:0}}>{fmt(totalAmortizado)}</p>
+              <p style={{fontSize:10,color:"#444",margin:"3px 0 0"}}>{mortgages.length>0?((totalAmortizado/(totalAmortizado+totalSaldo))*100).toFixed(1):0}% del total</p>
+            </Card>
+            <Card style={{padding:"12px 14px",borderColor:"rgba(243,156,18,.2)"}}>
+              <p style={{fontSize:10,color:"#555",textTransform:"uppercase",letterSpacing:.4,margin:"0 0 3px"}}>Intereses pagados</p>
+              <p style={{fontSize:18,fontWeight:800,color:"#f39c12",margin:0}}>{fmt(totalIntPagados)}</p>
+              <p style={{fontSize:10,color:"#444",margin:"3px 0 0"}}>Acumulado total</p>
+            </Card>
+            <Card style={{padding:"12px 14px",borderColor:"rgba(59,130,246,.2)"}}>
+              <p style={{fontSize:10,color:"#555",textTransform:"uppercase",letterSpacing:.4,margin:"0 0 3px"}}>Cuota mensual total</p>
+              <p style={{fontSize:18,fontWeight:800,color:"#3b82f6",margin:0}}>{fmt(totalCuotaMes)}</p>
+              <p style={{fontSize:10,color:"#444",margin:"3px 0 0"}}>Compromiso fijo / mes</p>
+            </Card>
+          </div>
+        );
+      })()}
       {mortgages.length===0 ? (
         <div style={{textAlign:"center",padding:"60px 20px"}}>
           <Ic n="mortgage" size={48} color="#333"/>
