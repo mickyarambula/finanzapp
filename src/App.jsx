@@ -18,7 +18,16 @@ const GlobalStyles = ({ dark=true }) => (
   <style>{`
     @import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=Syne:wght@600;700;800&display=swap');
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    body { background: ${dark?"#0d1117":"#f0f2f5"}; font-family: 'DM Sans', sans-serif; transition: background .3s; }
+    :root {
+      --fp-bg:       ${dark?"#0d1117":"#f0f4f8"};
+      --fp-surface:  ${dark?"#161b27":"#ffffff"};
+      --fp-surface2: ${dark?"#1e2636":"#f1f5f9"};
+      --fp-border:   ${dark?"rgba(255,255,255,.08)":"rgba(0,0,0,.10)"};
+      --fp-text:     ${dark?"#f0f0f0":"#1e2433"};
+      --fp-muted:    ${dark?"#555":"#6b7280"};
+      --fp-subtle:   ${dark?"#333":"#9ca3af"};
+    }
+    body { background: var(--fp-bg); font-family: 'DM Sans', sans-serif; transition: background .3s; }
     input, select, button, textarea { font-family: 'DM Sans', sans-serif !important; }
     option { background: ${dark?"#1a1f2e":"#ffffff"}; color: ${dark?"#f0f0f0":"#1a1a2e"}; }
     ::-webkit-scrollbar { width: 5px; height: 5px; }
@@ -26,6 +35,61 @@ const GlobalStyles = ({ dark=true }) => (
     ::-webkit-scrollbar-thumb { background: ${dark?"rgba(255,255,255,0.1)":"rgba(0,0,0,0.15)"}; border-radius: 3px; }
     @keyframes fadeUp { from { opacity:0; transform:translateY(14px); } to { opacity:1; transform:translateY(0); } }
     @keyframes slideIn { from { opacity:0; transform:translateX(60px); } to { opacity:1; transform:translateX(0); } }
+    ${!dark ? `
+      /* ── MODO CLARO: overrides masivos por CSS ── */
+      [data-fp="main"] { background: #f0f4f8 !important; }
+      /* Superficies oscuras → blancas */
+      [data-fp="main"] [style*="background:#0d1117"],[data-fp="main"] [style*="background: #0d1117"],
+      [data-fp="main"] [style*="background:#161b27"],[data-fp="main"] [style*="background: #161b27"],
+      [data-fp="main"] [style*="background:#1e2636"],[data-fp="main"] [style*="background: #1e2636"],
+      [data-fp="main"] [style*="background:#0f1520"],[data-fp="main"] [style*="background: #0f1520"],
+      [data-fp="main"] [style*="background:#1a1f2e"],[data-fp="main"] [style*="background: #1a1f2e"],
+      [data-fp="main"] [style*="background:#252e42"],[data-fp="main"] [style*="background: #252e42"]
+        { background: #ffffff !important; }
+      /* rgba blancas → equivalentes grises suaves */
+      [data-fp="main"] [style*="rgba(255,255,255,.02)"] { background: rgba(0,0,0,.018) !important; }
+      [data-fp="main"] [style*="rgba(255,255,255,.03)"] { background: rgba(0,0,0,.028) !important; }
+      [data-fp="main"] [style*="rgba(255,255,255,.04)"] { background: rgba(0,0,0,.038) !important; }
+      [data-fp="main"] [style*="rgba(255,255,255,.05)"] { background: rgba(0,0,0,.04) !important; }
+      [data-fp="main"] [style*="rgba(255,255,255,.06)"] { background: rgba(0,0,0,.05) !important; }
+      [data-fp="main"] [style*="rgba(255,255,255,.07)"] { background: rgba(0,0,0,.06) !important; }
+      [data-fp="main"] [style*="rgba(255,255,255,.08)"] { background: rgba(0,0,0,.065) !important; }
+      [data-fp="main"] [style*="rgba(255,255,255,.1)"]  { background: rgba(0,0,0,.07) !important; }
+      [data-fp="main"] [style*="rgba(255,255,255,.12)"] { background: rgba(0,0,0,.075) !important; }
+      [data-fp="main"] [style*="rgba(255,255,255,.15)"] { background: rgba(0,0,0,.085) !important; }
+      /* Bordes blancos → grises */
+      [data-fp="main"] [style*="border-color:rgba(255,255,255,.04)"],
+      [data-fp="main"] [style*="1px solid rgba(255,255,255,.04)"] { border-color: rgba(0,0,0,.07) !important; }
+      [data-fp="main"] [style*="1px solid rgba(255,255,255,.06)"] { border-color: rgba(0,0,0,.09) !important; }
+      [data-fp="main"] [style*="1px solid rgba(255,255,255,.08)"] { border-color: rgba(0,0,0,.10) !important; }
+      [data-fp="main"] [style*="1px solid rgba(255,255,255,.1)"]  { border-color: rgba(0,0,0,.12) !important; }
+      [data-fp="main"] [style*="1px solid rgba(255,255,255,.12)"] { border-color: rgba(0,0,0,.13) !important; }
+      /* Textos grises hardcoded → legibles en claro */
+      [data-fp="main"] [style*="color:#f0f0f0"],[data-fp="main"] [style*="color: #f0f0f0"] { color:#1e2433 !important; }
+      [data-fp="main"] [style*="color:#e0e0e0"],[data-fp="main"] [style*="color: #e0e0e0"] { color:#1e2433 !important; }
+      [data-fp="main"] [style*="color:#ddd"],[data-fp="main"] [style*="color: #ddd"]       { color:#374151 !important; }
+      [data-fp="main"] [style*="color:#ccc"],[data-fp="main"] [style*="color: #ccc"]       { color:#374151 !important; }
+      [data-fp="main"] [style*="color:#bbb"],[data-fp="main"] [style*="color: #bbb"]       { color:#4a5568 !important; }
+      [data-fp="main"] [style*="color:#aaa"],[data-fp="main"] [style*="color: #aaa"]       { color:#4a5568 !important; }
+      [data-fp="main"] [style*="color:#888"],[data-fp="main"] [style*="color: #888"]       { color:#6b7280 !important; }
+      [data-fp="main"] [style*="color:#777"],[data-fp="main"] [style*="color: #777"]       { color:#6b7280 !important; }
+      [data-fp="main"] [style*="color:#666"],[data-fp="main"] [style*="color: #666"]       { color:#6b7280 !important; }
+      [data-fp="main"] [style*="color:#555"],[data-fp="main"] [style*="color: #555"]       { color:#6b7280 !important; }
+      [data-fp="main"] [style*="color:#444"],[data-fp="main"] [style*="color: #444"]       { color:#7c8694 !important; }
+      [data-fp="main"] [style*="color:#333"],[data-fp="main"] [style*="color: #333"]       { color:#9ca3af !important; }
+      /* Inputs */
+      [data-fp="main"] input:not([type=checkbox]):not([type=radio]),
+      [data-fp="main"] select, [data-fp="main"] textarea {
+        background: rgba(0,0,0,.04) !important;
+        border-color: rgba(0,0,0,.14) !important;
+        color: #1e2433 !important;
+      }
+      /* Separadores */
+      [data-fp="main"] [style*="borderBottom:1px solid rgba(255,255,255"],
+      [data-fp="main"] [style*="borderBottom: 1px solid rgba(255,255,255"] { border-bottom-color: rgba(0,0,0,.08) !important; }
+      [data-fp="main"] [style*="borderTop:1px solid rgba(255,255,255"],
+      [data-fp="main"] [style*="borderTop: 1px solid rgba(255,255,255"]   { border-top-color: rgba(0,0,0,.08) !important; }
+    ` : ""}
   `}</style>
 );
 
@@ -11946,7 +12010,7 @@ export default function App() {
               <span style={{ fontSize:17, fontFamily:"'Syne',sans-serif", fontWeight:800, color:"#f0f0f0" }}>Finanz<span style={{ color:"#00d4aa" }}>app</span></span>
             </div>
           )}
-          <div style={{ flex:1, overflowY:"auto", padding:mobile?"18px 14px":"26px 30px" }}>
+          <div data-fp="main" style={{ flex:1, overflowY:"auto", padding:mobile?"18px 14px":"26px 30px", background: isDark?"#0d1117":"#f0f4f8", transition:"background .3s" }}>
             <div style={{ maxWidth:1200, animation:"fadeUp .25s ease" }} key={active}>
               {/* recordatorio días sin movimientos */}
               {(()=>{
