@@ -261,6 +261,28 @@ const Card = ({ children, style:sx, onClick }) => {
   >{children}</div>;
 };
 
+const HelpTip = ({ text }) => {
+  const [show, setShow] = React.useState(false);
+  return (
+    <span style={{position:"relative",display:"inline-flex",alignItems:"center",marginLeft:5,verticalAlign:"middle"}}>
+      <span
+        onMouseEnter={()=>setShow(true)} onMouseLeave={()=>setShow(false)}
+        style={{display:"inline-flex",alignItems:"center",justifyContent:"center",width:15,height:15,borderRadius:"50%",background:"rgba(255,255,255,.08)",border:"1px solid rgba(255,255,255,.15)",color:"#666",fontSize:9,fontWeight:700,cursor:"help",userSelect:"none",lineHeight:1}}>
+        ?
+      </span>
+      {show&&(
+        <span style={{position:"absolute",bottom:"calc(100% + 6px)",left:"50%",transform:"translateX(-50%)",
+          background:"#1a2035",border:"1px solid rgba(255,255,255,.12)",borderRadius:8,padding:"7px 10px",
+          fontSize:11,color:"#ccc",lineHeight:1.45,whiteSpace:"nowrap",maxWidth:220,whiteSpace:"normal",
+          zIndex:999,boxShadow:"0 6px 20px rgba(0,0,0,.5)",pointerEvents:"none",textAlign:"left",minWidth:160}}>
+          {text}
+          <span style={{position:"absolute",bottom:-5,left:"50%",transform:"translateX(-50%)",width:8,height:8,background:"#1a2035",border:"1px solid rgba(255,255,255,.12)",borderBottom:"none",borderRight:"none",transform:"translateX(-50%) rotate(45deg)"}}/>
+        </span>
+      )}
+    </span>
+  );
+};
+
 const Badge = ({ label, color="#00d4aa" }) => (
   <span style={{ background:`${color}22`, color, padding:"2px 9px", borderRadius:20, fontSize:11, fontWeight:700 }}>{label}</span>
 );
@@ -2217,6 +2239,50 @@ const Dashboard = () => {
         )}
       </div>
 
+      {/* ── BANNER BIENVENIDA — solo si no hay cuentas */}
+      {accounts.length===0&&(
+        <div style={{marginBottom:18,borderRadius:16,overflow:"hidden",background:"linear-gradient(135deg,rgba(0,212,170,.08) 0%,rgba(59,130,246,.06) 100%)",border:"1px solid rgba(0,212,170,.2)"}}>
+          <div style={{padding:"20px 22px 16px"}}>
+            <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:12}}>
+              <div style={{width:40,height:40,borderRadius:12,background:"linear-gradient(135deg,#00d4aa,#3b82f6)",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                <span style={{fontSize:20}}>👋</span>
+              </div>
+              <div>
+                <p style={{fontSize:17,fontWeight:800,color:"#f0f0f0",margin:0,fontFamily:"'Syne',sans-serif"}}>Bienvenido a Finanzapp</p>
+                <p style={{fontSize:12,color:"#555",margin:0}}>Sigue estos 3 pasos para empezar</p>
+              </div>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:10}}>
+              {[
+                {num:"1",titulo:"Agrega una cuenta",desc:"Cheques, ahorro, efectivo o tarjeta de crédito",modulo:"accounts",color:"#00d4aa",emoji:"🏦"},
+                {num:"2",titulo:"Registra transacciones",desc:"Ingresos y gastos del día a día, o usa el asistente IA",modulo:"transactions",color:"#3b82f6",emoji:"💳"},
+                {num:"3",titulo:"Explora tu Dashboard",desc:"Aquí verás tu situación financiera completa",modulo:null,color:"#a78bfa",emoji:"📊"},
+              ].map(paso=>(
+                <div key={paso.num} onClick={()=>paso.modulo&&navigate(paso.modulo)}
+                  style={{display:"flex",gap:12,alignItems:"flex-start",padding:"11px 13px",borderRadius:11,background:"rgba(255,255,255,.03)",border:`1px solid rgba(255,255,255,.06)`,cursor:paso.modulo?"pointer":"default",transition:"all .15s"}}
+                  onMouseEnter={e=>{if(paso.modulo){e.currentTarget.style.background="rgba(255,255,255,.06)";e.currentTarget.style.borderColor=`${paso.color}44`;}}}
+                  onMouseLeave={e=>{e.currentTarget.style.background="rgba(255,255,255,.03)";e.currentTarget.style.borderColor="rgba(255,255,255,.06)";}}>
+                  <div style={{width:28,height:28,borderRadius:8,background:`${paso.color}20`,border:`1px solid ${paso.color}44`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,fontSize:14}}>
+                    {paso.emoji}
+                  </div>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:2}}>
+                      <span style={{fontSize:10,fontWeight:800,color:paso.color,background:`${paso.color}18`,borderRadius:20,padding:"1px 7px"}}>{paso.num}</span>
+                      <span style={{fontSize:12,fontWeight:700,color:"#e0e0e0"}}>{paso.titulo}</span>
+                      {paso.modulo&&<span style={{fontSize:10,color:"#444",marginLeft:"auto"}}>→</span>}
+                    </div>
+                    <p style={{fontSize:11,color:"#555",margin:0,lineHeight:1.4}}>{paso.desc}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <p style={{fontSize:11,color:"#444",margin:"12px 0 0",textAlign:"center"}}>
+              💡 También puedes hablarle al <strong style={{color:"#00d4aa"}}>Asistente IA</strong> (botón verde abajo a la derecha) para registrar gastos con lenguaje natural
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* ── ALERTAS INTELIGENTES */}
       {alertas.length>0 && <AlertasPanel alertas={alertas} onNavigate={navigate}/>}
 
@@ -2588,9 +2654,17 @@ const Accounts = () => {
       </div>
 
       {accounts.length===0 ? (
-        <Card style={{textAlign:"center",padding:"40px 20px"}}>
-          <Ic n="accounts" size={36} color="#333"/>
-          <p style={{fontSize:14,color:"#555",margin:"12px 0 16px"}}>Sin cuentas registradas</p>
+        <Card style={{textAlign:"center",padding:"40px 24px",borderColor:"rgba(0,212,170,.15)",background:"rgba(0,212,170,.03)"}}>
+          <div style={{fontSize:40,marginBottom:8}}>🏦</div>
+          <p style={{fontSize:16,fontWeight:700,color:"#e0e0e0",margin:"0 0 8px"}}>Agrega tu primera cuenta</p>
+          <p style={{fontSize:13,color:"#555",margin:"0 0 16px",lineHeight:1.5,maxWidth:320,marginLeft:"auto",marginRight:"auto"}}>
+            Registra tus cuentas bancarias, efectivo o tarjetas de crédito. Todos tus movimientos se vincularán a ellas.
+          </p>
+          <div style={{display:"flex",gap:8,justifyContent:"center",flexWrap:"wrap",marginBottom:16}}>
+            {["🏛️ Cuenta cheques","💳 Tarjeta de crédito","💵 Efectivo","📱 Cuenta digital"].map(t=>(
+              <span key={t} style={{fontSize:11,padding:"4px 10px",borderRadius:20,background:"rgba(255,255,255,.05)",border:"1px solid rgba(255,255,255,.08)",color:"#666"}}>{t}</span>
+            ))}
+          </div>
           <Btn onClick={openNew}><Ic n="plus" size={14}/>Agregar primera cuenta</Btn>
         </Card>
       ) : (
@@ -3039,9 +3113,15 @@ const Transactions = () => {
         )}
       </div>
       {sorted.length===0 ? (
-        <div style={{ textAlign:"center", padding:"50px 0", color:"#444" }}>
-          <Ic n="transactions" size={44} color="#333"/>
-          <p style={{ marginTop:10, fontSize:14 }}>Sin transacciones.</p>
+        <div style={{ textAlign:"center", padding:"40px 20px" }}>
+          <div style={{fontSize:44,marginBottom:8}}>💳</div>
+          <p style={{fontSize:16,fontWeight:700,color:"#e0e0e0",margin:"0 0 8px"}}>Sin transacciones aún</p>
+          <p style={{fontSize:13,color:"#555",margin:"0 0 16px",lineHeight:1.5,maxWidth:340,marginLeft:"auto",marginRight:"auto"}}>
+            Registra tus ingresos y gastos aquí, o díselo al <strong style={{color:"#00d4aa"}}>Asistente IA</strong> con lenguaje natural: <em style={{color:"#666"}}>"gasté 200 en comida"</em>
+          </p>
+          <div style={{display:"flex",gap:10,justifyContent:"center",flexWrap:"wrap"}}>
+            <Btn onClick={openNew}><Ic n="plus" size={14}/>Registrar manualmente</Btn>
+          </div>
         </div>
       ) : (
         <Card style={{ padding:0, overflow:"hidden" }}>
@@ -3938,9 +4018,18 @@ const Loans = () => {
         </div>
       )}
       {loans.length===0 ? (
-        <div style={{ textAlign:"center", padding:"50px 0", color:"#444" }}>
-          <Ic n="loans" size={44} color="#333"/>
-          <p style={{ marginTop:10, fontSize:14 }}>Sin préstamos.</p>
+        <div style={{ textAlign:"center", padding:"40px 20px" }}>
+          <div style={{fontSize:44,marginBottom:8}}>🤝</div>
+          <p style={{fontSize:16,fontWeight:700,color:"#e0e0e0",margin:"0 0 8px"}}>Sin préstamos registrados</p>
+          <p style={{fontSize:13,color:"#555",margin:"0 0 6px",lineHeight:1.5,maxWidth:340,marginLeft:"auto",marginRight:"auto"}}>
+            Lleva el control de dinero que prestaste o que te prestaron. Finanzapp calcula el interés acumulado automáticamente día a día.
+          </p>
+          <div style={{display:"flex",gap:8,justifyContent:"center",flexWrap:"wrap",margin:"12px 0"}}>
+            {["💸 Lo presté yo — registra qué te deben","🤝 Me lo prestaron — controla lo que debes"].map(t=>(
+              <span key={t} style={{fontSize:11,padding:"5px 11px",borderRadius:20,background:"rgba(255,255,255,.04)",border:"1px solid rgba(255,255,255,.08)",color:"#666"}}>{t}</span>
+            ))}
+          </div>
+          <Btn onClick={openNewLoan}><Ic n="plus" size={14}/>Registrar primer préstamo</Btn>
         </div>
       ) : (
         <>
@@ -3955,11 +4044,11 @@ const Loans = () => {
             <Sel label="Moneda" value={lf.currency} onChange={lc("currency")} options={[{value:"MXN",label:"🇲🇽 MXN"},{value:"USD",label:"🇺🇸 USD"}]}/>
           </div>
           <Inp label={lf.type==="given"?"¿A quién le presté?":"¿Quién me prestó?"} value={lf.name} onChange={lc("name")} placeholder="Nombre" required/>
-          {accounts.length>0 ? <Sel label="Cuenta asociada" value={lf.accountId} onChange={lc("accountId")} required options={accounts.map(a=>({value:a.id,label:`${a.name} (${fmt(a.balance,a.currency)})`}))}/> : <Alert>Crea una cuenta primero.</Alert>}
+          {accounts.length>0 ? <Sel label={<>Cuenta asociada<HelpTip text="Cuenta donde entró (préstamo recibido) o salió (préstamo otorgado) el dinero. Se ajusta automáticamente el saldo al guardar."/></>} value={lf.accountId} onChange={lc("accountId")} required options={accounts.map(a=>({value:a.id,label:`${a.name} (${fmt(a.balance,a.currency)})`}))}/> : <Alert>Crea una cuenta primero.</Alert>}
           {editing&&<Alert color="#f39c12">Editar el capital no ajusta saldos. Solo corrige si fue error de captura.</Alert>}
           <Inp label="Capital" type="number" value={lf.principal} onChange={lc("principal")} placeholder="0.00" prefix={lf.currency==="USD"?"US$":"$"} required/>
           <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
-            <Sel label="Tipo de tasa" value={lf.rateType} onChange={lc("rateType")} options={[{value:"annual",label:"% Anual"},{value:"monthly",label:"% Mensual"},{value:"daily",label:"% Diaria"}]}/>
+            <Sel label={<>Tipo de tasa<HelpTip text="Anual: ej. 13.5% (TIIE+spread). Mensual: ej. 3% para préstamos personales. Diaria: muy poco común."/></>} value={lf.rateType} onChange={lc("rateType")} options={[{value:"annual",label:"% Anual"},{value:"monthly",label:"% Mensual"},{value:"daily",label:"% Diaria"}]}/>
             <Inp label="Tasa" type="number" value={lf.rate} onChange={lc("rate")} placeholder="0.00" suffix="%"/>
           </div>
           {lf.rate&&<div style={{ background:"rgba(243,156,18,.08)", border:"1px solid rgba(243,156,18,.15)", borderRadius:9, padding:"8px 13px", marginBottom:14, fontSize:12, color:"#f39c12" }}>💡 {(dailyRate(lf.rate,lf.rateType)*100).toFixed(4)}% diario</div>}
@@ -4818,8 +4907,17 @@ const Investments = () => {
       {investments.length===0 ? (
         <div style={{ textAlign:"center", padding:"50px 0", color:"#444" }}>
           <Ic n="investments" size={44} color="#333"/>
-          <p style={{ marginTop:10, fontSize:14 }}>Sin inversiones registradas.</p>
-          <Btn onClick={openNew} style={{ marginTop:10 }}><Ic n="plus" size={16}/>Registrar inversión</Btn>
+          <div style={{fontSize:44,marginBottom:8}}>📈</div>
+          <p style={{fontSize:16,fontWeight:700,color:"#e0e0e0",margin:"0 0 8px"}}>Sin inversiones registradas</p>
+          <p style={{fontSize:13,color:"#555",margin:"0 0 12px",lineHeight:1.5,maxWidth:340,marginLeft:"auto",marginRight:"auto"}}>
+            Registra tus fondos inmobiliarios, acciones, CETES, criptomonedas o cualquier otro instrumento. Verás el rendimiento real vs proyectado.
+          </p>
+          <div style={{display:"flex",gap:8,justifyContent:"center",flexWrap:"wrap",marginBottom:14}}>
+            {["🏢 Fondos inmobiliarios","📊 Acciones/ETFs","🏛️ CETES/Bonos","₿ Crypto"].map(t=>(
+              <span key={t} style={{fontSize:11,padding:"4px 10px",borderRadius:20,background:"rgba(255,255,255,.04)",border:"1px solid rgba(255,255,255,.08)",color:"#666"}}>{t}</span>
+            ))}
+          </div>
+          <Btn onClick={openNew} style={{ marginTop:0 }}><Ic n="plus" size={16}/>Registrar primera inversión</Btn>
         </div>
       ) : (
         <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(290px,1fr))", gap:12 }}>
@@ -4941,7 +5039,7 @@ const Investments = () => {
             <Inp label="Plataforma" value={invForm.platform} onChange={ic("platform")} placeholder="Actinver, Binance, GBM..."/>
             <Inp label="Ticker / Clave" value={invForm.ticker} onChange={ic("ticker")} placeholder="ACTIGOB B, AMZN, BTC..."/>
           </div>
-          <Inp label="Tasa de rendimiento anual estimada (opcional)" type="number" value={invForm.tasaAnual} onChange={ic("tasaAnual")} placeholder="Ej. 10.5" suffix="% anual"/>
+          <Inp label={<>Tasa de rendimiento anual estimada (opcional)<HelpTip text="Solo para proyección. No afecta valores reales. Ej: fondo inmobiliario 12%, CETES 11%, acciones 8%. Se usa para calcular el rendimiento esperado a la fecha y anual."/></>} type="number" value={invForm.tasaAnual} onChange={ic("tasaAnual")} placeholder="Ej. 10.5" suffix="% anual"/>
 
           {!editing && (
             <div style={{ background:"rgba(0,212,170,.06)", border:"1px solid rgba(0,212,170,.15)", borderRadius:10, padding:"12px 14px", marginBottom:14 }}>
@@ -7522,8 +7620,16 @@ const Goals = () => {
       {goals.length===0 ? (
         <div style={{textAlign:"center",padding:"60px 20px"}}>
           <Ic n="goals" size={48} color="#333"/>
-          <p style={{fontSize:15,color:"#666",margin:"14px 0 6px"}}>Sin metas definidas</p>
-          <p style={{fontSize:13,color:"#444",marginBottom:20}}>Crea tu primera meta y empieza a darle seguimiento a tus ahorros.</p>
+          <div style={{fontSize:44,marginBottom:8}}>🎯</div>
+          <p style={{fontSize:16,fontWeight:700,color:"#e0e0e0",margin:"0 0 8px"}}>Sin metas de ahorro</p>
+          <p style={{fontSize:13,color:"#555",margin:"0 0 12px",lineHeight:1.5,maxWidth:340,marginLeft:"auto",marginRight:"auto"}}>
+            Define un objetivo — vacaciones, auto, fondo de emergencia, enganche de casa — y Finanzapp te dice si vas en camino de lograrlo.
+          </p>
+          <div style={{display:"flex",gap:8,justifyContent:"center",flexWrap:"wrap",marginBottom:14}}>
+            {["✈️ Viaje","🚗 Auto","🏠 Enganche","🛡️ Fondo emergencia","🎓 Educación"].map(t=>(
+              <span key={t} style={{fontSize:11,padding:"4px 10px",borderRadius:20,background:"rgba(255,255,255,.04)",border:"1px solid rgba(255,255,255,.08)",color:"#666"}}>{t}</span>
+            ))}
+          </div>
           <Btn onClick={()=>{setForm(emptyForm);setView("form");}}>Crear primera meta</Btn>
         </div>
       ) : (
@@ -8147,10 +8253,17 @@ const Recurring = () => {
       )}
 
       {recurrents.length===0 && (
-        <div style={{textAlign:"center",padding:"60px 20px"}}>
-          <Ic n="recurring" size={48} color="#333"/>
-          <p style={{fontSize:15,color:"#666",margin:"14px 0 6px"}}>Sin transacciones recurrentes</p>
-          <p style={{fontSize:13,color:"#444",marginBottom:20}}>Registra tus gastos e ingresos fijos para que el sistema te avise cuando deban confirmarse.</p>
+        <div style={{textAlign:"center",padding:"40px 20px"}}>
+          <div style={{fontSize:44,marginBottom:8}}>🔄</div>
+          <p style={{fontSize:16,fontWeight:700,color:"#e0e0e0",margin:"0 0 8px"}}>Sin recurrentes configurados</p>
+          <p style={{fontSize:13,color:"#555",margin:"0 0 12px",lineHeight:1.5,maxWidth:360,marginLeft:"auto",marginRight:"auto"}}>
+            Configura tus pagos fijos y fuentes de ingreso estables. Finanzapp te recordará cuándo confirmarlos y proyectará tu flujo mensual automáticamente.
+          </p>
+          <div style={{display:"flex",gap:8,justifyContent:"center",flexWrap:"wrap",marginBottom:14}}>
+            {["💼 Salario","🏠 Renta","💡 Servicios","📱 Suscripciones","🚗 Crédito auto"].map(t=>(
+              <span key={t} style={{fontSize:11,padding:"4px 10px",borderRadius:20,background:"rgba(255,255,255,.04)",border:"1px solid rgba(255,255,255,.08)",color:"#666"}}>{t}</span>
+            ))}
+          </div>
           <Btn onClick={()=>{setForm(emptyForm);setShowForm(true);}}>Crear primera recurrente</Btn>
         </div>
       )}
