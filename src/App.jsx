@@ -11416,8 +11416,8 @@ ${presInfo.length>0?presInfo.join("\n"):"Sin presupuestos"}`;
         newLoans = newLoans.map(l=>l.id===loanId?{...l,payments:[...(l.payments||[]),newPmt]}:l);
         // registrar transacción
         const isIngreso = loan.type==="given";
-        if (toInt>0) newTransactions = [{id:genId(),date:date||today(),amount:toInt,type:isIngreso?"income":"expense",description:isIngreso?`Intereses cobrados — ${loan.name}`:`Pago intereses — ${loan.name}`,category:isIngreso?"Intereses cobrados":"Pago de deuda",accountId:targetId,currency:loan.currency||"MXN",origen:"prestamo",origenId:loanId,notes:notes||},...newTransactions];
-        if (toCap>0) newTransactions = [{id:genId(),date:date||today(),amount:toCap,type:isIngreso?"income":"expense",description:isIngreso?`Recuperación capital — ${loan.name}`:`Abono capital — ${loan.name}`,category:isIngreso?"Recuperación de capital":"Abono a capital",accountId:targetId,currency:loan.currency||"MXN",origen:"prestamo",origenId:loanId,notes:notes||},...newTransactions];
+        if (toInt>0) newTransactions = [{id:genId(),date:date||today(),amount:toInt,type:isIngreso?"income":"expense",description:isIngreso?`Intereses cobrados — ${loan.name}`:`Pago intereses — ${loan.name}`,category:isIngreso?"Intereses cobrados":"Pago de deuda",accountId:targetId,currency:loan.currency||"MXN",origen:"prestamo",origenId:loanId,notes:notes||""},...newTransactions];
+        if (toCap>0) newTransactions = [{id:genId(),date:date||today(),amount:toCap,type:isIngreso?"income":"expense",description:isIngreso?`Recuperación capital — ${loan.name}`:`Abono capital — ${loan.name}`,category:isIngreso?"Recuperación de capital":"Abono a capital",accountId:targetId,currency:loan.currency||"MXN",origen:"prestamo",origenId:loanId,notes:notes||""},...newTransactions];
         mensajes.push(`✅ Pago de ${fmt(amt)} al préstamo "${loan.name}" registrado`);
       }
 
