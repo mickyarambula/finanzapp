@@ -3176,6 +3176,70 @@ const Transactions = () => {
           </button>
         )}
       </div>
+
+      {/* ── Panel resumen de tag */}
+      {search && search.replace(/^#/,"").length>0 && (()=>{
+        const tagQ = search.replace(/^#/,"").toLowerCase();
+        const isBuscandoTag = sorted.length>0 && sorted.some(t=>(t.tags||[]).some(tag=>tag.toLowerCase().includes(tagQ)));
+        if (!isBuscandoTag) return null;
+        const txsConTag = transactions.filter(t=>(t.tags||[]).some(tag=>tag.toLowerCase().includes(tagQ)));
+        if (txsConTag.length===0) return null;
+        const totalGastado = txsConTag.filter(t=>t.type==="expense").reduce((s,t)=>s+parseFloat(t.amount||0),0);
+        const totalIngresado = txsConTag.filter(t=>t.type==="income").reduce((s,t)=>s+parseFloat(t.amount||0),0);
+        const neto = totalIngresado - totalGastado;
+        // desglose por categoría
+        const porCat = {};
+        txsConTag.filter(t=>t.type==="expense").forEach(t=>{
+          const cat = t.category||"Sin categoría";
+          porCat[cat] = (porCat[cat]||0) + parseFloat(t.amount||0);
+        });
+        const topCats = Object.entries(porCat).sort((a,b)=>b[1]-a[1]).slice(0,4);
+        // rango de fechas
+        const fechas = txsConTag.map(t=>t.date).sort();
+        return (
+          <div style={{marginBottom:16,borderRadius:13,border:"1px solid rgba(167,139,250,.25)",background:"rgba(167,139,250,.06)",overflow:"hidden"}}>
+            {/* Header */}
+            <div style={{padding:"12px 16px 10px",borderBottom:"1px solid rgba(167,139,250,.15)",display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
+              <div style={{display:"flex",alignItems:"center",gap:8}}>
+                <span style={{fontSize:16,fontWeight:800,color:"#a78bfa",background:"rgba(167,139,250,.15)",borderRadius:20,padding:"3px 12px"}}>#{tagQ}</span>
+                <span style={{fontSize:12,color:"#555"}}>{txsConTag.length} transacción{txsConTag.length!==1?"es":""}</span>
+                <span style={{fontSize:11,color:"#444"}}>· {fechas[0]} → {fechas[fechas.length-1]}</span>
+              </div>
+              <span style={{fontSize:12,fontWeight:700,color:neto>=0?"#00d4aa":"#ff4757"}}>
+                Neto: {neto>=0?"+":""}{fmt(neto)}
+              </span>
+            </div>
+            {/* KPIs */}
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:0}}>
+              {[
+                {l:"Total gastado",v:fmt(totalGastado),c:"#ff4757",show:totalGastado>0},
+                {l:"Total ingresado",v:fmt(totalIngresado),c:"#00d4aa",show:totalIngresado>0},
+                {l:"Promedio por tx",v:fmt(txsConTag.length>0?txsConTag.reduce((s,t)=>s+parseFloat(t.amount||0),0)/txsConTag.length:0),c:"#a78bfa",show:true},
+                {l:"Transacciones",v:txsConTag.length,c:"#3b82f6",show:true},
+              ].filter(k=>k.show).map(k=>(
+                <div key={k.l} style={{padding:"10px 16px",borderRight:"1px solid rgba(167,139,250,.1)"}}>
+                  <p style={{fontSize:9,color:"#555",textTransform:"uppercase",letterSpacing:.5,margin:"0 0 3px"}}>{k.l}</p>
+                  <p style={{fontSize:15,fontWeight:800,color:k.c,margin:0}}>{k.v}</p>
+                </div>
+              ))}
+            </div>
+            {/* Top categorías */}
+            {topCats.length>0&&(
+              <div style={{padding:"8px 16px 10px",borderTop:"1px solid rgba(167,139,250,.1)"}}>
+                <p style={{fontSize:10,color:"#555",textTransform:"uppercase",letterSpacing:.5,margin:"0 0 8px"}}>Top categorías de gasto</p>
+                <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                  {topCats.map(([cat,monto])=>(
+                    <div key={cat} style={{display:"flex",alignItems:"center",gap:6,padding:"4px 10px",borderRadius:20,background:"rgba(255,71,87,.08)",border:"1px solid rgba(255,71,87,.15)"}}>
+                      <span style={{fontSize:11,color:"#ff6b7a",fontWeight:600}}>{cat}</span>
+                      <span style={{fontSize:11,color:"#666"}}>{fmt(monto)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })()}
       {sorted.length===0 ? (
         <div style={{ textAlign:"center", padding:"40px 20px" }}>
           <div style={{fontSize:44,marginBottom:8}}>💳</div>
