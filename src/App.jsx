@@ -3056,7 +3056,7 @@ const Transactions = () => {
     expense: [...new Set([...(config.categorias?.expense||DEFAULT_CATS.expense)])],
   };
 
-  const applyDelta = (accs, id, delta) => accs.map(a=>a.id===id?{...a,balance:a.balance+delta}:a);
+  const applyDelta = (accs, id, delta) => accs.map(a=>a.id===id?{...a,balance:parseFloat(a.balance||0)+delta}:a);
 
   const openNew = () => { setEditing(null); setForm({...blank,accountId:accounts[0]?.id||""}); setOpen(true); };
   const openEdit = tx => { setEditing(tx); setForm({type:tx.type,accountId:tx.accountId,amount:tx.amount.toString(),description:tx.description,category:tx.category||"",date:tx.date,currency:tx.currency,notes:tx.notes||"",tags:tx.tags||[],metaId:tx.metaId||""}); setOpen(true); };
@@ -3066,7 +3066,7 @@ const Transactions = () => {
     if (!form.description.trim()||!form.amount||!form.accountId) { toast("Completa los campos requeridos.","error"); return; }
     const amount = parseFloat(form.amount);
     if (isNaN(amount)||amount<=0) { toast("Monto inválido.","error"); return; }
-    const newDelta = form.type==="income"?amount:-amount;
+    const newDelta = form.type==="income"?Math.abs(amount):-Math.abs(amount);
     if (editing) {
       const oldDelta = editing.type==="income"?-editing.amount:editing.amount;
       let accs = applyDelta(accounts, editing.accountId, oldDelta);
@@ -3691,7 +3691,7 @@ const Loans = () => {
     });
   };
 
-  const applyDelta = (accs,id,delta) => accs.map(a=>a.id===id?{...a,balance:a.balance+delta}:a);
+  const applyDelta = (accs,id,delta) => accs.map(a=>a.id===id?{...a,balance:parseFloat(a.balance||0)+delta}:a);
 
   const openNewLoan = () => { setEditing(null); setLF({...blankLoan,accountId:accounts[0]?.id||""}); setOpenLoan(true); };
   const openEditLoan = (loan,e) => { e?.stopPropagation(); setEditing(loan); setLF({type:loan.type,name:loan.name,accountId:loan.accountId,principal:loan.principal.toString(),currency:loan.currency,rateType:loan.rateType,rate:loan.rate,startDate:loan.startDate,dueDate:loan.dueDate||"",notes:loan.notes||""}); setOpenLoan(true); };
@@ -4251,7 +4251,7 @@ const Investments = () => {
   const ic = k => e => setInvForm(p=>({...p,[k]:e.target.value}));
   const ac = k => e => setAportForm(p=>({...p,[k]:e.target.value}));
 
-  const applyDelta = (accs,id,delta) => accs.map(a=>a.id===id?{...a,balance:a.balance+delta}:a);
+  const applyDelta = (accs,id,delta) => accs.map(a=>a.id===id?{...a,balance:parseFloat(a.balance||0)+delta}:a);
 
   const calcInv = inv => {
     const aportaciones = (inv.aportaciones||[]);
