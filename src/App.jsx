@@ -4259,6 +4259,21 @@ const Investments = () => {
     const titulos = parseFloat(inv.titulos)||0;
     const precioActual = parseFloat(inv.precioActual)||0;
     const precioCosto = parseFloat(inv.precioCosto)||0;
+    const diasActiva = Math.max(0, Math.round((new Date()-new Date(inv.startDate))/86400000));
+    const diasAlVenc = inv.endDate ? Math.round((new Date(inv.endDate)-new Date())/86400000) : null;
+    const costoTitulos = titulos > 0 && precioCosto > 0 ? titulos * precioCosto : totalInvertido;
+    const base = costoTitulos > 0 ? costoTitulos : totalInvertido;
+
+    // ── Inversión liquidada: usar rendimiento realizado de los cobros
+    if (inv.estado==="liquidada") {
+      const totalCobrado = (inv.cobros||[]).reduce((s,c)=>s+(c.montoNeto||c.monto||0),0);
+      const rendRealizado = (inv.cobros||[]).reduce((s,c)=>s+(c.rendRealizado||0),0);
+      const rendPct = base > 0 ? (rendRealizado/base)*100 : 0;
+      return { totalInvertido, valorActual:totalCobrado, rendimiento:rendRealizado, rendPct,
+               diasActiva, diasAlVenc, titulos:0, precioActual:0, precioCosto, costoTitulos,
+               liquidada:true, totalCobrado };
+    }
+
     let valorActual;
     // modo "valor total" para crypto: usa currentValue directamente
     if (inv.type==="crypto" && inv._cryptoMode==="valor" && parseFloat(inv.currentValue)>0) {
@@ -4268,13 +4283,10 @@ const Investments = () => {
     } else {
       valorActual = parseFloat(inv.currentValue)||totalInvertido;
     }
-    const costoTitulos = titulos > 0 && precioCosto > 0 ? titulos * precioCosto : totalInvertido;
-    const base = costoTitulos > 0 ? costoTitulos : totalInvertido;
     const rendimiento = valorActual - base;
     const rendPct = base > 0 ? (rendimiento/base)*100 : 0;
-    const diasActiva = Math.max(0, Math.round((new Date()-new Date(inv.startDate))/86400000));
-    const diasAlVenc = inv.endDate ? Math.round((new Date(inv.endDate)-new Date())/86400000) : null;
-    return { totalInvertido, valorActual, rendimiento, rendPct, diasActiva, diasAlVenc, titulos, precioActual, precioCosto, costoTitulos };
+    return { totalInvertido, valorActual, rendimiento, rendPct, diasActiva, diasAlVenc,
+             titulos, precioActual, precioCosto, costoTitulos, liquidada:false };
   };
 
   const calcProyeccion = (inv, calcSt) => {
@@ -5053,11 +5065,14 @@ const Investments = () => {
             const st = calcInv(inv);
             const color = typeColors[inv.type]||"#888";
             const rendColor = st.rendimiento>=0?"#00d4aa":"#ff4757";
+            const esLiquidada = inv.estado==="liquidada";
             return (
               <Card key={inv.id} onClick={()=>{setSelected(inv);setView("detail");setDetTab("aportaciones");}}
-                style={{cursor:"pointer",transition:"border-color .15s",borderColor:st.rendimiento>=0?"rgba(0,212,170,.15)":"rgba(255,71,87,.1)"}}
-                onMouseEnter={e=>e.currentTarget.style.borderColor=color}
-                onMouseLeave={e=>e.currentTarget.style.borderColor=st.rendimiento>=0?"rgba(0,212,170,.15)":"rgba(255,71,87,.1)"}>
+                style={{cursor:"pointer",transition:"border-color .15s",
+                  borderColor:esLiquidada?"rgba(100,116,139,.3)":st.rendimiento>=0?"rgba(0,212,170,.15)":"rgba(255,71,87,.1)",
+                  opacity:esLiquidada?0.8:1}}
+                onMouseEnter={e=>e.currentTarget.style.borderColor=esLiquidada?"rgba(100,116,139,.5)":color}
+                onMouseLeave={e=>e.currentTarget.style.borderColor=esLiquidada?"rgba(100,116,139,.3)":st.rendimiento>=0?"rgba(0,212,170,.15)":"rgba(255,71,87,.1)"}>
 
                 {/* ── Header: nombre + acciones */}
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
@@ -5066,7 +5081,10 @@ const Investments = () => {
                       <Ic n="investments" size={16} color={color}/>
                     </div>
                     <div style={{minWidth:0}}>
-                      <p style={{fontSize:13,fontWeight:700,color:"#f0f0f0",margin:"0 0 1px",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{inv.name}</p>
+                      <div style={{display:"flex",alignItems:"center",gap:6,margin:"0 0 1px"}}>
+                        <p style={{fontSize:13,fontWeight:700,color:esLiquidada?"#94a3b8":"#f0f0f0",margin:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{inv.name}</p>
+                        {esLiquidada&&<span style={{fontSize:9,fontWeight:700,color:"#64748b",background:"rgba(100,116,139,.15)",border:"1px solid rgba(100,116,139,.3)",borderRadius:10,padding:"1px 6px",flexShrink:0}}>LIQUIDADA</span>}
+                      </div>
                       <div style={{display:"flex",gap:5,flexWrap:"wrap",alignItems:"center"}}>
                         <span style={{fontSize:10,color:"#555"}}>{typeLabels[inv.type]}</span>
                         {inv.platform&&<span style={{fontSize:10,color:"#444"}}>· {inv.platform}</span>}
