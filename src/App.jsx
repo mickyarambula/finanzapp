@@ -3028,7 +3028,7 @@ const Accounts = () => {
 };
 
 // ─── TRANSACCIONES ────────────────────────────────────────────────────────────
-const Transactions = () => {
+const Transactions = ({ initialDate=null }) => {
   const { user, toast } = useCtx();
   const [transactions, setTransactions] = useData(user.id, "transactions");
   const [accounts, setAccounts] = useData(user.id, "accounts");
@@ -3046,6 +3046,8 @@ const Transactions = () => {
   const blank = { type:"income", accountId:"", amount:"", description:"", category:"", date:today(), currency:"MXN", notes:"", tags:[], metaId:"" };
   const [form, setForm] = useState(blank);
   const f = k => e => setForm(p=>({...p,[k]:e.target.value}));
+  // Si se navega desde Calendario con fecha, abrir modal automáticamente
+  React.useEffect(()=>{ if(initialDate){ setForm(p=>({...p,date:initialDate})); setOpen(true); } },[initialDate]);
 
   const DEFAULT_CATS = {
     income:["Salario","Freelance","Negocio","Renta","Intereses","Dividendos","Intereses cobrados","Retiro de inversión","Dividendos e intereses","Ganancia de inversión","Recuperación de capital","Otro"],
@@ -9137,6 +9139,15 @@ const CalendarioFinanciero = () => {
               )}
 
               {/* lista de eventos */}
+              {/* Botón nueva transacción con fecha precargada */}
+              <button onClick={()=>navigate&&navigate("transactions:new:"+selDay)} style={{
+                width:"100%",display:"flex",alignItems:"center",justifyContent:"center",gap:6,
+                padding:"8px",borderRadius:9,marginBottom:8,
+                background:"rgba(0,212,170,.07)",border:"1px solid rgba(0,212,170,.2)",
+                color:"#00d4aa",cursor:"pointer",fontSize:11,fontWeight:700,
+              }}>
+                + Nueva transacción el {selDay?new Date(selDay+"T12:00:00").toLocaleDateString("es-MX",{day:"numeric",month:"short"}):""}
+              </button>
               {evsDia.length===0
                 ? <p style={{fontSize:12,color:"#444",textAlign:"center",padding:"16px 0"}}>Sin movimientos registrados</p>
                 : <div style={{display:"flex",flexDirection:"column",gap:6}}>
@@ -10213,6 +10224,19 @@ const Presupuestos = () => {
             const pctReal   = limite>0 ? gastado/limite*100 : 0;
             const proy      = calcProyeccion(gastado,limite);
             const historico = calcHistorico(p);
+            // Comparativo mes anterior
+            const mesAnt = (() => {
+              const d = new Date(now.getFullYear(), now.getMonth()-1, 1);
+              const mk = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
+              const txs = transactions.filter(t=>{
+                if(!t.date?.startsWith(mk)||t.type!=="expense") return false;
+                if(p.tipo==="global") return true;
+                if(p.tipo==="categoria") return t.category===p.categoria;
+                return false;
+              });
+              return txs.reduce((s,t)=>s+parseFloat(t.amount||0),0);
+            })();
+            const deltaVsAnt = mesAnt>0 ? ((gastado-mesAnt)/mesAnt*100) : null;
             const acum      = (calcLimiteEfectivo(p)-parseFloat(p.montoLimite));
             const barColor  = pctReal>100?"#ff4757":pctReal>80?"#f39c12":p.color||"#00d4aa";
             const alerta    = pctReal>100?"Excedido":pctReal>80?"En alerta":null;
@@ -10265,6 +10289,17 @@ const Presupuestos = () => {
                   </div>
                   <span style={{fontSize:11,color:"#555"}}>{fmt(proy.margenD,"MXN")}/día disponible</span>
                 </div>
+                {/* Comparativo mes anterior */}
+                {mesAnt>0&&(
+                  <div style={{marginTop:8,display:"flex",alignItems:"center",gap:8,padding:"5px 10px",borderRadius:8,background:"rgba(255,255,255,.03)"}}>
+                    <span style={{fontSize:10,color:"#555"}}>Mes anterior: <strong style={{color:"#888"}}>{fmt(mesAnt,"MXN")}</strong></span>
+                    {deltaVsAnt!==null&&(
+                      <span style={{fontSize:10,fontWeight:700,color:deltaVsAnt>0?"#ff4757":"#00d4aa"}}>
+                        {deltaVsAnt>0?"▲":"▼"} {Math.abs(deltaVsAnt).toFixed(1)}% {deltaVsAnt>0?"más":"menos"} que el mes pasado
+                      </span>
+                    )}
+                  </div>
+                )}
                 {/* histórico mini */}
                 <div style={{marginTop:12,paddingTop:10,borderTop:"1px solid rgba(255,255,255,.05)"}}>
                   <p style={{fontSize:10,color:"#444",textTransform:"uppercase",letterSpacing:.4,marginBottom:6}}>Cumplimiento últimos 6 meses</p>
@@ -12021,6 +12056,19 @@ export default function App() {
     return ()=> listener.subscription.unsubscribe();
   },[]);
   const [active, setActive] = useState("dashboard");
+  const [navHistory, setNavHistory] = useState([]); // stack de historial
+  const navigate = (dest) => {
+    setNavHistory(h => [...h.slice(-19), active]); // guarda hasta 20 pasos
+    setActive(dest);
+  };
+  const goBack = () => {
+    setNavHistory(h => {
+      const prev = h[h.length-1];
+      if (!prev) return h;
+      setActive(prev);
+      return h.slice(0,-1);
+    });
+  };
   const [theme, setTheme]   = useState(()=>store.get("fp_theme","dark"));
   const toggleTheme = () => setTheme(t=>{ const n=t==="dark"?"light":"dark"; store.set("fp_theme",n); return n; });
   const isDark = theme==="dark";
@@ -12072,6 +12120,7 @@ export default function App() {
       case "reports:resultados": return <Reports initialTab="resultados"/>;
       case "reports:balance":    return <Reports initialTab="balance"/>;
       case "reports:flujo":      return <Reports initialTab="flujo"/>;
+      default: if(id?.startsWith("transactions:new:")) return <Transactions initialDate={id.split(":")[2]}/>;
       case "patrimonio":   return <Patrimonio/>;
       case "asistente":    return <Asistente/>;
       case "settings":     return <Settings/>;
@@ -12080,11 +12129,11 @@ export default function App() {
   };
 
   return (
-    <Ctx.Provider value={{ user, toast, navigate: setActive, theme, toggleTheme }}>
+    <Ctx.Provider value={{ user, toast, navigate, goBack, navHistory, theme, toggleTheme }}>
       <GlobalStyles dark={isDark}/>
       <ToastContainer toasts={toasts} remove={id=>setToasts(p=>p.filter(t=>t.id!==id))}/>
       <div style={{ display:"flex", height:"100vh", background:isDark?"#0d1117":"#f0f2f5", overflow:"hidden", transition:"background .3s" }}>
-        <Sidebar active={active} setActive={setActive} user={user} onLogout={logout} mobile={mobile} open={sideOpen} onClose={()=>setSideOpen(false)} notif={notif} theme={theme} onToggleTheme={toggleTheme}/>
+        <Sidebar active={active} setActive={(dest)=>{setNavHistory([]);setActive(dest);}} user={user} onLogout={logout} mobile={mobile} open={sideOpen} onClose={()=>setSideOpen(false)} notif={notif} theme={theme} onToggleTheme={toggleTheme}/>
         <div style={{ flex:1, display:"flex", flexDirection:"column", overflow:"hidden" }}>
           {mobile&&(
             <div style={{ display:"flex", alignItems:"center", gap:10, padding:"12px 14px", borderBottom:`1px solid ${isDark?"rgba(255,255,255,.05)":"rgba(0,0,0,.08)"}`, background:isDark?"#0f1520":"#1a1f2e", flexShrink:0 }}>
@@ -12093,6 +12142,23 @@ export default function App() {
             </div>
           )}
           <div data-fp="main" style={{ flex:1, overflowY:"auto", padding:mobile?"18px 14px":"26px 30px", background: isDark?"#0d1117":"#f0f4f8", transition:"background .3s" }}>
+            {/* ── Botón Atrás — aparece solo cuando hay historial */}
+            {navHistory.length>0&&(
+              <div style={{marginBottom:12,marginTop:-4}}>
+                <button onClick={goBack} style={{
+                  display:"inline-flex",alignItems:"center",gap:6,
+                  padding:"5px 12px",borderRadius:9,
+                  background:"rgba(255,255,255,.05)",
+                  border:"1px solid rgba(255,255,255,.08)",
+                  color:"#888",cursor:"pointer",fontSize:12,fontWeight:600,
+                  transition:"all .15s"
+                }}
+                  onMouseEnter={e=>{e.currentTarget.style.background="rgba(255,255,255,.09)";e.currentTarget.style.color="#ccc";}}
+                  onMouseLeave={e=>{e.currentTarget.style.background="rgba(255,255,255,.05)";e.currentTarget.style.color="#888";}}>
+                  ← Volver
+                </button>
+              </div>
+            )}
             <div style={{ maxWidth:1200, animation:"fadeUp .25s ease" }} key={active}>
               {/* recordatorio días sin movimientos */}
               {(()=>{
