@@ -12120,11 +12120,12 @@ export default function App() {
       case "reports:resultados": return <Reports initialTab="resultados"/>;
       case "reports:balance":    return <Reports initialTab="balance"/>;
       case "reports:flujo":      return <Reports initialTab="flujo"/>;
-      default: if(id?.startsWith("transactions:new:")) return <Transactions initialDate={id.split(":")[2]}/>;
       case "patrimonio":   return <Patrimonio/>;
       case "asistente":    return <Asistente/>;
       case "settings":     return <Settings/>;
-      default:             return <Dashboard/>;
+      default:
+        if(id?.startsWith("transactions:new:")) return <Transactions initialDate={id.split(":")[2]}/>;
+        return <Dashboard/>;
     }
   };
 
