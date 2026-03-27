@@ -6730,6 +6730,202 @@ const Settings = () => {
   );
 };
 
+// ─── SIMULADOR LIQUIDACIÓN ANTICIPADA ────────────────────────────────────────
+const SimuladorLiquidacion = ({ m, prog, calcAmort, fmt, cur2 }) => {
+  const [simAnios, setSimAnios] = useState("7");
+  const [simAportacion, setSimAportacion] = useState("");
+  const [simModo, setSimModo] = useState("anios");
+
+  const saldoActual = prog.saldoActual;
+  const tasaMensual = (parseFloat(m.tasaAnual)||0)/100/12;
+  const seg = {seguroVida:m.seguroVida,seguroDanos:m.seguroDanos,adminCredito:m.adminCredito};
+  const {cuota:cuotaBase} = calcAmort(m.monto,m.tasaAnual,m.plazoAnios,m.tipo,[],seg);
+  const cuotaReal = m.cuotaReal ? parseFloat(m.cuotaReal) : cuotaBase;
+  const mesesRestantes = prog.tabla.length - prog.totalPagos;
+
+  const calcAportacionParaAnios = (anios) => {
+    const mesesMeta = anios * 12;
+    const r = tasaMensual;
+    if (!r||!saldoActual||mesesMeta<=0) return 0;
+    const cuotaNecesaria = saldoActual * (r*Math.pow(1+r,mesesMeta))/(Math.pow(1+r,mesesMeta)-1);
+    return Math.max(0, cuotaNecesaria - cuotaBase);
+  };
+
+  const calcMesesConAportacion = (aportExtra) => {
+    if (!tasaMensual||!saldoActual) return null;
+    let saldo = saldoActual;
+    for (let mes=1; mes<=600; mes++) {
+      const interes = saldo * tasaMensual;
+      const abonoCapital = cuotaBase - interes + (aportExtra||0);
+      if (abonoCapital <= 0) return null;
+      saldo = saldo - abonoCapital;
+      if (saldo <= 0) return mes;
+    }
+    return null;
+  };
+
+  const calcProyAnual = (aportExtra) => {
+    let saldo = saldoActual;
+    const rows = [];
+    let intAnio = 0;
+    let anio = 1;
+    for (let mes=1; mes<=600; mes++) {
+      const interes = saldo * tasaMensual;
+      const abonoCapital = cuotaBase - interes + (aportExtra||0);
+      if (abonoCapital <= 0) break;
+      saldo = Math.max(saldo - abonoCapital, 0);
+      intAnio += interes;
+      if (mes % 12 === 0 || saldo <= 0) {
+        rows.push({ anio, saldoFin: saldo, interesesAnio: intAnio });
+        intAnio = 0;
+        anio++;
+        if (saldo <= 0) break;
+      }
+    }
+    return rows;
+  };
+
+  // Intereses restantes sin estrategia
+  const {totalIntereses:intTotal} = calcAmort(m.monto,m.tasaAnual,m.plazoAnios,m.tipo,m.pagosCapital||[],seg);
+  const intOriginalRestante = intTotal - prog.totalInteresesPagados;
+
+  const aniosMeta = parseInt(simAnios)||7;
+  const aportNecesaria = calcAportacionParaAnios(aniosMeta);
+  const aportExtra = simModo==="anios" ? aportNecesaria : (parseFloat(simAportacion)||0);
+  const mesesConAport = simModo==="anios" ? aniosMeta*12 : calcMesesConAportacion(aportExtra);
+  const proyAnual = calcProyAnual(aportExtra);
+  const intConAport = proyAnual.reduce((s,r)=>s+r.interesesAnio,0);
+  const ahorro = intOriginalRestante - intConAport;
+  const pagoTotalMensual = cuotaReal + aportExtra;
+
+  return (
+    <div style={{display:"flex",flexDirection:"column",gap:14}}>
+      {/* Selector modo */}
+      <div style={{display:"flex",gap:3,background:"rgba(255,255,255,.04)",borderRadius:10,padding:3,width:"fit-content"}}>
+        {[{id:"anios",label:"Quiero liquidar en X años"},{id:"monto",label:"Puedo aportar $X/mes"}].map(o=>(
+          <button key={o.id} onClick={()=>setSimModo(o.id)}
+            style={{padding:"8px 16px",borderRadius:8,border:"none",cursor:"pointer",fontSize:12,fontWeight:600,
+              background:simModo===o.id?"linear-gradient(135deg,#7c3aed,#5b21b6)":"transparent",
+              color:simModo===o.id?"#fff":"#666"}}>
+            {o.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Inputs */}
+      <Card style={{borderColor:"rgba(124,58,237,.2)",background:"rgba(124,58,237,.04)"}}>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,alignItems:"end"}}>
+          {simModo==="anios" ? (
+            <div>
+              <label style={{fontSize:11,color:"#7c3aed",fontWeight:700,textTransform:"uppercase",letterSpacing:.5,display:"block",marginBottom:6}}>Liquidar en (años)</label>
+              <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                {[3,5,7,10,15].map(a=>(
+                  <button key={a} onClick={()=>setSimAnios(String(a))}
+                    style={{padding:"6px 14px",borderRadius:8,border:`1px solid ${simAnios==String(a)?"rgba(124,58,237,.5)":"rgba(255,255,255,.08)"}`,
+                      background:simAnios==String(a)?"rgba(124,58,237,.2)":"transparent",
+                      color:simAnios==String(a)?"#a78bfa":"#666",cursor:"pointer",fontSize:13,fontWeight:600}}>
+                    {a}a
+                  </button>
+                ))}
+                <input type="number" value={simAnios} onChange={e=>setSimAnios(e.target.value)}
+                  style={{width:70,padding:"6px 10px",borderRadius:8,background:"rgba(255,255,255,.05)",border:"1px solid rgba(255,255,255,.1)",color:"#e0e0e0",fontSize:13,outline:"none"}}/>
+              </div>
+            </div>
+          ) : (
+            <div>
+              <label style={{fontSize:11,color:"#7c3aed",fontWeight:700,textTransform:"uppercase",letterSpacing:.5,display:"block",marginBottom:6}}>Aportación extra mensual</label>
+              <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+                {[5000,10000,15000,20000].map(a=>(
+                  <button key={a} onClick={()=>setSimAportacion(String(a))}
+                    style={{padding:"6px 12px",borderRadius:8,border:`1px solid ${simAportacion==String(a)?"rgba(124,58,237,.5)":"rgba(255,255,255,.08)"}`,
+                      background:simAportacion==String(a)?"rgba(124,58,237,.2)":"transparent",
+                      color:simAportacion==String(a)?"#a78bfa":"#666",cursor:"pointer",fontSize:11,fontWeight:600}}>
+                    {fmt(a)}
+                  </button>
+                ))}
+                <input type="number" value={simAportacion} onChange={e=>setSimAportacion(e.target.value)} placeholder="Otro monto"
+                  style={{width:130,padding:"6px 10px",borderRadius:8,background:"rgba(255,255,255,.05)",border:"1px solid rgba(255,255,255,.1)",color:"#e0e0e0",fontSize:13,outline:"none"}}/>
+              </div>
+            </div>
+          )}
+          <div>
+            <p style={{fontSize:11,color:"#555",margin:"0 0 4px"}}>Saldo actual a liquidar</p>
+            <p style={{fontSize:22,fontWeight:800,color:"#f39c12",margin:0}}>{fmt(saldoActual,cur2)}</p>
+            <p style={{fontSize:10,color:"#444",margin:"2px 0 0"}}>{mesesRestantes} meses restantes en plazo original</p>
+          </div>
+        </div>
+      </Card>
+
+      {/* KPIs resultado */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(170px,1fr))",gap:10}}>
+        <Card style={{borderColor:"rgba(124,58,237,.3)",background:"rgba(124,58,237,.06)",textAlign:"center",padding:"16px"}}>
+          <p style={{fontSize:10,color:"#a78bfa",textTransform:"uppercase",letterSpacing:.5,margin:"0 0 6px"}}>
+            {simModo==="anios"?"Aportación mensual necesaria":"Liquidarás en"}
+          </p>
+          {simModo==="anios" ? (
+            <><p style={{fontSize:24,fontWeight:800,color:"#a78bfa",margin:"0 0 2px"}}>{fmt(aportNecesaria,cur2)}</p>
+            <p style={{fontSize:11,color:"#666"}}>extra sobre tu cuota mensual</p></>
+          ) : (
+            <><p style={{fontSize:24,fontWeight:800,color:"#a78bfa",margin:"0 0 2px"}}>
+              {mesesConAport ? `${(mesesConAport/12).toFixed(1)} años` : "—"}
+            </p>
+            <p style={{fontSize:11,color:"#666"}}>{mesesConAport?`${mesesConAport} meses`:"Ingresa un monto"}</p></>
+          )}
+        </Card>
+        <Card style={{borderColor:"rgba(0,212,170,.25)",background:"rgba(0,212,170,.04)",textAlign:"center",padding:"16px"}}>
+          <p style={{fontSize:10,color:"#00d4aa",textTransform:"uppercase",letterSpacing:.5,margin:"0 0 6px"}}>Ahorro en intereses</p>
+          <p style={{fontSize:24,fontWeight:800,color:"#00d4aa",margin:"0 0 2px"}}>{ahorro>0?fmt(ahorro,cur2):"—"}</p>
+          <p style={{fontSize:11,color:"#666"}}>vs seguir el plazo original</p>
+        </Card>
+        <Card style={{textAlign:"center",padding:"16px"}}>
+          <p style={{fontSize:10,color:"#555",textTransform:"uppercase",letterSpacing:.5,margin:"0 0 6px"}}>Pago mensual total</p>
+          <p style={{fontSize:24,fontWeight:800,color:"#ccc",margin:"0 0 2px"}}>{fmt(pagoTotalMensual,cur2)}</p>
+          <p style={{fontSize:11,color:"#666"}}>cuota + aportación extra</p>
+        </Card>
+        <Card style={{borderColor:"rgba(255,71,87,.2)",background:"rgba(255,71,87,.04)",textAlign:"center",padding:"16px"}}>
+          <p style={{fontSize:10,color:"#ff6b7a",textTransform:"uppercase",letterSpacing:.5,margin:"0 0 6px"}}>Intereses con estrategia</p>
+          <p style={{fontSize:24,fontWeight:800,color:"#ff6b7a",margin:"0 0 2px"}}>{fmt(intConAport,cur2)}</p>
+          <p style={{fontSize:11,color:"#666"}}>vs {fmt(intOriginalRestante,cur2)} sin estrategia</p>
+        </Card>
+      </div>
+
+      {/* Tabla año a año */}
+      {proyAnual.length>0&&(
+        <Card>
+          <p style={{fontSize:12,fontWeight:700,color:"#777",textTransform:"uppercase",letterSpacing:.5,marginBottom:12}}>Proyección año a año</p>
+          <div style={{overflowX:"auto"}}>
+            <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+              <thead><tr style={{borderBottom:"1px solid rgba(255,255,255,.08)"}}>
+                {["Año","Saldo final","Intereses del año","Aport. capital/año","Pago mensual"].map(h=>(
+                  <th key={h} style={{padding:"8px 12px",textAlign:"right",color:"#555",fontWeight:600}}>{h}</th>
+                ))}
+              </tr></thead>
+              <tbody>
+                {proyAnual.map((r)=>(
+                  <tr key={r.anio} style={{borderBottom:"1px solid rgba(255,255,255,.03)",background:r.saldoFin<=0?"rgba(0,212,170,.06)":"transparent"}}>
+                    <td style={{padding:"8px 12px",color:"#888",textAlign:"right",fontWeight:600}}>Año {r.anio}</td>
+                    <td style={{padding:"8px 12px",color:r.saldoFin<=0?"#00d4aa":"#ccc",textAlign:"right",fontWeight:r.saldoFin<=0?800:400}}>
+                      {r.saldoFin<=0?"✓ Liquidado":fmt(r.saldoFin,cur2)}
+                    </td>
+                    <td style={{padding:"8px 12px",color:"#f39c12",textAlign:"right"}}>{fmt(r.interesesAnio,cur2)}</td>
+                    <td style={{padding:"8px 12px",color:"#7c3aed",textAlign:"right"}}>{fmt(aportExtra*12,cur2)}</td>
+                    <td style={{padding:"8px 12px",color:"#ccc",textAlign:"right"}}>{fmt(pagoTotalMensual,cur2)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div style={{marginTop:10,padding:"10px 12px",background:"rgba(255,255,255,.03)",borderRadius:9,display:"flex",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
+            <span style={{fontSize:12,color:"#555"}}>Intereses totales: <strong style={{color:"#f39c12"}}>{fmt(intConAport,cur2)}</strong></span>
+            {ahorro>0&&<span style={{fontSize:13,fontWeight:700,color:"#00d4aa"}}>💰 Ahorras {fmt(ahorro,cur2)} en intereses</span>}
+          </div>
+        </Card>
+      )}
+    </div>
+  );
+};
+
+
 // ─── CRÉDITO HIPOTECARIO ──────────────────────────────────────────────────────
 const Mortgage = () => {
   const { user, toast } = useCtx();
@@ -6754,6 +6950,7 @@ const Mortgage = () => {
     nombre:"", tipo:"fijo", moneda:"MXN", valorPropiedad:"", enganche:"",
     engancheCuentaId:"", monto:"", tasaAnual:"", plazoAnios:"",
     cuotaReal:"", // cuota real del banco (opcional)
+    seguroVida:"", seguroDanos:"", adminCredito:"", // seguros y cargos fijos mensuales
     diaCorte:1,   // día del mes para vencimiento
     fechaInicio:today(), banco:"", notas:"", pagosRealizados:[], pagosCapital:[],
   };
@@ -6766,7 +6963,7 @@ const Mortgage = () => {
   const sf = (k) => (e) => setSim(p=>({...p,[k]:e.target.value}));
 
   // ── cálculo de amortización (respeta pagos a capital anticipados)
-  const calcAmort = (monto, tasaAnual, plazoAnios, tipo="fijo", pagosCapAnticipados=[]) => {
+  const calcAmort = (monto, tasaAnual, plazoAnios, tipo="fijo", pagosCapAnticipados=[], seguros={}) => {
     const P = parseFloat(monto) || 0;
     const n = (parseFloat(plazoAnios) || 0) * 12;
     const r = (parseFloat(tasaAnual) || 0) / 100 / 12;
@@ -6774,23 +6971,27 @@ const Mortgage = () => {
     const cuotaBase = tipo==="fijo"
       ? (P * r * Math.pow(1+r,n)) / (Math.pow(1+r,n)-1)
       : P / n;
+    const segVida  = parseFloat(seguros.seguroVida)||0;
+    const segDanos = parseFloat(seguros.seguroDanos)||0;
+    const admin    = parseFloat(seguros.adminCredito)||0;
+    const cargosExtra = segVida + segDanos + admin;
     let saldo = P;
     const tabla = [];
     let totalPagar = 0;
     for (let i=1; i<=n; i++) {
-      // aplicar pago a capital anticipado en este mes si existe
       const capExtra = (pagosCapAnticipados||[]).filter(p=>p.mes===i).reduce((s,p)=>s+parseFloat(p.monto),0);
       if (capExtra > 0) saldo = Math.max(saldo - capExtra, 0);
       if (saldo <= 0) break;
       const interes = saldo * r;
       const capital = tipo==="fijo" ? Math.min(cuotaBase - interes, saldo) : Math.min(P/n, saldo);
-      const pago = tipo==="fijo" ? cuotaBase : capital + interes;
+      const pagoCapInt = tipo==="fijo" ? cuotaBase : capital + interes;
+      const pagoTotal = pagoCapInt + cargosExtra;
       saldo = Math.max(saldo - capital, 0);
-      totalPagar += pago;
-      tabla.push({ mes:i, pago, capital, interes, saldo });
+      totalPagar += pagoTotal;
+      tabla.push({ mes:i, pago:pagoTotal, pagoCapInt, capital, interes, segVida, segDanos, admin, cargosExtra, saldo });
       if (saldo <= 0.01) break;
     }
-    return { cuota: tipo==="fijo"?cuotaBase:tabla[0]?.pago||0, tabla, totalPagar, totalIntereses: totalPagar - P };
+    return { cuota: tipo==="fijo"?cuotaBase:tabla[0]?.pagoCapInt||0, cuotaTotal:(tabla[0]?.pago||0), tabla, totalPagar, totalIntereses: totalPagar - P - (cargosExtra*tabla.length) };
   };
 
   // ── fecha de próximo vencimiento
@@ -6812,7 +7013,8 @@ const Mortgage = () => {
 
   // ── calcular avance considerando pagos a capital
   const calcProgreso = (m) => {
-    const { tabla } = calcAmort(m.monto, m.tasaAnual, m.plazoAnios, m.tipo, m.pagosCapital||[]);
+    const seg = {seguroVida:m.seguroVida,seguroDanos:m.seguroDanos,adminCredito:m.adminCredito};
+    const { tabla } = calcAmort(m.monto, m.tasaAnual, m.plazoAnios, m.tipo, m.pagosCapital||[], seg);
     const pagados = (m.pagosRealizados||[]).length;
     const saldoActual = tabla[pagados]?.saldo ?? parseFloat(m.monto);
     const capitalAmortizado = parseFloat(m.monto) - saldoActual;
@@ -7323,7 +7525,8 @@ const Mortgage = () => {
             <Card>
               <p style={{fontSize:12,fontWeight:700,color:"#777",textTransform:"uppercase",letterSpacing:.5,marginBottom:12}}>Proyección total</p>
               {(()=>{
-                const {totalPagar,totalIntereses,cuota}=calcAmort(m.monto,m.tasaAnual,m.plazoAnios,m.tipo,m.pagosCapital||[]);
+                const seg={seguroVida:m.seguroVida,seguroDanos:m.seguroDanos,adminCredito:m.adminCredito};
+                const {totalPagar,totalIntereses,cuota,cuotaTotal}=calcAmort(m.monto,m.tasaAnual,m.tipo,m.tipo,m.pagosCapital||[],seg);
                 const pagadoTotal=(m.pagosRealizados||[]).reduce((s,p)=>s+p.pago,0)+(m.pagosCapital||[]).reduce((s,p)=>s+parseFloat(p.monto),0);
                 return [
                   ["Cuota mensual",fmt(m.cuotaReal?parseFloat(m.cuotaReal):cuota,cur2),"#00d4aa"],
@@ -7351,22 +7554,46 @@ const Mortgage = () => {
               <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
                 <thead style={{position:"sticky",top:0,background:"#161b27",zIndex:1}}>
                   <tr style={{borderBottom:"1px solid rgba(255,255,255,.08)"}}>
-                    {["Mes","Pago","Capital","Interés","Saldo","Estado"].map(h=>(
-                      <th key={h} style={{padding:"8px 10px",textAlign:"right",color:"#555",fontWeight:600,whiteSpace:"nowrap"}}>{h}</th>
-                    ))}
+                    {(m.seguroVida||m.seguroDanos||m.adminCredito
+                    ? ["Mes","Fecha","Saldo inicial","Capital","Interés","Seg. Vida","Seg. Daños","Admin","Pago total","Saldo final","Estado"]
+                    : ["Mes","Capital","Interés","Pago","Saldo","Estado"]
+                  ).map(h=>(
+                    <th key={h} style={{padding:"8px 10px",textAlign:"right",color:"#555",fontWeight:600,whiteSpace:"nowrap"}}>{h}</th>
+                  ))}
                   </tr>
                 </thead>
                 <tbody>
                   {tabla.map((r,i)=>{
                     const pagado=i<prog.totalPagos;
                     const esSiguiente=i===prog.totalPagos;
+                    const saldoInicio = i===0 ? parseFloat(m.monto) : tabla[i-1].saldo;
+                    const tieneFollowros = m.seguroVida||m.seguroDanos||m.adminCredito;
+                    // calcular fecha estimada del pago
+                    const fechaPago = (() => {
+                      const d = new Date(m.fechaInicio+"T12:00:00");
+                      d.setMonth(d.getMonth()+i+1);
+                      d.setDate(parseInt(m.diaCorte)||1);
+                      return d.toLocaleDateString("es-MX",{day:"2-digit",month:"short",year:"2-digit"});
+                    })();
                     return (
-                      <tr key={r.mes} style={{borderBottom:"1px solid rgba(255,255,255,.03)",opacity:pagado?.5:1,background:esSiguiente?"rgba(0,212,170,.04)":"transparent"}}>
-                        <td style={{padding:"7px 10px",color:"#666",textAlign:"right"}}>{r.mes}</td>
-                        <td style={{padding:"7px 10px",color:"#ccc",textAlign:"right",fontWeight:500}}>{fmt(r.pago,cur2)}</td>
-                        <td style={{padding:"7px 10px",color:"#00d4aa",textAlign:"right"}}>{fmt(r.capital,cur2)}</td>
-                        <td style={{padding:"7px 10px",color:"#f39c12",textAlign:"right"}}>{fmt(r.interes,cur2)}</td>
-                        <td style={{padding:"7px 10px",color:"#888",textAlign:"right"}}>{fmt(r.saldo,cur2)}</td>
+                      <tr key={r.mes} style={{borderBottom:"1px solid rgba(255,255,255,.03)",opacity:pagado?.5:1,background:esSiguiente?"rgba(0,212,170,.06)":"transparent",fontWeight:esSiguiente?700:400}}>
+                        <td style={{padding:"7px 10px",color:esSiguiente?"#00d4aa":"#666",textAlign:"right",fontWeight:600}}>{r.mes}</td>
+                        {tieneFollowros ? (<>
+                          <td style={{padding:"7px 10px",color:"#555",textAlign:"right",fontSize:11}}>{fechaPago}</td>
+                          <td style={{padding:"7px 10px",color:"#888",textAlign:"right"}}>{fmt(saldoInicio,cur2)}</td>
+                          <td style={{padding:"7px 10px",color:"#00d4aa",textAlign:"right",fontWeight:600}}>{fmt(r.capital,cur2)}</td>
+                          <td style={{padding:"7px 10px",color:"#f39c12",textAlign:"right"}}>{fmt(r.interes,cur2)}</td>
+                          <td style={{padding:"7px 10px",color:"#3b82f6",textAlign:"right"}}>{fmt(r.segVida||0,cur2)}</td>
+                          <td style={{padding:"7px 10px",color:"#8b5cf6",textAlign:"right"}}>{fmt(r.segDanos||0,cur2)}</td>
+                          <td style={{padding:"7px 10px",color:"#64748b",textAlign:"right"}}>{fmt(r.admin||0,cur2)}</td>
+                          <td style={{padding:"7px 10px",color:"#fff",textAlign:"right",fontWeight:700}}>{fmt(r.pago,cur2)}</td>
+                          <td style={{padding:"7px 10px",color:r.saldo<=0.01?"#00d4aa":"#888",textAlign:"right"}}>{fmt(r.saldo,cur2)}</td>
+                        </>) : (<>
+                          <td style={{padding:"7px 10px",color:"#00d4aa",textAlign:"right"}}>{fmt(r.capital,cur2)}</td>
+                          <td style={{padding:"7px 10px",color:"#f39c12",textAlign:"right"}}>{fmt(r.interes,cur2)}</td>
+                          <td style={{padding:"7px 10px",color:"#ccc",textAlign:"right",fontWeight:500}}>{fmt(r.pago,cur2)}</td>
+                          <td style={{padding:"7px 10px",color:"#888",textAlign:"right"}}>{fmt(r.saldo,cur2)}</td>
+                        </>)}
                         <td style={{padding:"7px 10px",textAlign:"right"}}>
                           <Badge label={pagado?"Pagado":esSiguiente?"Próximo":"Pendiente"} color={pagado?"#555":esSiguiente?"#00d4aa":"#333"}/>
                         </td>
@@ -7466,218 +7693,7 @@ const Mortgage = () => {
         )}
 
         {/* ── TAB SIMULADOR DE LIQUIDACIÓN ANTICIPADA */}
-        {tab==="simulador" && (()=>{
-          const [simAnios, setSimAnios] = React.useState("7");
-          const [simAportacion, setSimAportacion] = React.useState("");
-          const [simModo, setSimModo] = React.useState("anios"); // "anios" | "monto"
-
-          const saldoActual = prog.saldoActual;
-          const tasaMensual = (parseFloat(m.tasaAnual)||0)/100/12;
-          const {cuota:cuotaBase} = calcAmort(m.monto,m.tasaAnual,m.plazoAnios,m.tipo,[]);
-          const cuotaReal = m.cuotaReal ? parseFloat(m.cuotaReal) : cuotaBase;
-          const segurosEst = cuotaReal - cuotaBase; // diferencia = seguros+otros
-
-          // Calcular aportación necesaria para liquidar en X años
-          const calcAportacionParaAnios = (anios) => {
-            const mesesMeta = anios * 12;
-            const r = tasaMensual;
-            if (!r||!saldoActual) return 0;
-            // Cuota necesaria para liquidar saldoActual en mesesMeta
-            const cuotaNecesaria = saldoActual * (r*Math.pow(1+r,mesesMeta))/(Math.pow(1+r,mesesMeta)-1);
-            return Math.max(0, cuotaNecesaria - cuotaBase);
-          };
-
-          // Calcular en cuántos meses liquidas si aportas $X extra
-          const calcMesesConAportacion = (aportExtra) => {
-            if (!tasaMensual||!saldoActual) return null;
-            let saldo = saldoActual;
-            for (let mes=1; mes<=600; mes++) {
-              const interes = saldo * tasaMensual;
-              const abonoCapital = cuotaBase - interes + (aportExtra||0);
-              saldo = saldo - abonoCapital;
-              if (saldo <= 0) return mes;
-            }
-            return null;
-          };
-
-          // Proyección año a año
-          const calcProyAnual = (aportExtra) => {
-            let saldo = saldoActual;
-            const rows = [];
-            let totalIntereses = 0;
-            let anio = 1;
-            for (let mes=1; mes<=600; mes++) {
-              const interes = saldo * tasaMensual;
-              const abonoCapital = cuotaBase - interes + (aportExtra||0);
-              saldo = Math.max(saldo - abonoCapital, 0);
-              totalIntereses += interes;
-              if (mes % 12 === 0 || saldo <= 0) {
-                rows.push({ anio, saldoFin: saldo, interesesAnio: totalIntereses });
-                totalIntereses = 0;
-                anio++;
-                if (saldo <= 0) break;
-              }
-            }
-            return rows;
-          };
-
-          // Ahorro vs plazo original restante
-          const mesesRestantes = tabla.length - prog.totalPagos;
-          const {totalIntereses:intOriginal} = calcAmort(m.monto,m.tasaAnual,m.plazoAnios,m.tipo,m.pagosCapital||[]);
-          const interesesYaPagados = prog.totalInteresesPagados;
-          const intOriginalRestante = intOriginal - interesesYaPagados;
-
-          const aniosMeta = parseInt(simAnios)||7;
-          const aportNecesaria = calcAportacionParaAnios(aniosMeta);
-          const aportExtra = simModo==="anios" ? aportNecesaria : (parseFloat(simAportacion)||0);
-          const mesesConAport = simModo==="anios" ? aniosMeta*12 : calcMesesConAportacion(aportExtra);
-          const proyAnual = calcProyAnual(aportExtra);
-          const intConAport = proyAnual.reduce((s,r)=>s+r.interesesAnio,0);
-          const ahorro = intOriginalRestante - intConAport;
-          const pagoTotalMensual = cuotaReal + aportExtra;
-
-          return (
-            <div style={{display:"flex",flexDirection:"column",gap:14}}>
-              {/* Selector de modo */}
-              <div style={{display:"flex",gap:3,background:"rgba(255,255,255,.04)",borderRadius:10,padding:3,width:"fit-content"}}>
-                {[{id:"anios",label:"Quiero liquidar en X años"},{id:"monto",label:"Puedo aportar $X/mes"}].map(o=>(
-                  <button key={o.id} onClick={()=>setSimModo(o.id)}
-                    style={{padding:"8px 16px",borderRadius:8,border:"none",cursor:"pointer",fontSize:12,fontWeight:600,
-                      background:simModo===o.id?"linear-gradient(135deg,#7c3aed,#5b21b6)":"transparent",
-                      color:simModo===o.id?"#fff":"#666"}}>
-                    {o.label}
-                  </button>
-                ))}
-              </div>
-
-              {/* Inputs */}
-              <Card style={{borderColor:"rgba(124,58,237,.2)",background:"rgba(124,58,237,.04)"}}>
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,alignItems:"end"}}>
-                  {simModo==="anios" ? (
-                    <div>
-                      <label style={{fontSize:11,color:"#7c3aed",fontWeight:700,textTransform:"uppercase",letterSpacing:.5,display:"block",marginBottom:6}}>
-                        Liquidar en (años)
-                      </label>
-                      <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-                        {[3,5,7,10,15].map(a=>(
-                          <button key={a} onClick={()=>setSimAnios(String(a))}
-                            style={{padding:"6px 14px",borderRadius:8,border:`1px solid ${simAnios==String(a)?"rgba(124,58,237,.5)":"rgba(255,255,255,.08)"}`,
-                              background:simAnios==String(a)?"rgba(124,58,237,.2)":"transparent",
-                              color:simAnios==String(a)?"#a78bfa":"#666",cursor:"pointer",fontSize:13,fontWeight:600}}>
-                            {a}a
-                          </button>
-                        ))}
-                        <input type="number" value={simAnios} onChange={e=>setSimAnios(e.target.value)}
-                          style={{width:70,padding:"6px 10px",borderRadius:8,background:"rgba(255,255,255,.05)",
-                            border:"1px solid rgba(255,255,255,.1)",color:"#e0e0e0",fontSize:13,outline:"none"}}/>
-                      </div>
-                    </div>
-                  ) : (
-                    <div>
-                      <label style={{fontSize:11,color:"#7c3aed",fontWeight:700,textTransform:"uppercase",letterSpacing:.5,display:"block",marginBottom:6}}>
-                        Aportación extra mensual
-                      </label>
-                      <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
-                        {[5000,10000,15000,20000].map(a=>(
-                          <button key={a} onClick={()=>setSimAportacion(String(a))}
-                            style={{padding:"6px 14px",borderRadius:8,border:`1px solid ${simAportacion==String(a)?"rgba(124,58,237,.5)":"rgba(255,255,255,.08)"}`,
-                              background:simAportacion==String(a)?"rgba(124,58,237,.2)":"transparent",
-                              color:simAportacion==String(a)?"#a78bfa":"#666",cursor:"pointer",fontSize:12,fontWeight:600}}>
-                            {fmt(a)}
-                          </button>
-                        ))}
-                        <input type="number" value={simAportacion} onChange={e=>setSimAportacion(e.target.value)}
-                          placeholder="Otro monto"
-                          style={{width:130,padding:"6px 10px",borderRadius:8,background:"rgba(255,255,255,.05)",
-                            border:"1px solid rgba(255,255,255,.1)",color:"#e0e0e0",fontSize:13,outline:"none"}}/>
-                      </div>
-                    </div>
-                  )}
-                  <div>
-                    <p style={{fontSize:11,color:"#555",margin:"0 0 4px"}}>Saldo actual a liquidar</p>
-                    <p style={{fontSize:20,fontWeight:800,color:"#f39c12",margin:0}}>{fmt(saldoActual,cur2)}</p>
-                    <p style={{fontSize:10,color:"#444",margin:"2px 0 0"}}>con {mesesRestantes} meses originales restantes</p>
-                  </div>
-                </div>
-              </Card>
-
-              {/* Resultado principal */}
-              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:10}}>
-                <Card style={{borderColor:"rgba(124,58,237,.3)",background:"rgba(124,58,237,.06)",textAlign:"center",padding:"16px"}}>
-                  <p style={{fontSize:10,color:"#a78bfa",textTransform:"uppercase",letterSpacing:.5,margin:"0 0 6px"}}>
-                    {simModo==="anios"?"Aportación mensual necesaria":"Liquidarás en"}
-                  </p>
-                  {simModo==="anios" ? (
-                    <>
-                      <p style={{fontSize:26,fontWeight:800,color:"#a78bfa",margin:"0 0 2px"}}>{fmt(aportNecesaria,cur2)}</p>
-                      <p style={{fontSize:11,color:"#666"}}>extra al mes sobre tu cuota</p>
-                    </>
-                  ) : (
-                    <>
-                      <p style={{fontSize:26,fontWeight:800,color:"#a78bfa",margin:"0 0 2px"}}>
-                        {mesesConAport ? `${(mesesConAport/12).toFixed(1)} años` : "—"}
-                      </p>
-                      <p style={{fontSize:11,color:"#666"}}>{mesesConAport ? `${mesesConAport} meses` : "ingresa un monto"}</p>
-                    </>
-                  )}
-                </Card>
-                <Card style={{borderColor:"rgba(0,212,170,.25)",background:"rgba(0,212,170,.04)",textAlign:"center",padding:"16px"}}>
-                  <p style={{fontSize:10,color:"#00d4aa",textTransform:"uppercase",letterSpacing:.5,margin:"0 0 6px"}}>Ahorro en intereses</p>
-                  <p style={{fontSize:26,fontWeight:800,color:"#00d4aa",margin:"0 0 2px"}}>{ahorro>0?fmt(ahorro,cur2):"—"}</p>
-                  <p style={{fontSize:11,color:"#666"}}>vs plazo original restante</p>
-                </Card>
-                <Card style={{textAlign:"center",padding:"16px"}}>
-                  <p style={{fontSize:10,color:"#555",textTransform:"uppercase",letterSpacing:.5,margin:"0 0 6px"}}>Pago total mensual</p>
-                  <p style={{fontSize:26,fontWeight:800,color:"#ccc",margin:"0 0 2px"}}>{fmt(pagoTotalMensual,cur2)}</p>
-                  <p style={{fontSize:11,color:"#666"}}>cuota + aportación + seguros</p>
-                </Card>
-                <Card style={{borderColor:"rgba(255,71,87,.2)",background:"rgba(255,71,87,.04)",textAlign:"center",padding:"16px"}}>
-                  <p style={{fontSize:10,color:"#ff6b7a",textTransform:"uppercase",letterSpacing:.5,margin:"0 0 6px"}}>Intereses totales</p>
-                  <p style={{fontSize:26,fontWeight:800,color:"#ff6b7a",margin:"0 0 2px"}}>{fmt(intConAport,cur2)}</p>
-                  <p style={{fontSize:11,color:"#666"}}>con esta estrategia</p>
-                </Card>
-              </div>
-
-              {/* Tabla proyección año a año */}
-              {proyAnual.length>0&&(
-                <Card>
-                  <p style={{fontSize:12,fontWeight:700,color:"#777",textTransform:"uppercase",letterSpacing:.5,marginBottom:12}}>
-                    Proyección año a año
-                  </p>
-                  <div style={{overflowX:"auto"}}>
-                    <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
-                      <thead>
-                        <tr style={{borderBottom:"1px solid rgba(255,255,255,.08)"}}>
-                          {["Año","Saldo final","Intereses del año","Aportación capital"].map(h=>(
-                            <th key={h} style={{padding:"8px 12px",textAlign:"right",color:"#555",fontWeight:600}}>{h}</th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {proyAnual.map((r,i)=>(
-                          <tr key={r.anio} style={{borderBottom:"1px solid rgba(255,255,255,.03)",
-                            background:r.saldoFin<=0?"rgba(0,212,170,.06)":"transparent"}}>
-                            <td style={{padding:"8px 12px",color:"#888",textAlign:"right",fontWeight:600}}>Año {r.anio}</td>
-                            <td style={{padding:"8px 12px",color:r.saldoFin<=0?"#00d4aa":"#ccc",textAlign:"right",fontWeight:r.saldoFin<=0?800:400}}>
-                              {r.saldoFin<=0?"✓ Liquidado":fmt(r.saldoFin,cur2)}
-                            </td>
-                            <td style={{padding:"8px 12px",color:"#f39c12",textAlign:"right"}}>{fmt(r.interesesAnio,cur2)}</td>
-                            <td style={{padding:"8px 12px",color:"#7c3aed",textAlign:"right"}}>{fmt(aportExtra*12,cur2)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                  <div style={{marginTop:12,padding:"10px 12px",background:"rgba(255,255,255,.03)",borderRadius:9,display:"flex",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
-                    <span style={{fontSize:12,color:"#555"}}>Total intereses con esta estrategia: <strong style={{color:"#f39c12"}}>{fmt(intConAport,cur2)}</strong></span>
-                    <span style={{fontSize:12,color:"#555"}}>Sin estrategia (plazo original): <strong style={{color:"#888"}}>{fmt(intOriginalRestante,cur2)}</strong></span>
-                    {ahorro>0&&<span style={{fontSize:13,fontWeight:700,color:"#00d4aa"}}>💰 Ahorras {fmt(ahorro,cur2)} en intereses</span>}
-                  </div>
-                </Card>
-              )}
-            </div>
-          );
-        })()}
+        {tab==="simulador" && <SimuladorLiquidacion m={m} prog={prog} calcAmort={calcAmort} fmt={fmt} cur2={cur2}/>}
 
         {/* Modal mensualidad */}
         {showPagoModal && (
@@ -7763,6 +7779,22 @@ const Mortgage = () => {
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
           <Inp label="Cuota real del banco (opcional)" value={form.cuotaReal} onChange={f("cuotaReal")} type="number" prefix="$" placeholder="Si difiere del cálculo"/>
           <Inp label="Día de corte/vencimiento" value={form.diaCorte} onChange={f("diaCorte")} type="number" placeholder="1–28"/>
+        </div>
+        {/* Seguros y cargos adicionales */}
+        <div style={{background:"rgba(243,156,18,.06)",border:"1px solid rgba(243,156,18,.15)",borderRadius:10,padding:"12px 14px",marginBottom:14}}>
+          <p style={{fontSize:11,fontWeight:700,color:"#f39c12",textTransform:"uppercase",letterSpacing:.5,margin:"0 0 10px"}}>
+            Seguros y cargos fijos mensuales <span style={{fontSize:10,fontWeight:400,color:"#666"}}>(opcionales — para desglose exacto)</span>
+          </p>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10}}>
+            <Inp label="Seguro de vida" value={form.seguroVida} onChange={f("seguroVida")} type="number" prefix="$" placeholder="551.73"/>
+            <Inp label="Seguro daños" value={form.seguroDanos} onChange={f("seguroDanos")} type="number" prefix="$" placeholder="299.00"/>
+            <Inp label="Admin. crédito" value={form.adminCredito} onChange={f("adminCredito")} type="number" prefix="$" placeholder="0.00"/>
+          </div>
+          {(parseFloat(form.seguroVida)||parseFloat(form.seguroDanos)||parseFloat(form.adminCredito))>0&&(
+            <p style={{fontSize:11,color:"#f39c12",margin:"8px 0 0"}}>
+              Total cargos adicionales: {fmt((parseFloat(form.seguroVida)||0)+(parseFloat(form.seguroDanos)||0)+(parseFloat(form.adminCredito)||0),form.moneda||"MXN")}/mes
+            </p>
+          )}
         </div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
           <Inp label="Banco / Institución" value={form.banco} onChange={f("banco")} placeholder="BBVA, Banorte, Infonavit..."/>
