@@ -6738,7 +6738,7 @@ const SimuladorLiquidacion = ({ m, prog, calcAmort, fmt, cur2 }) => {
 
   const saldoActual = prog.saldoActual;
   const tasaMensual = (parseFloat(m.tasaAnual)||0)/100/12;
-  const seg = {seguroVida:m.seguroVida,seguroDanos:m.seguroDanos,adminCredito:m.adminCredito};
+  const seg = {seguroVida:m.seguroVida,seguroVidaTipo:m.seguroVidaTipo||"proporcional",seguroDanos:m.seguroDanos,adminCredito:m.adminCredito};
   const {cuota:cuotaBase} = calcAmort(m.monto,m.tasaAnual,m.plazoAnios,m.tipo,[],seg);
   const cuotaReal = m.cuotaReal ? parseFloat(m.cuotaReal) : cuotaBase;
   const mesesRestantes = prog.tabla.length - prog.totalPagos;
@@ -6950,7 +6950,8 @@ const Mortgage = () => {
     nombre:"", tipo:"fijo", moneda:"MXN", valorPropiedad:"", enganche:"",
     engancheCuentaId:"", monto:"", tasaAnual:"", plazoAnios:"",
     cuotaReal:"", // cuota real del banco (opcional)
-    seguroVida:"", seguroDanos:"", adminCredito:"", // seguros y cargos fijos mensuales
+    seguroVida:"", seguroVidaTipo:"proporcional", // "proporcional" (% del saldo) o "fijo" ($)
+    seguroDanos:"", adminCredito:"", // seguros y cargos fijos mensuales
     diaCorte:1,   // día del mes para vencimiento
     fechaInicio:today(), banco:"", notas:"", pagosRealizados:[], pagosCapital:[],
   };
@@ -6971,13 +6972,19 @@ const Mortgage = () => {
     const cuotaBase = tipo==="fijo"
       ? (P * r * Math.pow(1+r,n)) / (Math.pow(1+r,n)-1)
       : P / n;
-    const segVida  = parseFloat(seguros.seguroVida)||0;
+    // Seguro de vida: proporcional al saldo (Banorte: 0.441384% anual) o monto fijo
+    const segVidaVal   = parseFloat(seguros.seguroVida)||0;
+    const segVidaTipo  = seguros.seguroVidaTipo||"proporcional";
+    // Si proporcional: la tasa se calibra para que con saldo inicial dé el monto capturado
+    const tasaSegVida  = (segVidaTipo==="proporcional" && segVidaVal>0 && P>0)
+      ? (segVidaVal * 12 / P)  // tasa anual implícita del seguro
+      : 0;
     const segDanos = parseFloat(seguros.seguroDanos)||0;
     const admin    = parseFloat(seguros.adminCredito)||0;
-    const cargosExtra = segVida + segDanos + admin;
     let saldo = P;
     const tabla = [];
     let totalPagar = 0;
+    let totalCargosExtras = 0;
     for (let i=1; i<=n; i++) {
       const capExtra = (pagosCapAnticipados||[]).filter(p=>p.mes===i).reduce((s,p)=>s+parseFloat(p.monto),0);
       if (capExtra > 0) saldo = Math.max(saldo - capExtra, 0);
@@ -6985,13 +6992,23 @@ const Mortgage = () => {
       const interes = saldo * r;
       const capital = tipo==="fijo" ? Math.min(cuotaBase - interes, saldo) : Math.min(P/n, saldo);
       const pagoCapInt = tipo==="fijo" ? cuotaBase : capital + interes;
+      // Seguro de vida: proporcional al saldo actual de este mes
+      const segVidaMes = segVidaTipo==="proporcional" ? saldo * tasaSegVida / 12 : segVidaVal;
+      const cargosExtra = segVidaMes + segDanos + admin;
       const pagoTotal = pagoCapInt + cargosExtra;
       saldo = Math.max(saldo - capital, 0);
       totalPagar += pagoTotal;
-      tabla.push({ mes:i, pago:pagoTotal, pagoCapInt, capital, interes, segVida, segDanos, admin, cargosExtra, saldo });
+      totalCargosExtras += cargosExtra;
+      tabla.push({ mes:i, pago:pagoTotal, pagoCapInt, capital, interes,
+        segVida:segVidaMes, segDanos, admin, cargosExtra, saldo });
       if (saldo <= 0.01) break;
     }
-    return { cuota: tipo==="fijo"?cuotaBase:tabla[0]?.pagoCapInt||0, cuotaTotal:(tabla[0]?.pago||0), tabla, totalPagar, totalIntereses: totalPagar - P - (cargosExtra*tabla.length) };
+    return {
+      cuota: tipo==="fijo"?cuotaBase:tabla[0]?.pagoCapInt||0,
+      cuotaTotal:(tabla[0]?.pago||0),
+      tabla, totalPagar,
+      totalIntereses: totalPagar - P - totalCargosExtras
+    };
   };
 
   // ── fecha de próximo vencimiento
@@ -7013,7 +7030,7 @@ const Mortgage = () => {
 
   // ── calcular avance considerando pagos a capital
   const calcProgreso = (m) => {
-    const seg = {seguroVida:m.seguroVida,seguroDanos:m.seguroDanos,adminCredito:m.adminCredito};
+    const seg = {seguroVida:m.seguroVida,seguroVidaTipo:m.seguroVidaTipo||"proporcional",seguroDanos:m.seguroDanos,adminCredito:m.adminCredito};
     const { tabla } = calcAmort(m.monto, m.tasaAnual, m.plazoAnios, m.tipo, m.pagosCapital||[], seg);
     const pagados = (m.pagosRealizados||[]).length;
     const saldoActual = tabla[pagados]?.saldo ?? parseFloat(m.monto);
@@ -7525,8 +7542,8 @@ const Mortgage = () => {
             <Card>
               <p style={{fontSize:12,fontWeight:700,color:"#777",textTransform:"uppercase",letterSpacing:.5,marginBottom:12}}>Proyección total</p>
               {(()=>{
-                const seg={seguroVida:m.seguroVida,seguroDanos:m.seguroDanos,adminCredito:m.adminCredito};
-                const {totalPagar,totalIntereses,cuota,cuotaTotal}=calcAmort(m.monto,m.tasaAnual,m.tipo,m.tipo,m.pagosCapital||[],seg);
+                const seg={seguroVida:m.seguroVida,seguroVidaTipo:m.seguroVidaTipo||"proporcional",seguroDanos:m.seguroDanos,adminCredito:m.adminCredito};
+                const {totalPagar,totalIntereses,cuota,cuotaTotal}=calcAmort(m.monto,m.tasaAnual,m.plazoAnios,m.tipo,m.pagosCapital||[],seg);
                 const pagadoTotal=(m.pagosRealizados||[]).reduce((s,p)=>s+p.pago,0)+(m.pagosCapital||[]).reduce((s,p)=>s+parseFloat(p.monto),0);
                 return [
                   ["Cuota mensual",fmt(m.cuotaReal?parseFloat(m.cuotaReal):cuota,cur2),"#00d4aa"],
@@ -7786,14 +7803,36 @@ const Mortgage = () => {
             Seguros y cargos fijos mensuales <span style={{fontSize:10,fontWeight:400,color:"#666"}}>(opcionales — para desglose exacto)</span>
           </p>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10}}>
-            <Inp label="Seguro de vida" value={form.seguroVida} onChange={f("seguroVida")} type="number" prefix="$" placeholder="551.73"/>
-            <Inp label="Seguro daños" value={form.seguroDanos} onChange={f("seguroDanos")} type="number" prefix="$" placeholder="299.00"/>
-            <Inp label="Admin. crédito" value={form.adminCredito} onChange={f("adminCredito")} type="number" prefix="$" placeholder="0.00"/>
+            <div>
+              <Inp label="Seguro de vida (mes 1)" value={form.seguroVida} onChange={f("seguroVida")} type="number" prefix="$" placeholder="898.86"/>
+              <div style={{display:"flex",gap:4,marginTop:-8,marginBottom:6}}>
+                {[{v:"proporcional",l:"Proporcional al saldo"},{v:"fijo",l:"Monto fijo"}].map(o=>(
+                  <button key={o.v} onClick={()=>setForm(p=>({...p,seguroVidaTipo:o.v}))}
+                    style={{flex:1,padding:"4px 6px",borderRadius:6,border:`1px solid ${(form.seguroVidaTipo||"proporcional")===o.v?"rgba(243,156,18,.4)":"rgba(255,255,255,.08)"}`,
+                      background:(form.seguroVidaTipo||"proporcional")===o.v?"rgba(243,156,18,.12)":"transparent",
+                      color:(form.seguroVidaTipo||"proporcional")===o.v?"#f39c12":"#555",cursor:"pointer",fontSize:9,fontWeight:600}}>
+                    {o.l}
+                  </button>
+                ))}
+              </div>
+              {(form.seguroVidaTipo||"proporcional")==="proporcional"&&form.seguroVida&&form.monto&&(
+                <p style={{fontSize:10,color:"#f39c12",margin:"-4px 0 6px"}}>
+                  Tasa: {((parseFloat(form.seguroVida)*12/parseFloat(form.monto))*100).toFixed(4)}% anual sobre saldo — baja cada mes
+                </p>
+              )}
+            </div>
+            <Inp label="Seg. daños y contenidos (fijo)" value={form.seguroDanos} onChange={f("seguroDanos")} type="number" prefix="$" placeholder="551.73"/>
+            <Inp label="Admin. crédito (fijo)" value={form.adminCredito} onChange={f("adminCredito")} type="number" prefix="$" placeholder="299.00"/>
           </div>
           {(parseFloat(form.seguroVida)||parseFloat(form.seguroDanos)||parseFloat(form.adminCredito))>0&&(
-            <p style={{fontSize:11,color:"#f39c12",margin:"8px 0 0"}}>
-              Total cargos adicionales: {fmt((parseFloat(form.seguroVida)||0)+(parseFloat(form.seguroDanos)||0)+(parseFloat(form.adminCredito)||0),form.moneda||"MXN")}/mes
-            </p>
+            <div style={{background:"rgba(243,156,18,.06)",borderRadius:8,padding:"8px 12px",marginTop:4}}>
+              <p style={{fontSize:11,color:"#f39c12",margin:"0 0 3px",fontWeight:600}}>
+                Pago total mes 1: {fmt((parseFloat(form.seguroVida)||0)+(parseFloat(form.seguroDanos)||0)+(parseFloat(form.adminCredito)||0)+(form.monto&&form.tasaAnual&&form.plazoAnios?(parseFloat(form.monto)*(parseFloat(form.tasaAnual)/100/12)*Math.pow(1+parseFloat(form.tasaAnual)/100/12,parseFloat(form.plazoAnios)*12))/(Math.pow(1+parseFloat(form.tasaAnual)/100/12,parseFloat(form.plazoAnios)*12)-1):0),form.moneda||"MXN")}
+              </p>
+              <p style={{fontSize:10,color:"#666",margin:0}}>
+                Seguro vida: proporcional (baja ~$1.17/mes) · Daños y Admin: fijos
+              </p>
+            </div>
           )}
         </div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
