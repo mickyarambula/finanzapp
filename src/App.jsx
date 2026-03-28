@@ -2158,12 +2158,54 @@ const Dashboard = () => {
     msg:"Sin ingresos registrados este mes",
     detalle:"¿Olvidaste registrar algún ingreso?",modulo:"transactions"});
 
-  // 13. Hipoteca próxima a vencer (≤30 días)
-  mortgages.filter(m=>m.fechaVencimiento).forEach(m=>{
-    const dias=Math.round((new Date(m.fechaVencimiento+"T12:00:00")-now)/86400000);
-    if(dias>=0&&dias<=30) alertas.push({nivel:"warning",icono:"mortgage",
-      msg:`Hipoteca vence en ${dias} día${dias!==1?"s":""}`,
-      detalle:`${m.nombre||"Hipoteca"} — ${fmt(calcMortgageBalance(m))} restante`,modulo:"mortgage"});
+  // 13. Hipoteca — alertas inteligentes con verificación de saldo
+  mortgages.forEach(m=>{
+    // Calcular próximo vencimiento usando diaCorte
+    const pagados = (m.pagosRealizados||[]).length;
+    const inicio = new Date((m.fechaInicio||today())+"T12:00:00");
+    const proxPago = new Date(inicio);
+    proxPago.setMonth(proxPago.getMonth()+pagados+1);
+    proxPago.setDate(parseInt(m.diaCorte)||1);
+    const diasAlPago = Math.round((proxPago-now)/86400000);
+
+    // Cuota total (capital+interés+seguros)
+    const cuotaBase = parseFloat(m.cuotaReal)||0;
+    const segurosTotal = (parseFloat(m.seguroVida)||0)+(parseFloat(m.seguroDanos)||0)+(parseFloat(m.adminCredito)||0);
+    const cuotaTotal = cuotaBase > 0 ? cuotaBase : (cuotaBase + segurosTotal);
+
+    // Saldo de la cuenta asociada
+    const cuentaAsoc = accounts.find(a=>a.id===m.cuentaId||a.id===m.engancheCuentaId);
+    const saldoCuenta = cuentaAsoc ? parseFloat(cuentaAsoc.balance||0) : null;
+    const fondosSuficientes = saldoCuenta === null || saldoCuenta >= cuotaTotal;
+
+    if (diasAlPago < 0) {
+      alertas.push({nivel:"error",icono:"mortgage",
+        msg:`⚠️ Pago hipoteca vencido — ${m.nombre||"Hipoteca"}`,
+        detalle:`Venció hace ${Math.abs(diasAlPago)} día${Math.abs(diasAlPago)!==1?"s":""}. Cuota: ${fmt(cuotaTotal)}`,
+        modulo:"mortgage"});
+    } else if (diasAlPago <= 3) {
+      alertas.push({nivel:"error",icono:"mortgage",
+        msg:`🏠 Pago hipoteca en ${diasAlPago} día${diasAlPago!==1?"s":""}${!fondosSuficientes?" — ¡FONDOS INSUFICIENTES!":""}`,
+        detalle:`${m.nombre||"Hipoteca"} · ${fmt(cuotaTotal)} el ${proxPago.toLocaleDateString("es-MX",{day:"numeric",month:"short"})}${saldoCuenta!==null?` · Saldo cuenta: ${fmt(saldoCuenta)}`:""}`,
+        modulo:"mortgage"});
+    } else if (diasAlPago <= 7) {
+      alertas.push({nivel:!fondosSuficientes?"error":"warning",icono:"mortgage",
+        msg:`🏠 Pago hipoteca en ${diasAlPago} días${!fondosSuficientes?" — fondos insuficientes":""}`,
+        detalle:`${m.nombre||"Hipoteca"} · ${fmt(cuotaTotal)} el ${proxPago.toLocaleDateString("es-MX",{day:"numeric",month:"short"})}${saldoCuenta!==null?` · Saldo: ${fmt(saldoCuenta)}`:""}`,
+        modulo:"mortgage"});
+    } else if (diasAlPago <= 15) {
+      if (!fondosSuficientes) {
+        alertas.push({nivel:"warning",icono:"mortgage",
+          msg:`🏠 Fondos insuficientes para hipoteca (en ${diasAlPago} días)`,
+          detalle:`Necesitas ${fmt(cuotaTotal)} · tienes ${fmt(saldoCuenta)} en ${cuentaAsoc?.name||"cuenta asociada"} · faltan ${fmt(cuotaTotal-saldoCuenta)}`,
+          modulo:"mortgage"});
+      } else {
+        alertas.push({nivel:"warning",icono:"mortgage",
+          msg:`🏠 Próximo pago hipoteca — ${diasAlPago} días`,
+          detalle:`${m.nombre||"Hipoteca"} · ${fmt(cuotaTotal)} el ${proxPago.toLocaleDateString("es-MX",{day:"numeric",month:"short"})}${cuentaAsoc?` · ${cuentaAsoc.name}: ${fmt(saldoCuenta)}`:""}`,
+          modulo:"mortgage"});
+      }
+    }
   });
 
   // 14. Tasa de ahorro cayó a 0 o negativa vs mes anterior
@@ -6948,7 +6990,7 @@ const Mortgage = () => {
   // ── form crédito
   const emptyForm = {
     nombre:"", tipo:"fijo", moneda:"MXN", valorPropiedad:"", enganche:"",
-    engancheCuentaId:"", monto:"", tasaAnual:"", plazoAnios:"",
+    engancheCuentaId:"", cuentaId:"", monto:"", tasaAnual:"", plazoAnios:"",
     cuotaReal:"", // cuota real del banco (opcional)
     seguroVida:"", seguroVidaTipo:"proporcional", // "proporcional" (% del saldo) o "fijo" ($)
     seguroDanos:"", adminCredito:"", // seguros y cargos fijos mensuales
@@ -7467,16 +7509,68 @@ const Mortgage = () => {
           </div>
         </div>
 
-        {/* alerta vencimiento */}
-        {dias<=15 && (
-          <div style={{background:dias<=0?"rgba(255,71,87,.1)":dias<=7?"rgba(255,107,53,.1)":"rgba(243,156,18,.08)",border:`1px solid ${dias<=0?"rgba(255,71,87,.3)":dias<=7?"rgba(255,107,53,.3)":"rgba(243,156,18,.25)"}`,borderRadius:10,padding:"10px 14px",marginBottom:16,display:"flex",alignItems:"center",gap:10}}>
-            <Ic n="warn" size={18} color={dias<=0?"#ff4757":dias<=7?"#ff6b35":"#f39c12"}/>
-            <span style={{fontSize:13,color:dias<=0?"#ff4757":dias<=7?"#ff6b35":"#f39c12",fontWeight:500}}>
-              {dias<=0?"Pago vencido — ¡Atención!":dias<=7?`Vence en ${dias} días — ${fmtDate(proxVencimiento(m))}`:`Vence en ${dias} días — ${fmtDate(proxVencimiento(m))}`}
-            </span>
-            {m.cuotaReal && <span style={{fontSize:12,color:"#555",marginLeft:"auto"}}>Cuota banco: {fmt(parseFloat(m.cuotaReal),cur2)}</span>}
-          </div>
-        )}
+        {/* alerta vencimiento mejorada con saldo */}
+        {(()=>{
+          const cuentaAsoc = accounts.find(a=>a.id===m.cuentaId);
+          const cuotaTotal = parseFloat(m.cuotaReal)||0;
+          const segurosTotal = (parseFloat(m.seguroVida)||0)+(parseFloat(m.seguroDanos)||0)+(parseFloat(m.adminCredito)||0);
+          const cuotaMostrar = cuotaTotal > 0 ? cuotaTotal : (cuotaDisplay + segurosTotal);
+          const saldoCuenta = cuentaAsoc ? parseFloat(cuentaAsoc.balance||0) : null;
+          const fondosOk = saldoCuenta === null || saldoCuenta >= cuotaMostrar;
+          const faltante = saldoCuenta !== null ? Math.max(0, cuotaMostrar - saldoCuenta) : 0;
+
+          // Mostrar panel siempre (no solo cuando faltan 15 días)
+          return (
+            <div style={{marginBottom:16}}>
+              {/* Panel próximo pago */}
+              <div style={{
+                background:dias<=0?"rgba(255,71,87,.08)":dias<=3?"rgba(255,71,87,.06)":dias<=7?"rgba(255,107,53,.06)":"rgba(0,212,170,.04)",
+                border:`1px solid ${dias<=0?"rgba(255,71,87,.3)":dias<=3?"rgba(255,71,87,.2)":dias<=7?"rgba(255,107,53,.2)":"rgba(0,212,170,.15)"}`,
+                borderRadius:12,padding:"12px 16px",display:"flex",flexWrap:"wrap",gap:14,alignItems:"center"
+              }}>
+                <div style={{flex:1,minWidth:200}}>
+                  <p style={{fontSize:11,color:"#555",margin:"0 0 3px",textTransform:"uppercase",letterSpacing:.4}}>
+                    {dias<=0?"Pago vencido":"Próximo pago"}
+                  </p>
+                  <p style={{fontSize:16,fontWeight:800,color:dias<=0?"#ff4757":dias<=3?"#ff4757":dias<=7?"#ff6b35":"#f0f0f0",margin:"0 0 2px"}}>
+                    {fmtDate(proxVencimiento(m))}
+                    <span style={{fontSize:12,fontWeight:400,color:dias<=0?"#ff4757":dias<=7?"#f39c12":"#555",marginLeft:8}}>
+                      {dias<=0?`Venció hace ${Math.abs(dias)}d`:dias===0?"¡Hoy!":`en ${dias} día${dias!==1?"s":""}`}
+                    </span>
+                  </p>
+                  <p style={{fontSize:13,fontWeight:700,color:"#00d4aa",margin:0}}>
+                    {fmt(cuotaMostrar,cur2)} <span style={{fontSize:10,color:"#555",fontWeight:400}}>total a pagar</span>
+                  </p>
+                </div>
+                {/* Estado de fondos */}
+                {cuentaAsoc && (
+                  <div style={{
+                    padding:"10px 14px",borderRadius:10,minWidth:180,
+                    background:fondosOk?"rgba(0,212,170,.08)":"rgba(255,71,87,.08)",
+                    border:`1px solid ${fondosOk?"rgba(0,212,170,.2)":"rgba(255,71,87,.25)"}`
+                  }}>
+                    <p style={{fontSize:10,color:"#555",margin:"0 0 3px",textTransform:"uppercase",letterSpacing:.4}}>
+                      {cuentaAsoc.name}
+                    </p>
+                    <p style={{fontSize:16,fontWeight:800,color:fondosOk?"#00d4aa":"#ff4757",margin:"0 0 2px"}}>
+                      {fmt(saldoCuenta,cur2)}
+                    </p>
+                    <p style={{fontSize:11,color:fondosOk?"#00d4aa":"#ff6b7a",fontWeight:600,margin:0}}>
+                      {fondosOk
+                        ? `✓ Fondos suficientes (+${fmt(saldoCuenta-cuotaMostrar,cur2)})`
+                        : `⚠️ Faltan ${fmt(faltante,cur2)} para el pago`}
+                    </p>
+                  </div>
+                )}
+                {!cuentaAsoc && (
+                  <div style={{padding:"8px 12px",borderRadius:8,background:"rgba(255,255,255,.03)",border:"1px solid rgba(255,255,255,.06)"}}>
+                    <p style={{fontSize:11,color:"#444",margin:0}}>Vincula una cuenta para<br/>monitorear fondos automáticamente</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })()}
 
         {/* KPIs */}
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:10,marginBottom:16}}>
@@ -7839,6 +7933,9 @@ const Mortgage = () => {
           <Inp label="Banco / Institución" value={form.banco} onChange={f("banco")} placeholder="BBVA, Banorte, Infonavit..."/>
           <Inp label="Fecha de inicio" type="date" value={form.fechaInicio} onChange={f("fechaInicio")}/>
         </div>
+        <Sel label={<>Cuenta domiciliada (para alertas de saldo)<HelpTip text="La cuenta donde tienes el dinero para el pago. Finanzapp verificará que tenga fondos suficientes antes del vencimiento y te avisará si no los hay."/></>}
+          value={form.cuentaId} onChange={f("cuentaId")}
+          options={[{value:"",label:"— Sin vincular —"},...accounts.filter(a=>a.type!=="credit").map(a=>({value:a.id,label:`${a.name} — ${fmt(a.balance,a.currency)}`}))]}/>
         {/* vista previa */}
         {form.monto && form.tasaAnual && form.plazoAnios && (()=>{
           const {cuota,totalPagar,totalIntereses}=calcAmort(form.monto,form.tasaAnual,form.plazoAnios,form.tipo);
