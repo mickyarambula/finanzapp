@@ -6993,7 +6993,7 @@ const Assets = () => {
   const blank = {
     nombre:"", tipo:"inmueble", moneda:"MXN",
     valorCompra:"", valorActual:"", fechaCompra:"",
-    descripcion:"", depreciacion:"0", // % anual de depreciación
+    descripcion:"", tasaVariacion:"", // % anual: positivo = aprecia, negativo = deprecia
   };
   const [form, setForm] = useState(blank);
   const f = k => e => setForm(p=>({...p,[k]:e.target.value}));
@@ -7001,10 +7001,10 @@ const Assets = () => {
   const save = () => {
     if (!form.nombre.trim()||!form.valorActual) { toast("Completa nombre y valor actual","error"); return; }
     if (editing) {
-      setAssets(assets.map(a=>a.id===editing.id?{...a,...form,valorCompra:parseFloat(form.valorCompra)||0,valorActual:parseFloat(form.valorActual)||0,depreciacion:parseFloat(form.depreciacion)||0}:a));
+      setAssets(assets.map(a=>a.id===editing.id?{...a,...form,valorCompra:parseFloat(form.valorCompra)||0,valorActual:parseFloat(form.valorActual)||0,tasaVariacion:parseFloat(form.tasaVariacion)||null}:a));
       toast("Activo actualizado ✓","success");
     } else {
-      setAssets([{id:genId(),...form,valorCompra:parseFloat(form.valorCompra)||0,valorActual:parseFloat(form.valorActual)||0,depreciacion:parseFloat(form.depreciacion)||0,creadoAt:new Date().toISOString()},...assets]);
+      setAssets([{id:genId(),...form,valorCompra:parseFloat(form.valorCompra)||0,valorActual:parseFloat(form.valorActual)||0,tasaVariacion:parseFloat(form.tasaVariacion)||null,creadoAt:new Date().toISOString()},...assets]);
       toast("Activo registrado ✓","success");
     }
     setOpen(false); setEditing(null); setForm(blank);
@@ -7017,7 +7017,7 @@ const Assets = () => {
     toast("Activo eliminado","warning");
   };
 
-  const openEdit = a => { setEditing(a); setForm({...a,valorCompra:String(a.valorCompra),valorActual:String(a.valorActual),depreciacion:String(a.depreciacion||0)}); setOpen(true); };
+  const openEdit = a => { setEditing(a); setForm({...a,valorCompra:String(a.valorCompra),valorActual:String(a.valorActual),tasaVariacion:String(a.tasaVariacion||"")}); setOpen(true); };
 
   // KPIs
   const totalActivos = assets.reduce((s,a)=>s+parseFloat(a.valorActual||0),0);
@@ -7116,6 +7116,15 @@ const Assets = () => {
                           <div style={{height:"100%",width:`${Math.min(Math.abs(ganancia)/parseFloat(a.valorCompra)*100+50,100)}%`,background:ganancia>=0?`linear-gradient(90deg,${grupo.color},${grupo.color}99)`:"linear-gradient(90deg,#ff4757,#ff475799)",borderRadius:2}}/>
                         </div>
                       )}
+                      {a.tasaVariacion&&parseFloat(a.tasaVariacion)!==0&&(
+                        <div style={{marginTop:8,padding:"5px 9px",borderRadius:7,
+                          background:parseFloat(a.tasaVariacion)>0?"rgba(0,212,170,.07)":"rgba(243,156,18,.07)",
+                          border:`1px solid ${parseFloat(a.tasaVariacion)>0?"rgba(0,212,170,.2)":"rgba(243,156,18,.2)"}`}}>
+                          <span style={{fontSize:10,color:parseFloat(a.tasaVariacion)>0?"#00d4aa":"#f39c12",fontWeight:600}}>
+                            {parseFloat(a.tasaVariacion)>0?"📈":"📉"} {Math.abs(parseFloat(a.tasaVariacion))}% anual est. → {fmt(parseFloat(a.valorActual||0)*(1+parseFloat(a.tasaVariacion)/100),a.moneda)} en 1 año
+                          </span>
+                        </div>
+                      )}
                       {a.descripcion&&<p style={{fontSize:11,color:"#444",margin:"8px 0 0",lineHeight:1.4}}>{a.descripcion}</p>}
                     </Card>
                   );
@@ -7140,7 +7149,25 @@ const Assets = () => {
           </div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
             <Inp label="Fecha de adquisición" type="date" value={form.fechaCompra} onChange={f("fechaCompra")}/>
-            <Inp label="Depreciación anual %" type="number" value={form.depreciacion} onChange={f("depreciacion")} suffix="%" placeholder="0 = sin depreciación"/>
+            <div>
+              <label style={{display:"block",marginBottom:5,fontSize:12,fontWeight:600,color:"#555",textTransform:"uppercase",letterSpacing:.4}}>
+                {["inmueble","terreno","negocio"].includes(form.tipo)?"Apreciación anual estimada %":"Depreciación anual %"}
+                <span style={{fontSize:9,fontWeight:400,color:"#444",marginLeft:6}}>(opcional)</span>
+              </label>
+              <div style={{position:"relative",display:"flex",alignItems:"center"}}>
+                <input type="number" value={form.tasaVariacion} onChange={f("tasaVariacion")} step="0.1"
+                  placeholder={["inmueble","terreno","negocio"].includes(form.tipo)?"Ej. 5":"Ej. 15"}
+                  style={{width:"100%",padding:"10px 38px 10px 13px",background:"rgba(255,255,255,.05)",border:"1px solid rgba(255,255,255,.1)",borderRadius:9,color:"#e0e0e0",fontSize:14,outline:"none"}}/>
+                <span style={{position:"absolute",right:11,color:"#777",fontSize:12}}>%</span>
+              </div>
+              {form.tasaVariacion&&(
+                <p style={{fontSize:10,margin:"4px 0 0",color:parseFloat(form.tasaVariacion)>=0?"#00d4aa":"#f39c12"}}>
+                  {parseFloat(form.tasaVariacion)>=0
+                    ? `📈 El valor estimado en 1 año: ${fmt(parseFloat(form.valorActual||0)*(1+parseFloat(form.tasaVariacion)/100))}`
+                    : `📉 El valor estimado en 1 año: ${fmt(parseFloat(form.valorActual||0)*(1+parseFloat(form.tasaVariacion)/100))}`}
+                </p>
+              )}
+            </div>
           </div>
           <Inp label="Descripción / notas" value={form.descripcion} onChange={f("descripcion")} placeholder="Dirección, modelo, características..."/>
           {/* Preview valor y plusvalía */}
@@ -7178,6 +7205,9 @@ const Mortgage = () => {
   const [showForm, setShowForm] = useState(false);
   const [askConfirm, confirmModal] = useConfirm();
   const [tab, setTab] = useState("resumen");
+  const [assets, setAssets] = useData(user.id, "assets", []);
+  const [showPropuestaActivo, setShowPropuestaActivo] = useState(false);
+  const [propuestaActivo, setPropuestaActivo] = useState(null);
 
   // ── modales de pago
   const [showPagoModal, setShowPagoModal] = useState(false);
@@ -7301,11 +7331,27 @@ const Mortgage = () => {
     if (form.id) {
       setMortgages(p=>p.map(m=>m.id===form.id?{...form}:m));
       toast("Crédito actualizado");
+      setShowForm(false); setForm(emptyForm);
     } else {
-      setMortgages(p=>[...p,{...form,id:genId(),creadoEn:today()}]);
+      const newId = genId();
+      setMortgages(p=>[...p,{...form,id:newId,creadoEn:today()}]);
       toast("Crédito registrado ✓");
+      setShowForm(false); setForm(emptyForm);
+      // Proponer registrar la propiedad como activo si tiene valor
+      if (parseFloat(form.valorPropiedad)>0) {
+        setPropuestaActivo({
+          nombre: form.nombre||"Propiedad hipotecada",
+          tipo: "inmueble",
+          moneda: form.moneda||"MXN",
+          valorCompra: String(parseFloat(form.valorPropiedad)||0),
+          valorActual: String(parseFloat(form.valorPropiedad)||0),
+          fechaCompra: form.fechaInicio||today(),
+          descripcion: form.banco?`Crédito Banorte ${form.banco}. Hipoteca registrada.`:"",
+          tasaVariacion: "",
+        });
+        setShowPropuestaActivo(true);
+      }
     }
-    setShowForm(false); setForm(emptyForm);
   };
 
   const eliminar = async (id) => {
@@ -8157,6 +8203,52 @@ const Mortgage = () => {
           <Btn onClick={guardar}><Ic n="check" size={15}/>{form.id?"Actualizar":"Guardar"}</Btn>
         </div>
       </Card>
+      {/* Modal propuesta activo al crear hipoteca */}
+      {showPropuestaActivo && propuestaActivo && (
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.7)",zIndex:1001,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+          <div style={{background:"#161b27",border:"1px solid rgba(0,212,170,.3)",borderRadius:16,width:"100%",maxWidth:460,padding:28,boxShadow:"0 24px 80px rgba(0,0,0,.6)"}}>
+            <div style={{textAlign:"center",marginBottom:20}}>
+              <div style={{fontSize:40,marginBottom:8}}>🏠</div>
+              <h3 style={{fontSize:17,fontWeight:800,color:"#f0f0f0",margin:"0 0 8px"}}>¿Registrar la propiedad como activo?</h3>
+              <p style={{fontSize:13,color:"#555",margin:0,lineHeight:1.5}}>
+                Para que tu patrimonio neto sea correcto, la propiedad debe aparecer como deuda (hipoteca) y como activo (bien raíz).
+              </p>
+            </div>
+            <div style={{background:"rgba(255,255,255,.04)",borderRadius:10,padding:"12px 14px",marginBottom:20}}>
+              {[
+                ["Nombre",propuestaActivo.nombre],
+                ["Tipo","🏠 Inmueble"],
+                ["Valor",fmt(parseFloat(propuestaActivo.valorCompra||0))],
+                ["Fecha adquisición",fmtDate(propuestaActivo.fechaCompra)],
+              ].map(([l,v])=>(
+                <div key={l} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:"1px solid rgba(255,255,255,.04)"}}>
+                  <span style={{fontSize:12,color:"#555"}}>{l}</span>
+                  <span style={{fontSize:12,fontWeight:600,color:"#ccc"}}>{v}</span>
+                </div>
+              ))}
+            </div>
+            <div style={{display:"flex",gap:10}}>
+              <button onClick={()=>setShowPropuestaActivo(false)}
+                style={{flex:1,padding:"10px",borderRadius:10,border:"1px solid rgba(255,255,255,.1)",background:"transparent",color:"#666",cursor:"pointer",fontSize:13,fontWeight:600}}>
+                No por ahora
+              </button>
+              <button onClick={()=>{
+                setAssets(p=>[{id:genId(),...propuestaActivo,
+                  valorCompra:parseFloat(propuestaActivo.valorCompra)||0,
+                  valorActual:parseFloat(propuestaActivo.valorActual)||0,
+                  tasaVariacion:null,
+                  creadoAt:new Date().toISOString()
+                },...(p||[])]);
+                setShowPropuestaActivo(false);
+                toast("✅ Propiedad registrada como activo ✓","success");
+              }}
+                style={{flex:2,padding:"10px",borderRadius:10,border:"none",background:"linear-gradient(135deg,#00d4aa,#00a884)",color:"#fff",cursor:"pointer",fontSize:13,fontWeight:700}}>
+                ✓ Sí, registrar como activo
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 
