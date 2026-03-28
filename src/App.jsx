@@ -9844,7 +9844,7 @@ const Patrimonio = () => {
       const val = t>0&&p>0 ? t*p : parseFloat(inv.currentValue)||ap;
       return inv.currency==="USD" ? val*TC : val;
     };
-    const inversionesMXN = investments.reduce((s,i)=>s+calcInvVal(i),0);
+    const inversionesMXN = investments.filter(i=>i.estado!=="liquidada").reduce((s,i)=>s+calcInvVal(i),0);
 
     const calcLoanBal = loan => {
       const dr=(parseFloat(loan.rate)||0)/100/(loan.rateType==="annual"?365:30);
@@ -9859,16 +9859,13 @@ const Patrimonio = () => {
     };
     const deudaPrestamos = loans.filter(l=>l.type==="received").reduce((s,l)=>s+calcLoanBal(l),0);
     const deudaHipoteca  = mortgages.reduce((s,m)=>{
-      const {tabla} = (() => {
-        const P=parseFloat(m.monto)||0, n=(parseFloat(m.plazoAnios)||0)*12, r=(parseFloat(m.tasaAnual)||0)/100/12;
-        if(!P||!n||!r) return {tabla:[]};
-        const cuota=m.tipo==="fijo"?(P*r*Math.pow(1+r,n))/(Math.pow(1+r,n)-1):P/n;
-        let saldo=P; const tabla=[];
-        for(let i=1;i<=n;i++){const int=saldo*r,cap=m.tipo==="fijo"?cuota-int:P/n;saldo=Math.max(saldo-cap,0);tabla.push({saldo});}
-        return {tabla};
-      })();
+      const P=parseFloat(m.monto)||0, n=(parseFloat(m.plazoAnios)||0)*12, r=(parseFloat(m.tasaAnual)||0)/100/12;
+      if(!P||!n||!r) return s+P;
+      const cuota=m.tipo==="fijo"?(P*r*Math.pow(1+r,n))/(Math.pow(1+r,n)-1):P/n;
+      let saldo=P;
       const pagados=(m.pagosRealizados||[]).length;
-      return s+((tabla[pagados]?.saldo ?? parseFloat(m.monto)) || 0);
+      for(let i=1;i<=pagados;i++){const int=saldo*r;saldo=Math.max(saldo-(m.tipo==="fijo"?cuota-int:P/n),0);}
+      return s+saldo;
     },0);
     const deudaTotal = deudaPrestamos + deudaHipoteca;
     const cuentasCredito = accounts.filter(a=>a.type==="credit").reduce((s,a)=>s+Math.abs(Math.min(parseFloat(a.balance||0),0)),0);
