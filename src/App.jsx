@@ -3376,9 +3376,48 @@ const Transactions = ({ initialDate=null }) => {
                 <span style={{fontSize:12,color:"#555"}}>{txsConTag.length} transacción{txsConTag.length!==1?"es":""}</span>
                 <span style={{fontSize:11,color:"#444"}}>· {fechas[0]} → {fechas[fechas.length-1]}</span>
               </div>
-              <span style={{fontSize:12,fontWeight:700,color:neto>=0?"#00d4aa":"#ff4757"}}>
-                Neto: {neto>=0?"+":""}{fmt(neto)}
-              </span>
+              <div style={{display:"flex",alignItems:"center",gap:8}}>
+                <span style={{fontSize:12,fontWeight:700,color:neto>=0?"#00d4aa":"#ff4757"}}>
+                  Neto: {neto>=0?"+":""}{fmt(neto)}
+                </span>
+                <button onClick={()=>{
+                  if (!window.XLSX) {
+                    const s=document.createElement("script");
+                    s.src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
+                    s.onload=()=>document.getElementById("btn-export-tag-"+tagQ)?.click();
+                    document.head.appendChild(s); return;
+                  }
+                  const XLSX=window.XLSX, wb=XLSX.utils.book_new();
+                  const rows=[...txsConTag].sort((a,b)=>a.date>b.date?1:-1).map(t=>({
+                    Fecha:t.date, Descripción:t.description||"", Categoría:t.category||"",
+                    Tipo:t.type==="income"?"Ingreso":"Gasto",
+                    Monto:t.type==="income"?parseFloat(t.amount||0):-parseFloat(t.amount||0),
+                    Cuenta:accounts.find(a=>a.id===t.accountId)?.name||"",
+                    Tags:(t.tags||[]).join(", "), Notas:t.notes||"",
+                  }));
+                  const ws=XLSX.utils.json_to_sheet(rows);
+                  ws["!cols"]=[{wch:12},{wch:35},{wch:18},{wch:10},{wch:14},{wch:20},{wch:20},{wch:30}];
+                  const ws2=XLSX.utils.json_to_sheet([
+                    {Concepto:"Tag",Valor:`#${tagQ}`},
+                    {Concepto:"Total transacciones",Valor:txsConTag.length},
+                    {Concepto:"Total gastos",Valor:-totalGastado},
+                    {Concepto:"Total ingresos",Valor:totalIngresado},
+                    {Concepto:"Neto",Valor:neto},
+                    {Concepto:"Período",Valor:`${fechas[0]} → ${fechas[fechas.length-1]}`},
+                    {Concepto:"Generado",Valor:new Date().toLocaleDateString("es-MX")},
+                  ]);
+                  ws2["!cols"]=[{wch:25},{wch:20}];
+                  XLSX.utils.book_append_sheet(wb,ws,"Transacciones");
+                  XLSX.utils.book_append_sheet(wb,ws2,"Resumen");
+                  XLSX.writeFile(wb,`reporte_${tagQ}_${new Date().toISOString().split("T")[0]}.xlsx`);
+                }}
+                  id={`btn-export-tag-${tagQ}`}
+                  style={{padding:"4px 12px",borderRadius:7,border:"1px solid rgba(0,212,170,.3)",
+                    background:"rgba(0,212,170,.08)",color:"#00d4aa",cursor:"pointer",
+                    fontSize:11,fontWeight:700,display:"flex",alignItems:"center",gap:4}}>
+                  <Ic n="download" size={12} color="#00d4aa"/> Exportar Excel
+                </button>
+              </div>
             </div>
             {/* KPIs */}
             <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:0}}>
