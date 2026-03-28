@@ -197,6 +197,7 @@ const ICONS = {
   chart:"M3.5 18.49l6-6.01 4 4L22 6.92l-1.41-1.41-7.09 7.97-4-4L2 16.99z",
   calendar:"M20 3h-1V1h-2v2H7V1H5v2H4c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 18H4V8h16v13zM9 10H7v2h2v-2zm4 0h-2v2h2v-2zm4 0h-2v2h2v-2zm-8 4H7v2h2v-2zm4 0h-2v2h2v-2zm4 0h-2v2h2v-2z",
   asistente:"M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-2 12H6v-2h12v2zm0-3H6V9h12v2zm0-3H6V6h12v2z",
+  assets:"M12 3L2 12h3v9h6v-6h2v6h6v-9h3L12 3zm0 12.5c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5z",
   attach:"M16.5 6v11.5c0 2.21-1.79 4-4 4s-4-1.79-4-4V5c0-1.38 1.12-2.5 2.5-2.5s2.5 1.12 2.5 2.5v10.5c0 .55-.45 1-1 1s-1-.45-1-1V6H10v9.5c0 1.38 1.12 2.5 2.5 2.5s2.5-1.12 2.5-2.5V5c0-2.21-1.79-4-4-4S7 2.79 7 5v12.5c0 3.04 2.46 5.5 5.5 5.5s5.5-2.46 5.5-5.5V6h-1.5z",
 };
 
@@ -498,6 +499,7 @@ const NAV_GROUPS = [
     label: "Patrimonio",
     items: [
       { id:"investments",  label:"Inversiones",    icon:"investments" },
+      { id:"assets",       label:"Activos",        icon:"assets" },
       { id:"loans",        label:"Préstamos",      icon:"loans" },
       { id:"mortgage",     label:"Crédito Casa",   icon:"mortgage" },
       { id:"goals",        label:"Metas",          icon:"goals" },
@@ -1927,6 +1929,7 @@ const Dashboard = () => {
   const [goals]        = useData(user.id, "goals");
   const [presupuestos] = useData(user.id, "presupuestos");
   const [mortgages]    = useData(user.id, "mortgages");
+  const [assets]       = useData(user.id, "assets", []);
   const [snapshots]    = useData(user.id, "patrimonio_snaps");
   const now = new Date();
   const TC = getTc(user.id);
@@ -1972,7 +1975,9 @@ const Dashboard = () => {
   const deudaTotal= [...loans.filter(l=>l.type==="received"), ...(mortgages||[])]
     .reduce((s,x)=>s+(x.monto!==undefined?calcMortgageBalance(x):calcLoanBalance(x)),0);
   const porCobrar = loans.filter(l=>l.type==="given").reduce((s,l)=>s+calcLoanBalance(l),0);
-  const patrimonioNeto = liquidezTotal + invTotal + porCobrar - deudaTotal;
+  const totalActivos = (assets||[]).reduce((s,a)=>s+parseFloat(a.valorActual||0),0);
+  const deudaTarjetas = accounts.filter(a=>a.type==="credit").reduce((s,a)=>s+Math.abs(Math.min(parseFloat(a.balance||0),0)),0);
+  const patrimonioNeto = liquidezTotal + invTotal + porCobrar + totalActivos - deudaTotal - deudaTarjetas;
 
   // ── flujo mes actual y anterior
   const txMes  = transactions.filter(t=>t.date?.startsWith(mesKey));
@@ -6968,6 +6973,200 @@ const SimuladorLiquidacion = ({ m, prog, calcAmort, fmt, cur2 }) => {
 };
 
 
+// ─── ACTIVOS ──────────────────────────────────────────────────────────────────
+const Assets = () => {
+  const { user, toast } = useCtx();
+  const [assets, setAssets] = useData(user.id, "assets", []);
+  const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState(null);
+  const [askConfirm, confirmModal] = useConfirm();
+
+  const TIPOS = [
+    { value:"inmueble",   label:"🏠 Inmueble",         color:"#00d4aa" },
+    { value:"vehiculo",   label:"🚗 Vehículo",          color:"#3b82f6" },
+    { value:"negocio",    label:"🏢 Negocio/Empresa",   color:"#f39c12" },
+    { value:"terreno",    label:"🌎 Terreno",            color:"#10b981" },
+    { value:"maquinaria", label:"⚙️ Maquinaria/Equipo", color:"#8b5cf6" },
+    { value:"otro",       label:"💎 Otro activo",        color:"#64748b" },
+  ];
+
+  const blank = {
+    nombre:"", tipo:"inmueble", moneda:"MXN",
+    valorCompra:"", valorActual:"", fechaCompra:"",
+    descripcion:"", depreciacion:"0", // % anual de depreciación
+  };
+  const [form, setForm] = useState(blank);
+  const f = k => e => setForm(p=>({...p,[k]:e.target.value}));
+
+  const save = () => {
+    if (!form.nombre.trim()||!form.valorActual) { toast("Completa nombre y valor actual","error"); return; }
+    if (editing) {
+      setAssets(assets.map(a=>a.id===editing.id?{...a,...form,valorCompra:parseFloat(form.valorCompra)||0,valorActual:parseFloat(form.valorActual)||0,depreciacion:parseFloat(form.depreciacion)||0}:a));
+      toast("Activo actualizado ✓","success");
+    } else {
+      setAssets([{id:genId(),...form,valorCompra:parseFloat(form.valorCompra)||0,valorActual:parseFloat(form.valorActual)||0,depreciacion:parseFloat(form.depreciacion)||0,creadoAt:new Date().toISOString()},...assets]);
+      toast("Activo registrado ✓","success");
+    }
+    setOpen(false); setEditing(null); setForm(blank);
+  };
+
+  const del = async a => {
+    const ok = await askConfirm(`¿Eliminar "${a.nombre}"?`);
+    if (!ok) return;
+    setAssets(assets.filter(x=>x.id!==a.id));
+    toast("Activo eliminado","warning");
+  };
+
+  const openEdit = a => { setEditing(a); setForm({...a,valorCompra:String(a.valorCompra),valorActual:String(a.valorActual),depreciacion:String(a.depreciacion||0)}); setOpen(true); };
+
+  // KPIs
+  const totalActivos = assets.reduce((s,a)=>s+parseFloat(a.valorActual||0),0);
+  const totalCompra  = assets.reduce((s,a)=>s+parseFloat(a.valorCompra||0),0);
+  const plusvalia    = totalActivos - totalCompra;
+
+  // Agrupar por tipo
+  const porTipo = TIPOS.map(t=>({
+    ...t,
+    items: assets.filter(a=>a.tipo===t.value),
+    total: assets.filter(a=>a.tipo===t.value).reduce((s,a)=>s+parseFloat(a.valorActual||0),0),
+  })).filter(t=>t.items.length>0);
+
+  return (
+    <div style={{animation:"fadeUp .25s ease"}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:14,flexWrap:"wrap",gap:10}}>
+        <div>
+          <h2 style={{fontSize:22,fontFamily:"'Syne',sans-serif",fontWeight:800,color:"#f0f0f0",margin:"0 0 3px"}}>Activos</h2>
+          <p style={{fontSize:13,color:"#555",margin:0}}>Inmuebles, vehículos y otros bienes que forman tu patrimonio</p>
+        </div>
+        <Btn onClick={()=>{setEditing(null);setForm(blank);setOpen(true);}}><Ic n="plus" size={16}/>Nuevo activo</Btn>
+      </div>
+
+      {/* KPIs */}
+      {assets.length>0&&(
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",gap:10,marginBottom:18}}>
+          <Card style={{padding:"12px 14px",borderColor:"rgba(0,212,170,.2)"}}>
+            <p style={{fontSize:10,color:"#555",textTransform:"uppercase",letterSpacing:.4,margin:"0 0 3px"}}>Valor total activos</p>
+            <p style={{fontSize:18,fontWeight:800,color:"#00d4aa",margin:0}}>{fmt(totalActivos)}</p>
+            <p style={{fontSize:10,color:"#444",margin:"3px 0 0"}}>{assets.length} bien{assets.length!==1?"es":""} registrado{assets.length!==1?"s":""}</p>
+          </Card>
+          {totalCompra>0&&(
+            <Card style={{padding:"12px 14px",borderColor:"rgba(59,130,246,.2)"}}>
+              <p style={{fontSize:10,color:"#555",textTransform:"uppercase",letterSpacing:.4,margin:"0 0 3px"}}>Costo de adquisición</p>
+              <p style={{fontSize:18,fontWeight:800,color:"#3b82f6",margin:0}}>{fmt(totalCompra)}</p>
+              <p style={{fontSize:10,color:"#444",margin:"3px 0 0"}}>Precio de compra total</p>
+            </Card>
+          )}
+          {totalCompra>0&&(
+            <Card style={{padding:"12px 14px",borderColor:`rgba(${plusvalia>=0?"0,212,170":"255,71,87"},.2)`}}>
+              <p style={{fontSize:10,color:"#555",textTransform:"uppercase",letterSpacing:.4,margin:"0 0 3px"}}>Plusvalía / Depreciación</p>
+              <p style={{fontSize:18,fontWeight:800,color:plusvalia>=0?"#00d4aa":"#ff4757",margin:0}}>{plusvalia>=0?"+":""}{fmt(plusvalia)}</p>
+              <p style={{fontSize:10,color:"#444",margin:"3px 0 0"}}>{plusvalia>=0?"Ganancia":"Pérdida"} vs costo</p>
+            </Card>
+          )}
+        </div>
+      )}
+
+      {/* Lista por tipo */}
+      {assets.length===0 ? (
+        <div style={{textAlign:"center",padding:"50px 20px"}}>
+          <div style={{fontSize:44,marginBottom:8}}>🏠</div>
+          <p style={{fontSize:16,fontWeight:700,color:"#e0e0e0",margin:"0 0 8px"}}>Sin activos registrados</p>
+          <p style={{fontSize:13,color:"#555",margin:"0 0 16px",lineHeight:1.5,maxWidth:380,marginLeft:"auto",marginRight:"auto"}}>
+            Registra tus bienes para tener un patrimonio neto real y completo. Tu casa vale $3,243,000 — agrégala aquí para que el sistema la cuente como activo.
+          </p>
+          <Btn onClick={()=>{setEditing(null);setForm(blank);setOpen(true);}}><Ic n="plus" size={14}/>Registrar primer activo</Btn>
+        </div>
+      ) : (
+        <div style={{display:"flex",flexDirection:"column",gap:14}}>
+          {porTipo.map(grupo=>(
+            <div key={grupo.value}>
+              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
+                <span style={{fontSize:11,fontWeight:700,color:grupo.color,textTransform:"uppercase",letterSpacing:.5}}>{grupo.label}</span>
+                <span style={{fontSize:11,color:"#555"}}>— {fmt(grupo.total)}</span>
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:10}}>
+                {grupo.items.map(a=>{
+                  const ganancia = parseFloat(a.valorActual||0) - parseFloat(a.valorCompra||0);
+                  const pct = parseFloat(a.valorCompra||0) > 0 ? (ganancia/parseFloat(a.valorCompra)*100) : null;
+                  return (
+                    <Card key={a.id} style={{borderColor:`${grupo.color}22`,cursor:"pointer"}}
+                      onMouseEnter={e=>e.currentTarget.style.borderColor=`${grupo.color}55`}
+                      onMouseLeave={e=>e.currentTarget.style.borderColor=`${grupo.color}22`}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
+                        <div style={{flex:1,minWidth:0}}>
+                          <p style={{fontSize:13,fontWeight:700,color:"#f0f0f0",margin:"0 0 3px",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{a.nombre}</p>
+                          {a.fechaCompra&&<p style={{fontSize:10,color:"#555",margin:0}}>Adquirido: {fmtDate(a.fechaCompra)}</p>}
+                        </div>
+                        <Actions onEdit={()=>openEdit(a)} onDelete={()=>del(a)}/>
+                      </div>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-end",marginBottom:parseFloat(a.valorCompra||0)>0?8:0}}>
+                        <div>
+                          <p style={{fontSize:10,color:"#555",margin:"0 0 1px"}}>Valor actual</p>
+                          <p style={{fontSize:20,fontWeight:800,color:grupo.color,margin:0,lineHeight:1}}>{fmt(parseFloat(a.valorActual||0),a.moneda)}</p>
+                        </div>
+                        {pct!==null&&(
+                          <div style={{textAlign:"right"}}>
+                            <p style={{fontSize:10,color:"#555",margin:"0 0 1px"}}>vs compra</p>
+                            <p style={{fontSize:13,fontWeight:700,color:ganancia>=0?"#00d4aa":"#ff4757",margin:0}}>{ganancia>=0?"+":""}{pct.toFixed(1)}%</p>
+                          </div>
+                        )}
+                      </div>
+                      {parseFloat(a.valorCompra||0)>0&&(
+                        <div style={{height:4,borderRadius:2,background:"rgba(255,255,255,.06)",overflow:"hidden"}}>
+                          <div style={{height:"100%",width:`${Math.min(Math.abs(ganancia)/parseFloat(a.valorCompra)*100+50,100)}%`,background:ganancia>=0?`linear-gradient(90deg,${grupo.color},${grupo.color}99)`:"linear-gradient(90deg,#ff4757,#ff475799)",borderRadius:2}}/>
+                        </div>
+                      )}
+                      {a.descripcion&&<p style={{fontSize:11,color:"#444",margin:"8px 0 0",lineHeight:1.4}}>{a.descripcion}</p>}
+                    </Card>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Modal */}
+      {open&&(
+        <Modal title={editing?"Editar activo":"Registrar activo"} onClose={()=>{setOpen(false);setEditing(null);}} width={500}>
+          <Inp label="Nombre del bien *" value={form.nombre} onChange={f("nombre")} placeholder="Ej. Casa Portal de Hierro, Tesla Model 3..."/>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            <Sel label="Tipo" value={form.tipo} onChange={f("tipo")} options={TIPOS.map(t=>({value:t.value,label:t.label}))}/>
+            <Sel label="Moneda" value={form.moneda} onChange={f("moneda")} options={[{value:"MXN",label:"MXN"},{value:"USD",label:"USD"}]}/>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            <Inp label="Valor de compra" type="number" value={form.valorCompra} onChange={f("valorCompra")} prefix="$" placeholder="Precio pagado"/>
+            <Inp label="Valor actual *" type="number" value={form.valorActual} onChange={f("valorActual")} prefix="$" placeholder="Valor hoy"/>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            <Inp label="Fecha de adquisición" type="date" value={form.fechaCompra} onChange={f("fechaCompra")}/>
+            <Inp label="Depreciación anual %" type="number" value={form.depreciacion} onChange={f("depreciacion")} suffix="%" placeholder="0 = sin depreciación"/>
+          </div>
+          <Inp label="Descripción / notas" value={form.descripcion} onChange={f("descripcion")} placeholder="Dirección, modelo, características..."/>
+          {/* Preview valor y plusvalía */}
+          {form.valorCompra&&form.valorActual&&(()=>{
+            const comp=parseFloat(form.valorCompra)||0, act=parseFloat(form.valorActual)||0;
+            const gan=act-comp, pct=comp>0?(gan/comp*100):0;
+            return (
+              <div style={{padding:"10px 14px",borderRadius:9,background:gan>=0?"rgba(0,212,170,.06)":"rgba(255,71,87,.06)",border:`1px solid ${gan>=0?"rgba(0,212,170,.2)":"rgba(255,71,87,.2)"}`,marginBottom:14}}>
+                <span style={{fontSize:12,color:gan>=0?"#00d4aa":"#ff4757",fontWeight:700}}>
+                  {gan>=0?"📈 Plusvalía":"📉 Depreciación"}: {gan>=0?"+":""}{fmt(gan)} ({pct>=0?"+":""}{pct.toFixed(1)}%)
+                </span>
+              </div>
+            );
+          })()}
+          <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+            <Btn variant="secondary" onClick={()=>{setOpen(false);setEditing(null);}}>Cancelar</Btn>
+            <Btn onClick={save}><Ic n="check" size={15}/>{editing?"Actualizar":"Registrar"}</Btn>
+          </div>
+        </Modal>
+      )}
+      {confirmModal}
+    </div>
+  );
+};
+
+
 // ─── CRÉDITO HIPOTECARIO ──────────────────────────────────────────────────────
 const Mortgage = () => {
   const { user, toast } = useCtx();
@@ -9592,6 +9791,7 @@ const Patrimonio = () => {
   const [loans]                     = useData(user.id, "loans");
   const [mortgages]                 = useData(user.id, "mortgages");
   const [goals]                     = useData(user.id, "goals");
+  const [assets]                    = useData(user.id, "assets", []);
   const [tab, setTab]               = useState("grafica");
   const [rango, setRango]           = useState("6m");
   const [hoverIdx, setHoverIdx]     = useState(null);
@@ -9639,7 +9839,11 @@ const Patrimonio = () => {
     const cuentasCredito = accounts.filter(a=>a.type==="credit").reduce((s,a)=>s+Math.abs(Math.min(parseFloat(a.balance||0),0)),0);
     const deudaTotalConTarjetas = deudaTotal + cuentasCredito;
 
-    const patrimonioNeto = liquidezTotal + inversionesMXN - deudaTotalConTarjetas;
+    const totalActivosFisicos = (assets||[]).reduce((s,a)=>{
+      const val = parseFloat(a.valorActual||0);
+      return s + (a.moneda==="USD" ? val*TC : val);
+    },0);
+    const patrimonioNeto = liquidezTotal + inversionesMXN + totalActivosFisicos - deudaTotalConTarjetas;
 
     // ── flujo del mes
     const now = new Date();
@@ -9654,7 +9858,7 @@ const Patrimonio = () => {
     const hace3 = new Date(); hace3.setMonth(hace3.getMonth()-3);
     const gastosProm = transactions.filter(t=>t.type==="expense"&&new Date(t.date)>=hace3).reduce((s,t)=>s+parseFloat(t.amount||0),0)/3;
 
-    return { liquidezTotal, liquidezMXN, liquidezUSD, inversionesMXN, deudaTotal:deudaTotalConTarjetas, deudaPrestamos, deudaHipoteca, cuentasCredito, patrimonioNeto, ingresosMes, gastosMes, gastosProm };
+    return { liquidezTotal, liquidezMXN, liquidezUSD, inversionesMXN, totalActivosFisicos, deudaTotal:deudaTotalConTarjetas, deudaPrestamos, deudaHipoteca, cuentasCredito, patrimonioNeto, ingresosMes, gastosMes, gastosProm };
   };
 
   const estado = calcEstado();
@@ -9916,6 +10120,7 @@ const Patrimonio = () => {
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:10,marginBottom:18}}>
         {[
           ["Patrimonio neto",fmt(estado.patrimonioNeto,"MXN"),estado.patrimonioNeto>=0?"#00d4aa":"#ff4757"],
+          ["Activos físicos",fmt(estado.totalActivosFisicos||0,"MXN"),"#00d4aa"],
           ["Liquidez total",fmt(estado.liquidezTotal,"MXN"),"#3b82f6"],
           ["Inversiones",fmt(estado.inversionesMXN,"MXN"),"#f39c12"],
           ["Deuda total",fmt(estado.deudaTotal,"MXN"),"#ff4757"],
@@ -12492,6 +12697,7 @@ export default function App() {
       case "transfers":    return <Transfers/>;
       case "loans":        return <Loans/>;
       case "investments":  return <Investments/>;
+      case "assets":       return <Assets/>;
       case "mortgage":     return <Mortgage/>;
       case "goals":        return <Goals/>;
       case "presupuestos": return <Presupuestos/>;
