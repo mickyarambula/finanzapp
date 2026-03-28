@@ -1224,6 +1224,47 @@ const GlobalSearch = ({ onNavigate }) => {
 
   const q = query.toLowerCase().trim();
 
+  const exportarTagExcel = (tagName, txs) => {
+    if (!window.XLSX) {
+      const script = document.createElement("script");
+      script.src = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
+      script.onload = () => exportarTagExcel(tagName, txs);
+      document.head.appendChild(script);
+      return;
+    }
+    const XLSX = window.XLSX;
+    const wb = XLSX.utils.book_new();
+    const headers = ["Fecha","Descripción","Categoría","Tipo","Monto","Cuenta","Tags","Notas"];
+    const rows = [...txs].sort((a,b)=>a.date>b.date?1:-1).map(t=>({
+      Fecha: t.date,
+      Descripción: t.description||"",
+      Categoría: t.category||"",
+      Tipo: t.type==="income"?"Ingreso":"Gasto",
+      Monto: t.type==="income"?parseFloat(t.amount||0):-parseFloat(t.amount||0),
+      Cuenta: accounts.find(a=>a.id===t.accountId)?.name||"",
+      Tags: (t.tags||[]).join(", "),
+      Notas: t.notes||"",
+    }));
+    const ws = XLSX.utils.json_to_sheet(rows, {header:headers});
+    ws["!cols"] = [{wch:12},{wch:35},{wch:18},{wch:10},{wch:14},{wch:20},{wch:20},{wch:30}];
+    const totalGastos = txs.filter(t=>t.type==="expense").reduce((s,t)=>s+parseFloat(t.amount||0),0);
+    const totalIngresos = txs.filter(t=>t.type==="income").reduce((s,t)=>s+parseFloat(t.amount||0),0);
+    const ws2 = XLSX.utils.json_to_sheet([
+      {Concepto:"Tag", Valor:`#${tagName}`},
+      {Concepto:"Total transacciones", Valor:txs.length},
+      {Concepto:"Total gastos", Valor:-totalGastos},
+      {Concepto:"Total ingresos", Valor:totalIngresos},
+      {Concepto:"Neto", Valor:totalIngresos-totalGastos},
+      {Concepto:"Fecha primer registro", Valor:txs.map(t=>t.date).sort()[0]||""},
+      {Concepto:"Fecha último registro", Valor:txs.map(t=>t.date).sort().slice(-1)[0]||""},
+      {Concepto:"Generado", Valor:new Date().toLocaleDateString("es-MX")},
+    ]);
+    ws2["!cols"] = [{wch:25},{wch:20}];
+    XLSX.utils.book_append_sheet(wb, ws, "Transacciones");
+    XLSX.utils.book_append_sheet(wb, ws2, "Resumen");
+    XLSX.writeFile(wb, `reporte_${tagName}_${new Date().toISOString().split("T")[0]}.xlsx`);
+  };
+
   const results = q.length < 1 ? [] : (() => {
     const groups = [];
 
@@ -1247,12 +1288,16 @@ const GlobalSearch = ({ onNavigate }) => {
     if (q.startsWith("#") && qTag.length>0) {
       const txsByTag = transactions.filter(t=>(t.tags||[]).some(tag=>tag.toLowerCase().includes(qTag)));
       if (txsByTag.length>0) {
-        const total = txsByTag.reduce((s,t)=>s+(t.type==="income"?1:-1)*parseFloat(t.amount||0),0);
+        const totalGastos = txsByTag.filter(t=>t.type==="expense").reduce((s,t)=>s+parseFloat(t.amount||0),0);
+        const totalIngresos = txsByTag.filter(t=>t.type==="income").reduce((s,t)=>s+parseFloat(t.amount||0),0);
+        const neto = totalIngresos - totalGastos;
         groups.unshift({
           modulo:"transactions", label:`Etiqueta #${qTag}`, icon:"transactions", color:"#a78bfa",
+          esTag:true, tagName:qTag, txsByTag, totalGastos, totalIngresos, neto,
           items:[{
-            id:"tag_"+qTag, titulo:`${txsByTag.length} transacción${txsByTag.length!==1?"es":""} con #${qTag}`,
-            subtitulo:`Saldo neto: ${total>=0?"+":""}${fmt(Math.abs(total))}`,
+            id:"tag_"+qTag,
+            titulo:`${txsByTag.length} transacción${txsByTag.length!==1?"es":""} con #${qTag}`,
+            subtitulo:`Gastos: ${fmt(totalGastos)} · Ingresos: ${fmt(totalIngresos)} · Neto: ${neto>=0?"+":""}${fmt(Math.abs(neto))}`,
             color:"#a78bfa",
           }]
         });
@@ -1423,14 +1468,56 @@ const GlobalSearch = ({ onNavigate }) => {
           )}
           {results.map(grupo=>(
             <div key={grupo.label}>
-              {/* encabezado de grupo */}
               <div style={{display:"flex",alignItems:"center",gap:7,padding:"10px 16px 6px",borderTop:"1px solid rgba(255,255,255,.04)"}}>
                 <Ic n={grupo.icon} size={13} color={grupo.color}/>
                 <span style={{fontSize:11,fontWeight:700,color:grupo.color,textTransform:"uppercase",letterSpacing:.4}}>{grupo.label}</span>
                 <span style={{fontSize:10,color:"#333",marginLeft:"auto"}}>{grupo.items.length} resultado{grupo.items.length!==1?"s":""}</span>
+                {grupo.esTag&&(
+                  <button onClick={e=>{e.stopPropagation();exportarTagExcel(grupo.tagName,grupo.txsByTag);}}
+                    style={{marginLeft:8,padding:"3px 10px",borderRadius:6,border:"1px solid rgba(0,212,170,.3)",
+                      background:"rgba(0,212,170,.08)",color:"#00d4aa",cursor:"pointer",fontSize:10,fontWeight:700,
+                      display:"flex",alignItems:"center",gap:4}}>
+                    <Ic n="download" size={11} color="#00d4aa"/> Exportar Excel
+                  </button>
+                )}
               </div>
-              {/* items */}
-              {grupo.items.map(item=>(
+              {grupo.esTag&&(
+                <div style={{margin:"0 12px 8px",padding:"10px 12px",background:"rgba(167,139,250,.06)",border:"1px solid rgba(167,139,250,.15)",borderRadius:10}}>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:8}}>
+                    <div style={{textAlign:"center"}}>
+                      <p style={{fontSize:9,color:"#555",margin:"0 0 2px",textTransform:"uppercase"}}>Gastos</p>
+                      <p style={{fontSize:14,fontWeight:700,color:"#ff4757",margin:0}}>{fmt(grupo.totalGastos)}</p>
+                    </div>
+                    <div style={{textAlign:"center"}}>
+                      <p style={{fontSize:9,color:"#555",margin:"0 0 2px",textTransform:"uppercase"}}>Ingresos</p>
+                      <p style={{fontSize:14,fontWeight:700,color:"#00d4aa",margin:0}}>{fmt(grupo.totalIngresos)}</p>
+                    </div>
+                    <div style={{textAlign:"center"}}>
+                      <p style={{fontSize:9,color:"#555",margin:"0 0 2px",textTransform:"uppercase"}}>Neto</p>
+                      <p style={{fontSize:14,fontWeight:700,color:grupo.neto>=0?"#00d4aa":"#ff4757",margin:0}}>
+                        {grupo.neto>=0?"+":""}{fmt(Math.abs(grupo.neto))}
+                      </p>
+                    </div>
+                  </div>
+                  <div style={{maxHeight:180,overflowY:"auto",display:"flex",flexDirection:"column",gap:2}}>
+                    {[...grupo.txsByTag].sort((a,b)=>b.date>a.date?1:-1).map(t=>(
+                      <div key={t.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",
+                        padding:"5px 8px",borderRadius:6,background:"rgba(255,255,255,.03)"}}>
+                        <div style={{minWidth:0,flex:1}}>
+                          <p style={{fontSize:11,fontWeight:600,color:"#ccc",margin:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                            {t.description||t.category||"Sin descripción"}
+                          </p>
+                          <p style={{fontSize:10,color:"#444",margin:0}}>{t.date} · {t.category}</p>
+                        </div>
+                        <span style={{fontSize:12,fontWeight:700,color:t.type==="income"?"#00d4aa":"#ff4757",flexShrink:0,marginLeft:8}}>
+                          {t.type==="income"?"+":"-"}{fmt(parseFloat(t.amount||0))}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {!grupo.esTag&&grupo.items.map(item=>(
                 <button key={item.id} onClick={()=>handleSelect(item,grupo.modulo)}
                   style={{width:"100%",display:"flex",alignItems:"center",gap:12,padding:"9px 16px",background:"transparent",border:"none",cursor:"pointer",textAlign:"left",transition:"background .1s"}}
                   onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,.04)"}
