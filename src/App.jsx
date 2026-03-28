@@ -1971,11 +1971,23 @@ const Dashboard = () => {
   // ── totales patrimonio
   const liquidezTotal = accounts.filter(a=>a.type!=="credit")
     .reduce((s,a)=>s+(a.currency==="USD"?parseFloat(a.balance||0)*TC:parseFloat(a.balance||0)),0);
+  // Inversiones: excluir liquidadas (su valor ya está en liquidez)
   const invTotal  = investments.filter(i=>i.estado!=="liquidada").reduce((s,i)=>s+calcInvVal(i),0);
-  const deudaTotal= [...loans.filter(l=>l.type==="received"), ...(mortgages||[])]
-    .reduce((s,x)=>s+(x.monto!==undefined?calcMortgageBalance(x):calcLoanBalance(x)),0);
+  // Hipotecas: método tabla completa (igual que módulo Patrimonio)
+  const calcHipBal = (m) => {
+    const P=parseFloat(m.monto)||0, n=(parseFloat(m.plazoAnios)||0)*12, r=(parseFloat(m.tasaAnual)||0)/100/12;
+    if(!P||!n||!r) return P;
+    const cuota=m.tipo==="fijo"?(P*r*Math.pow(1+r,n))/(Math.pow(1+r,n)-1):P/n;
+    let saldo=P;
+    for(let i=1;i<=(m.pagosRealizados||[]).length;i++){const int=saldo*r;saldo=Math.max(saldo-(m.tipo==="fijo"?cuota-int:P/n),0);}
+    return saldo;
+  };
+  const deudaPrestamos = loans.filter(l=>l.type==="received").reduce((s,l)=>s+calcLoanBalance(l),0);
+  const deudaHipotecas = (mortgages||[]).reduce((s,m)=>s+calcHipBal(m),0);
+  const deudaTotal = deudaPrestamos + deudaHipotecas;
   const porCobrar = loans.filter(l=>l.type==="given").reduce((s,l)=>s+calcLoanBalance(l),0);
-  const totalActivos = (assets||[]).reduce((s,a)=>s+parseFloat(a.valorActual||0),0);
+  // Activos físicos: convertir USD correctamente
+  const totalActivos = (assets||[]).reduce((s,a)=>s+(parseFloat(a.valorActual||0)*(a.moneda==="USD"?TC:1)),0);
   const deudaTarjetas = accounts.filter(a=>a.type==="credit").reduce((s,a)=>s+Math.abs(Math.min(parseFloat(a.balance||0),0)),0);
   const patrimonioNeto = liquidezTotal + invTotal + porCobrar + totalActivos - deudaTotal - deudaTarjetas;
 
@@ -9866,7 +9878,20 @@ const Patrimonio = () => {
       const val = parseFloat(a.valorActual||0);
       return s + (a.moneda==="USD" ? val*TC : val);
     },0);
-    const patrimonioNeto = liquidezTotal + inversionesMXN + totalActivosFisicos - deudaTotalConTarjetas;
+    // Excluir inversiones liquidadas (su valor ya está en liquidez)
+    const inversionesSinLiq = investments.filter(i=>i.estado!=="liquidada").reduce((s,i)=>s+calcInvVal(i),0);
+    // Incluir préstamos por cobrar (lo que te deben)
+    const calcLoanBalP = loan => {
+      const dr=(parseFloat(loan.rate)||0)/100/(loan.rateType==="annual"?365:30);
+      let bal=parseFloat(loan.principal||0); let last=new Date(loan.startDate);
+      for (const p of [...(loan.payments||[])].sort((a,b)=>new Date(a.date)-new Date(b.date))) {
+        const days=Math.max(0,Math.round((new Date(p.date)-last)/86400000));
+        bal=Math.max(0,bal-(p.amount-Math.min(p.amount,bal*dr*days))); last=new Date(p.date);
+      }
+      return bal;
+    };
+    const porCobrarP = loans.filter(l=>l.type==="given").reduce((s,l)=>s+calcLoanBalP(l),0);
+    const patrimonioNeto = liquidezTotal + inversionesSinLiq + porCobrarP + totalActivosFisicos - deudaTotalConTarjetas;
 
     // ── flujo del mes
     const now = new Date();
@@ -9881,7 +9906,7 @@ const Patrimonio = () => {
     const hace3 = new Date(); hace3.setMonth(hace3.getMonth()-3);
     const gastosProm = transactions.filter(t=>t.type==="expense"&&new Date(t.date)>=hace3).reduce((s,t)=>s+parseFloat(t.amount||0),0)/3;
 
-    return { liquidezTotal, liquidezMXN, liquidezUSD, inversionesMXN, totalActivosFisicos, deudaTotal:deudaTotalConTarjetas, deudaPrestamos, deudaHipoteca, cuentasCredito, patrimonioNeto, ingresosMes, gastosMes, gastosProm };
+    return { liquidezTotal, liquidezMXN, liquidezUSD, inversionesMXN:inversionesSinLiq, totalActivosFisicos, porCobrar:porCobrarP, deudaTotal:deudaTotalConTarjetas, deudaPrestamos, deudaHipoteca, cuentasCredito, patrimonioNeto, ingresosMes, gastosMes, gastosProm };
   };
 
   const estado = calcEstado();
