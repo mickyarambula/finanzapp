@@ -6640,6 +6640,34 @@ const Reports = ({ initialTab="balance" }) => {
 };
 
 
+// ─── SUBCOMPONENTE: INPUT DE CATEGORÍA (aislado para evitar pérdida de foco) ──
+const CatInput = ({ tipo, onAdd }) => {
+  const [nombre, setNombre] = React.useState("");
+  const inputRef = React.useRef(null);
+  const handleAdd = () => {
+    const val = nombre.trim();
+    if (!val) return;
+    onAdd(tipo, val, () => setNombre(""));
+  };
+  return (
+    <div style={{display:"flex",gap:8}}>
+      <input
+        ref={inputRef}
+        value={nombre}
+        onChange={e => setNombre(e.target.value)}
+        onKeyDown={e => { if(e.key==="Enter"){ e.preventDefault(); handleAdd(); } }}
+        placeholder={`Nueva categoría de ${tipo==="income"?"ingreso":"gasto"}...`}
+        style={{flex:1,padding:"9px 13px",background:"rgba(255,255,255,.05)",border:"1px solid rgba(255,255,255,.09)",borderRadius:9,color:"#e0e0e0",fontSize:13,outline:"none"}}
+      />
+      <button
+        onClick={handleAdd}
+        style={{padding:"9px 16px",borderRadius:9,border:"none",cursor:"pointer",background:"linear-gradient(135deg,#00d4aa,#00a884)",color:"#fff",fontSize:12,fontWeight:700,display:"flex",alignItems:"center",gap:6,whiteSpace:"nowrap"}}>
+        <Ic n="plus" size={13}/>Agregar
+      </button>
+    </div>
+  );
+};
+
 // ─── CONFIGURACIÓN ────────────────────────────────────────────────────────────
 const Settings = () => {
   const { user, toast } = useCtx();
@@ -6659,7 +6687,6 @@ const Settings = () => {
   const [confirmText, setConfirmText] = useState("");
   const [showTotalReset, setShowTotalReset] = useState(false);
   const [editFecha, setEditFecha] = useState(config.fechaInicio||"");
-  const [newCatCfg, setNewCatCfg] = useState({tipo:"expense", nombre:""});
 
   const DEFAULT_CATS = {
     income:["Salario","Freelance","Negocio","Renta","Intereses","Dividendos","Intereses cobrados","Retiro de inversión","Dividendos e intereses","Ganancia de inversión","Recuperación de capital","Otro"],
@@ -6669,13 +6696,12 @@ const Settings = () => {
     income:  [...new Set([...(config.categorias?.income  || DEFAULT_CATS.income)])],
     expense: [...new Set([...(config.categorias?.expense || DEFAULT_CATS.expense)])],
   };
-  const addCat = (tipo) => {
-    const nombre = newCatCfg.nombre.trim();
+  const addCat = (tipo, nombre, onClear) => {
     if (!nombre) { toast("Escribe el nombre de la categoría","error"); return; }
     const actual = config.categorias?.[tipo] || DEFAULT_CATS[tipo];
     if (actual.includes(nombre)) { toast("Ya existe esa categoría","error"); return; }
     setConfig(c=>({...c, categorias:{...c.categorias, [tipo]:[...(c.categorias?.[tipo]||DEFAULT_CATS[tipo]), nombre]}}));
-    setNewCatCfg({tipo, nombre:""});
+    if (onClear) onClear();
     toast(`Categoría "${nombre}" guardada ✓`);
   };
   const delCat = (tipo, cat) => {
@@ -6858,21 +6884,7 @@ const Settings = () => {
                   </div>
                 ))}
               </div>
-              <div style={{display:"flex",gap:8}}>
-                <input
-                  value={newCatCfg.tipo===tipo ? newCatCfg.nombre : ""}
-                  onChange={e=>setNewCatCfg(p=>({...p, tipo, nombre:e.target.value}))}
-                  onFocus={()=>setNewCatCfg(p=>({...p, tipo}))}
-                  onKeyDown={e=>{ if(e.key==="Enter"){ e.preventDefault(); setNewCatCfg(p=>({...p,tipo})); addCat(tipo); } }}
-                  placeholder={`Nueva categoría de ${tipo==="income"?"ingreso":"gasto"}...`}
-                  style={{flex:1,padding:"9px 13px",background:"rgba(255,255,255,.05)",border:"1px solid rgba(255,255,255,.09)",borderRadius:9,color:"#e0e0e0",fontSize:13,outline:"none"}}
-                />
-                <button
-                  onClick={()=>{ setNewCatCfg(p=>({...p,tipo})); addCat(tipo); }}
-                  style={{padding:"9px 16px",borderRadius:9,border:"none",cursor:"pointer",background:"linear-gradient(135deg,#00d4aa,#00a884)",color:"#fff",fontSize:12,fontWeight:700,display:"flex",alignItems:"center",gap:6,whiteSpace:"nowrap"}}>
-                  <Ic n="plus" size={13}/>Agregar
-                </button>
-              </div>
+              <CatInput tipo={tipo} onAdd={addCat} />
             </div>
           ))}
         </Card>
