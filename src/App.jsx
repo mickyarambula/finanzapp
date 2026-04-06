@@ -6849,363 +6849,302 @@ const Reports = ({ initialTab="balance" }) => {
       {/* ══════════════════════════════════════════════════════════
           TAB: ANÁLISIS — Categorías y Tags
       ══════════════════════════════════════════════════════════ */}
-      {tab==="analisis" && (() => {
-        const [subTab, setSubTab] = React.useState("categorias");
-
-        // ── datos del período ya filtrados (txsRango viene del scope de Reports)
-        const gastos  = txsRango.filter(t=>t.type==="expense");
-        const ingresos = txsRango.filter(t=>t.type==="income");
-        const totalGastos   = gastos.reduce((s,t)=>s+parseFloat(t.amount||0),0);
-        const totalIngresos = ingresos.reduce((s,t)=>s+parseFloat(t.amount||0),0);
-
-        // ── mes anterior para comparativo
-        const hoy = new Date();
-        const mesAnterior = new Date(hoy.getFullYear(), hoy.getMonth()-1, 1);
-        const mesAnteriorStr = mesAnterior.toISOString().split("T")[0].slice(0,7);
-        const txsMesAnt = transactions.filter(t=>t.date.slice(0,7)===mesAnteriorStr);
-        const gastosMesAnt = txsMesAnt.filter(t=>t.type==="expense");
-
-        // ══ DATOS CATEGORÍAS ══
-        const porCat = {};
-        gastos.forEach(t=>{
-          const c = t.category||"Sin categoría";
-          porCat[c]=(porCat[c]||0)+parseFloat(t.amount||0);
-        });
-        const porCatIngreso = {};
-        ingresos.forEach(t=>{
-          const c = t.category||"Sin categoría";
-          porCatIngreso[c]=(porCatIngreso[c]||0)+parseFloat(t.amount||0);
-        });
-        const porCatAnt = {};
-        gastosMesAnt.forEach(t=>{
-          const c = t.category||"Sin categoría";
-          porCatAnt[c]=(porCatAnt[c]||0)+parseFloat(t.amount||0);
-        });
-        const catGastosOrdenadas = Object.entries(porCat).sort((a,b)=>b[1]-a[1]);
-        const catIngresosOrdenadas = Object.entries(porCatIngreso).sort((a,b)=>b[1]-a[1]);
-        const maxCatGasto = catGastosOrdenadas[0]?.[1]||1;
-
-        // ══ DATOS TAGS ══
-        const porTag = {};
-        txsRango.forEach(t=>{
-          (t.tags||[]).forEach(tag=>{
-            if(!porTag[tag]) porTag[tag]={gasto:0,ingreso:0,count:0};
-            if(t.type==="expense") porTag[tag].gasto+=parseFloat(t.amount||0);
-            else porTag[tag].ingreso+=parseFloat(t.amount||0);
-            porTag[tag].count++;
-          });
-        });
-        const tagsOrdenados = Object.entries(porTag)
-          .map(([tag,d])=>({tag,gasto:d.gasto,ingreso:d.ingreso,neto:d.ingreso-d.gasto,count:d.count}))
-          .sort((a,b)=>b.gasto-a.gasto);
-        const maxTagGasto = tagsOrdenados[0]?.gasto||1;
-
-        // ── evolución mensual de tag seleccionado
-        const [tagSel, setTagSel] = React.useState("");
-        const meses6 = Array.from({length:6},(_,i)=>{
-          const d=new Date(hoy.getFullYear(),hoy.getMonth()-5+i,1);
-          return {str:d.toISOString().split("T")[0].slice(0,7), label:d.toLocaleDateString("es-MX",{month:"short",year:"2-digit"})};
-        });
-        const evolucionTag = tagSel ? meses6.map(m=>{
-          const txsM = transactions.filter(t=>t.date.slice(0,7)===m.str&&(t.tags||[]).includes(tagSel));
-          return {
-            label:m.label,
-            gasto: txsM.filter(t=>t.type==="expense").reduce((s,t)=>s+parseFloat(t.amount||0),0),
-            ingreso: txsM.filter(t=>t.type==="income").reduce((s,t)=>s+parseFloat(t.amount||0),0),
-          };
-        }) : [];
-        const maxEvo = evolucionTag.length ? Math.max(...evolucionTag.map(m=>Math.max(m.gasto,m.ingreso)),1) : 1;
-
-        // ── exportar categorías
-        const exportarCatExcelReports = () => {
-          const doExport = () => {
-            const XLSX=window.XLSX, wb=XLSX.utils.book_new();
-            const rowsG = catGastosOrdenadas.map(([cat,monto])=>({
-              Categoría:cat, Tipo:"Gasto",
-              Monto:monto,
-              "% del total": totalGastos>0?((monto/totalGastos)*100).toFixed(1)+"%":"",
-              "Mes anterior": porCatAnt[cat]||0,
-              "Δ vs mes ant": porCatAnt[cat] ? (((monto-porCatAnt[cat])/porCatAnt[cat])*100).toFixed(1)+"%" : "N/A",
-            }));
-            const rowsI = catIngresosOrdenadas.map(([cat,monto])=>({
-              Categoría:cat, Tipo:"Ingreso", Monto:monto,
-              "% del total": totalIngresos>0?((monto/totalIngresos)*100).toFixed(1)+"%":"",
-              "Mes anterior":"","Δ vs mes ant":"",
-            }));
-            const ws=XLSX.utils.json_to_sheet([...rowsG,...rowsI]);
-            ws["!cols"]=[{wch:25},{wch:10},{wch:14},{wch:14},{wch:14},{wch:14}];
-            XLSX.utils.book_append_sheet(wb,ws,"Categorías");
-            XLSX.writeFile(wb,`analisis_categorias_${new Date().toISOString().split("T")[0]}.xlsx`);
-          };
-          if(!window.XLSX){const s=document.createElement("script");s.src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";s.onload=doExport;document.head.appendChild(s);}
-          else doExport();
-        };
-
-        const exportarTagsExcelReports = () => {
-          const doExport = () => {
-            const XLSX=window.XLSX, wb=XLSX.utils.book_new();
-            const rows=tagsOrdenados.map(d=>({
-              Tag:"#"+d.tag, Gastos:d.gasto, Ingresos:d.ingreso, Neto:d.neto, Transacciones:d.count,
-            }));
-            const ws=XLSX.utils.json_to_sheet(rows);
-            ws["!cols"]=[{wch:20},{wch:14},{wch:14},{wch:14},{wch:14}];
-            XLSX.utils.book_append_sheet(wb,ws,"Tags");
-            XLSX.writeFile(wb,`analisis_tags_${new Date().toISOString().split("T")[0]}.xlsx`);
-          };
-          if(!window.XLSX){const s=document.createElement("script");s.src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";s.onload=doExport;document.head.appendChild(s);}
-          else doExport();
-        };
-
-        return (
-          <div style={{display:"flex",flexDirection:"column",gap:14}}>
-            {/* subtabs */}
-            <div style={{display:"flex",gap:4,background:"rgba(255,255,255,.03)",borderRadius:10,padding:4,width:"fit-content"}}>
-              {[["categorias","📂 Categorías"],["tags","🏷️ Tags"]].map(([id,label])=>(
-                <button key={id} onClick={()=>setSubTab(id)}
-                  style={{padding:"7px 18px",borderRadius:8,border:"none",cursor:"pointer",fontSize:12,fontWeight:600,
-                    background:subTab===id?"rgba(0,212,170,.15)":"transparent",
-                    color:subTab===id?"#00d4aa":"#666",transition:"all .15s"}}>
-                  {label}
-                </button>
-              ))}
-            </div>
-
-            {/* ── SUBTAB CATEGORÍAS ── */}
-            {subTab==="categorias" && (
-              <div style={{display:"flex",flexDirection:"column",gap:12}}>
-                {/* KPIs rápidos */}
-                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:10}}>
-                  {[
-                    ["Categorías con gasto",catGastosOrdenadas.length,"#ff4757"],
-                    ["Mayor gasto",catGastosOrdenadas[0]?catGastosOrdenadas[0][0]:"—","#f39c12",true],
-                    ["Categorías con ingreso",catIngresosOrdenadas.length,"#00d4aa"],
-                    ["Mayor ingreso",catIngresosOrdenadas[0]?catIngresosOrdenadas[0][0]:"—","#00d4aa",true],
-                  ].map(([l,v,c,isText])=>(
-                    <Card key={l} style={{padding:"12px 14px"}}>
-                      <p style={{fontSize:9,color:"#555",textTransform:"uppercase",letterSpacing:.5,margin:"0 0 4px"}}>{l}</p>
-                      <p style={{fontSize:isText?13:18,fontWeight:800,color:c,margin:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{v}</p>
-                    </Card>
-                  ))}
-                </div>
-
-                {/* Gastos por categoría */}
-                <Card style={{padding:0,overflow:"hidden"}}>
-                  <div style={{padding:"12px 16px 10px",borderBottom:"1px solid rgba(255,255,255,.05)",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                    <p style={{fontSize:13,fontWeight:700,color:"#f0f0f0",margin:0}}>🔴 Gastos por categoría</p>
-                    <button onClick={exportarCatExcelReports}
-                      style={{padding:"4px 12px",borderRadius:7,border:"1px solid rgba(0,212,170,.25)",background:"rgba(0,212,170,.07)",
-                        color:"#00d4aa",cursor:"pointer",fontSize:11,fontWeight:700,display:"flex",alignItems:"center",gap:4}}>
-                      <Ic n="download" size={11} color="#00d4aa"/> Exportar Excel
-                    </button>
-                  </div>
-                  {catGastosOrdenadas.length===0
-                    ? <p style={{padding:20,textAlign:"center",color:"#444",fontSize:13}}>Sin gastos en este período</p>
-                    : catGastosOrdenadas.map(([cat,monto])=>{
-                        const pct = totalGastos>0?(monto/totalGastos*100):0;
-                        const ant = porCatAnt[cat]||0;
-                        const delta = ant>0?((monto-ant)/ant*100):null;
-                        return (
-                          <div key={cat} style={{padding:"10px 16px",borderBottom:"1px solid rgba(255,255,255,.03)"}}>
-                            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:5}}>
-                              <div style={{display:"flex",alignItems:"center",gap:8}}>
-                                <span style={{fontSize:12,fontWeight:600,color:"#ddd"}}>{cat}</span>
-                                {delta!==null && (
-                                  <span style={{fontSize:10,fontWeight:700,color:delta>0?"#ff4757":"#00d4aa",
-                                    background:delta>0?"rgba(255,71,87,.1)":"rgba(0,212,170,.1)",
-                                    borderRadius:10,padding:"1px 7px"}}>
-                                    {delta>0?"↑":"↓"}{Math.abs(delta).toFixed(1)}%
-                                  </span>
-                                )}
-                              </div>
-                              <div style={{display:"flex",alignItems:"center",gap:10}}>
-                                {ant>0 && <span style={{fontSize:10,color:"#444"}}>ant: {fmt(ant)}</span>}
-                                <span style={{fontSize:13,fontWeight:700,color:"#ff6b7a"}}>{fmt(monto)}</span>
-                                <span style={{fontSize:10,color:"#444",width:34,textAlign:"right"}}>{pct.toFixed(1)}%</span>
-                              </div>
-                            </div>
-                            <div style={{height:5,borderRadius:4,background:"rgba(255,255,255,.06)",overflow:"hidden"}}>
-                              <div style={{height:"100%",borderRadius:4,width:`${(monto/maxCatGasto*100).toFixed(1)}%`,
-                                background:"linear-gradient(90deg,#ff4757,#ff6b7a)",transition:"width .4s ease"}}/>
-                            </div>
-                          </div>
-                        );
-                      })
-                  }
-                </Card>
-
-                {/* Ingresos por categoría */}
-                {catIngresosOrdenadas.length>0 && (
-                  <Card style={{padding:0,overflow:"hidden"}}>
-                    <div style={{padding:"12px 16px 10px",borderBottom:"1px solid rgba(255,255,255,.05)"}}>
-                      <p style={{fontSize:13,fontWeight:700,color:"#f0f0f0",margin:0}}>💚 Ingresos por categoría</p>
-                    </div>
-                    {catIngresosOrdenadas.map(([cat,monto])=>{
-                      const maxI = catIngresosOrdenadas[0][1]||1;
-                      const pct = totalIngresos>0?(monto/totalIngresos*100):0;
-                      return (
-                        <div key={cat} style={{padding:"10px 16px",borderBottom:"1px solid rgba(255,255,255,.03)"}}>
-                          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:5}}>
-                            <span style={{fontSize:12,fontWeight:600,color:"#ddd"}}>{cat}</span>
-                            <div style={{display:"flex",alignItems:"center",gap:10}}>
-                              <span style={{fontSize:13,fontWeight:700,color:"#00d4aa"}}>{fmt(monto)}</span>
-                              <span style={{fontSize:10,color:"#444",width:34,textAlign:"right"}}>{pct.toFixed(1)}%</span>
-                            </div>
-                          </div>
-                          <div style={{height:5,borderRadius:4,background:"rgba(255,255,255,.06)",overflow:"hidden"}}>
-                            <div style={{height:"100%",borderRadius:4,width:`${(monto/maxI*100).toFixed(1)}%`,
-                              background:"linear-gradient(90deg,#00d4aa,#00a884)",transition:"width .4s ease"}}/>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </Card>
-                )}
-              </div>
-            )}
-
-            {/* ── SUBTAB TAGS ── */}
-            {subTab==="tags" && (
-              <div style={{display:"flex",flexDirection:"column",gap:12}}>
-                {tagsOrdenados.length===0
-                  ? (
-                    <Card style={{padding:32,textAlign:"center"}}>
-                      <p style={{fontSize:32,margin:"0 0 8px"}}>🏷️</p>
-                      <p style={{fontSize:14,fontWeight:700,color:"#e0e0e0",margin:"0 0 4px"}}>Sin tags en este período</p>
-                      <p style={{fontSize:12,color:"#555",margin:0}}>Agrega tags (#nombre) a tus transacciones para verlos aquí</p>
-                    </Card>
-                  ) : (
-                  <>
-                    {/* KPIs */}
-                    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:10}}>
-                      {[
-                        ["Tags activos",tagsOrdenados.length,"#a78bfa"],
-                        ["Mayor gasto","#"+tagsOrdenados[0]?.tag,"#ff4757",true],
-                        ["Total etiquetado",fmt(tagsOrdenados.reduce((s,d)=>s+d.gasto+d.ingreso,0)),"#3b82f6"],
-                        ["Transacciones",tagsOrdenados.reduce((s,d)=>s+d.count,0),"#00d4aa"],
-                      ].map(([l,v,c,isSmall])=>(
-                        <Card key={l} style={{padding:"12px 14px"}}>
-                          <p style={{fontSize:9,color:"#555",textTransform:"uppercase",letterSpacing:.5,margin:"0 0 4px"}}>{l}</p>
-                          <p style={{fontSize:isSmall?13:18,fontWeight:800,color:c,margin:0}}>{v}</p>
-                        </Card>
-                      ))}
-                    </div>
-
-                    {/* Gráfica de barras top tags */}
-                    <Card style={{padding:0,overflow:"hidden"}}>
-                      <div style={{padding:"12px 16px 10px",borderBottom:"1px solid rgba(255,255,255,.05)",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                        <p style={{fontSize:13,fontWeight:700,color:"#f0f0f0",margin:0}}>Gasto por tag</p>
-                        <button onClick={exportarTagsExcelReports}
-                          style={{padding:"4px 12px",borderRadius:7,border:"1px solid rgba(167,139,250,.25)",background:"rgba(167,139,250,.07)",
-                            color:"#a78bfa",cursor:"pointer",fontSize:11,fontWeight:700,display:"flex",alignItems:"center",gap:4}}>
-                          <Ic n="download" size={11} color="#a78bfa"/> Exportar Excel
-                        </button>
-                      </div>
-                      {tagsOrdenados.slice(0,10).map(d=>{
-                        const pct = d.gasto/maxTagGasto*100;
-                        return (
-                          <div key={d.tag} style={{padding:"9px 16px",borderBottom:"1px solid rgba(255,255,255,.03)"}}>
-                            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:5}}>
-                              <span style={{fontSize:12,fontWeight:700,color:"#a78bfa"}}>#{d.tag}</span>
-                              <div style={{display:"flex",gap:14,alignItems:"center"}}>
-                                {d.ingreso>0&&<span style={{fontSize:11,color:"#00d4aa"}}>+{fmt(d.ingreso)}</span>}
-                                {d.gasto>0&&<span style={{fontSize:12,fontWeight:700,color:"#ff6b7a"}}>{fmt(d.gasto)}</span>}
-                                <span style={{fontSize:10,color:"#444"}}>{d.count} tx</span>
-                              </div>
-                            </div>
-                            <div style={{height:5,borderRadius:4,background:"rgba(255,255,255,.06)",overflow:"hidden"}}>
-                              <div style={{height:"100%",borderRadius:4,width:`${pct.toFixed(1)}%`,
-                                background:"linear-gradient(90deg,#a78bfa,#7c3aed)",transition:"width .4s ease"}}/>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </Card>
-
-                    {/* Tabla completa */}
-                    <Card style={{padding:0,overflow:"hidden"}}>
-                      <div style={{padding:"12px 16px 10px",borderBottom:"1px solid rgba(255,255,255,.05)"}}>
-                        <p style={{fontSize:13,fontWeight:700,color:"#f0f0f0",margin:0}}>Tabla completa de tags</p>
-                      </div>
-                      <div style={{overflowX:"auto"}}>
-                        <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
-                          <thead>
-                            <tr style={{background:"rgba(255,255,255,.03)"}}>
-                              {["Tag","Gastos","Ingresos","Neto","Txs"].map(h=>(
-                                <th key={h} style={{padding:"8px 16px",textAlign:h==="Tag"?"left":"right",
-                                  fontSize:10,fontWeight:700,color:"#555",textTransform:"uppercase",letterSpacing:.4,
-                                  borderBottom:"1px solid rgba(255,255,255,.05)"}}>{h}</th>
-                              ))}
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {tagsOrdenados.map((d,i)=>(
-                              <tr key={d.tag} onClick={()=>setTagSel(d.tag===tagSel?"":d.tag)}
-                                style={{cursor:"pointer",background:tagSel===d.tag?"rgba(167,139,250,.08)":i%2===0?"transparent":"rgba(255,255,255,.015)",
-                                  transition:"background .1s"}}
-                                onMouseEnter={e=>e.currentTarget.style.background="rgba(167,139,250,.06)"}
-                                onMouseLeave={e=>e.currentTarget.style.background=tagSel===d.tag?"rgba(167,139,250,.08)":i%2===0?"transparent":"rgba(255,255,255,.015)"}>
-                                <td style={{padding:"9px 16px",fontWeight:700,color:"#a78bfa"}}>#{d.tag}</td>
-                                <td style={{padding:"9px 16px",textAlign:"right",color:"#ff6b7a"}}>{d.gasto>0?fmt(d.gasto):"—"}</td>
-                                <td style={{padding:"9px 16px",textAlign:"right",color:"#00d4aa"}}>{d.ingreso>0?fmt(d.ingreso):"—"}</td>
-                                <td style={{padding:"9px 16px",textAlign:"right",fontWeight:700,color:d.neto>=0?"#00d4aa":"#ff4757"}}>{d.neto>=0?"+":""}{fmt(d.neto)}</td>
-                                <td style={{padding:"9px 16px",textAlign:"right",color:"#555"}}>{d.count}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                      {tagSel && <p style={{fontSize:10,color:"#555",padding:"6px 16px",margin:0,borderTop:"1px solid rgba(255,255,255,.04)"}}>
-                        Click en una fila para ver su evolución mensual ↓
-                      </p>}
-                    </Card>
-
-                    {/* Evolución mensual del tag seleccionado */}
-                    {tagSel && (
-                      <Card style={{padding:0,overflow:"hidden"}}>
-                        <div style={{padding:"12px 16px 10px",borderBottom:"1px solid rgba(255,255,255,.05)",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                          <p style={{fontSize:13,fontWeight:700,color:"#a78bfa",margin:0}}>
-                            Evolución mensual · <span style={{fontWeight:800}}>#{tagSel}</span>
-                          </p>
-                          <button onClick={()=>setTagSel("")}
-                            style={{background:"none",border:"none",cursor:"pointer",color:"#555",fontSize:11}}>✕ cerrar</button>
-                        </div>
-                        <div style={{padding:"16px",display:"flex",gap:6,alignItems:"flex-end",height:130}}>
-                          {evolucionTag.map((m,i)=>{
-                            const hG = m.gasto>0?(m.gasto/maxEvo*90):0;
-                            const hI = m.ingreso>0?(m.ingreso/maxEvo*90):0;
-                            return (
-                              <div key={i} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:2}}>
-                                <div style={{display:"flex",gap:2,alignItems:"flex-end",height:100}}>
-                                  {m.gasto>0&&<div style={{width:10,height:`${hG}px`,background:"#ff4757",borderRadius:"3px 3px 0 0",transition:"height .4s"}} title={fmt(m.gasto)}/>}
-                                  {m.ingreso>0&&<div style={{width:10,height:`${hI}px`,background:"#00d4aa",borderRadius:"3px 3px 0 0",transition:"height .4s"}} title={fmt(m.ingreso)}/>}
-                                  {m.gasto===0&&m.ingreso===0&&<div style={{width:10,height:3,background:"rgba(255,255,255,.1)",borderRadius:3}}/>}
-                                </div>
-                                <span style={{fontSize:9,color:"#444"}}>{m.label}</span>
-                              </div>
-                            );
-                          })}
-                        </div>
-                        <div style={{padding:"0 16px 12px",display:"flex",gap:14}}>
-                          <span style={{fontSize:10,color:"#ff6b7a",display:"flex",alignItems:"center",gap:4}}>
-                            <span style={{width:8,height:8,borderRadius:2,background:"#ff4757",display:"inline-block"}}/>Gasto
-                          </span>
-                          <span style={{fontSize:10,color:"#00d4aa",display:"flex",alignItems:"center",gap:4}}>
-                            <span style={{width:8,height:8,borderRadius:2,background:"#00d4aa",display:"inline-block"}}/>Ingreso
-                          </span>
-                        </div>
-                      </Card>
-                    )}
-                  </>
-                )}
-              </div>
-            )}
-          </div>
-        );
-      })()}
+      {tab==="analisis" && (
+        <AnalisisTab txsRango={txsRango} transactions={transactions} accounts={accounts} />
+      )}
     </div>
   );
 };
 
+
+// ─── SUBCOMPONENTE: ANÁLISIS DE CATEGORÍAS Y TAGS ────────────────────────────
+const AnalisisTab = ({ txsRango, transactions, accounts }) => {
+  const [subTab, setSubTab] = useState("categorias");
+  const [tagSel, setTagSel] = useState("");
+
+  const gastos   = txsRango.filter(t=>t.type==="expense");
+  const ingresos = txsRango.filter(t=>t.type==="income");
+  const totalGastos   = gastos.reduce((s,t)=>s+parseFloat(t.amount||0),0);
+  const totalIngresos = ingresos.reduce((s,t)=>s+parseFloat(t.amount||0),0);
+
+  const hoy = new Date();
+  const mesAnteriorStr = new Date(hoy.getFullYear(),hoy.getMonth()-1,1).toISOString().split("T")[0].slice(0,7);
+  const gastosMesAnt = transactions.filter(t=>t.date.slice(0,7)===mesAnteriorStr&&t.type==="expense");
+
+  // ── categorías
+  const porCat={}, porCatIngreso={}, porCatAnt={};
+  gastos.forEach(t=>{ const c=t.category||"Sin categoría"; porCat[c]=(porCat[c]||0)+parseFloat(t.amount||0); });
+  ingresos.forEach(t=>{ const c=t.category||"Sin categoría"; porCatIngreso[c]=(porCatIngreso[c]||0)+parseFloat(t.amount||0); });
+  gastosMesAnt.forEach(t=>{ const c=t.category||"Sin categoría"; porCatAnt[c]=(porCatAnt[c]||0)+parseFloat(t.amount||0); });
+  const catGastosOrdenadas = Object.entries(porCat).sort((a,b)=>b[1]-a[1]);
+  const catIngresosOrdenadas = Object.entries(porCatIngreso).sort((a,b)=>b[1]-a[1]);
+  const maxCatGasto = catGastosOrdenadas[0]?.[1]||1;
+
+  // ── tags
+  const porTag={};
+  txsRango.forEach(t=>{
+    (t.tags||[]).forEach(tag=>{
+      if(!porTag[tag]) porTag[tag]={gasto:0,ingreso:0,count:0};
+      if(t.type==="expense") porTag[tag].gasto+=parseFloat(t.amount||0);
+      else porTag[tag].ingreso+=parseFloat(t.amount||0);
+      porTag[tag].count++;
+    });
+  });
+  const tagsOrdenados = Object.entries(porTag)
+    .map(([tag,d])=>({tag,gasto:d.gasto,ingreso:d.ingreso,neto:d.ingreso-d.gasto,count:d.count}))
+    .sort((a,b)=>b.gasto-a.gasto);
+  const maxTagGasto = tagsOrdenados[0]?.gasto||1;
+
+  // ── evolución mensual tag
+  const meses6 = Array.from({length:6},(_,i)=>{
+    const d=new Date(hoy.getFullYear(),hoy.getMonth()-5+i,1);
+    return {str:d.toISOString().split("T")[0].slice(0,7), label:d.toLocaleDateString("es-MX",{month:"short",year:"2-digit"})};
+  });
+  const evolucionTag = tagSel ? meses6.map(m=>{
+    const txsM=transactions.filter(t=>t.date.slice(0,7)===m.str&&(t.tags||[]).includes(tagSel));
+    return { label:m.label, gasto:txsM.filter(t=>t.type==="expense").reduce((s,t)=>s+parseFloat(t.amount||0),0), ingreso:txsM.filter(t=>t.type==="income").reduce((s,t)=>s+parseFloat(t.amount||0),0) };
+  }) : [];
+  const maxEvo = evolucionTag.length ? Math.max(...evolucionTag.map(m=>Math.max(m.gasto,m.ingreso)),1) : 1;
+
+  // ── exportar
+  const exportarCatExcelReports = () => {
+    const doExport = () => {
+      const XLSX=window.XLSX, wb=XLSX.utils.book_new();
+      const rowsG=catGastosOrdenadas.map(([cat,monto])=>({ Categoría:cat, Tipo:"Gasto", Monto:monto, "% del total":totalGastos>0?((monto/totalGastos)*100).toFixed(1)+"%":"", "Mes anterior":porCatAnt[cat]||0, "Δ vs mes ant":porCatAnt[cat]?(((monto-porCatAnt[cat])/porCatAnt[cat])*100).toFixed(1)+"%":"N/A" }));
+      const rowsI=catIngresosOrdenadas.map(([cat,monto])=>({ Categoría:cat, Tipo:"Ingreso", Monto:monto, "% del total":totalIngresos>0?((monto/totalIngresos)*100).toFixed(1)+"%":"", "Mes anterior":"","Δ vs mes ant":"" }));
+      const ws=XLSX.utils.json_to_sheet([...rowsG,...rowsI]);
+      ws["!cols"]=[{wch:25},{wch:10},{wch:14},{wch:14},{wch:14},{wch:14}];
+      XLSX.utils.book_append_sheet(wb,ws,"Categorías");
+      XLSX.writeFile(wb,`analisis_categorias_${new Date().toISOString().split("T")[0]}.xlsx`);
+    };
+    if(!window.XLSX){const s=document.createElement("script");s.src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";s.onload=doExport;document.head.appendChild(s);} else doExport();
+  };
+  const exportarTagsExcelReports = () => {
+    const doExport = () => {
+      const XLSX=window.XLSX, wb=XLSX.utils.book_new();
+      const rows=tagsOrdenados.map(d=>({ Tag:"#"+d.tag, Gastos:d.gasto, Ingresos:d.ingreso, Neto:d.neto, Transacciones:d.count }));
+      const ws=XLSX.utils.json_to_sheet(rows);
+      ws["!cols"]=[{wch:20},{wch:14},{wch:14},{wch:14},{wch:14}];
+      XLSX.utils.book_append_sheet(wb,ws,"Tags");
+      XLSX.writeFile(wb,`analisis_tags_${new Date().toISOString().split("T")[0]}.xlsx`);
+    };
+    if(!window.XLSX){const s=document.createElement("script");s.src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";s.onload=doExport;document.head.appendChild(s);} else doExport();
+  };
+
+  return (
+    <div style={{display:"flex",flexDirection:"column",gap:14}}>
+      {/* subtabs */}
+      <div style={{display:"flex",gap:4,background:"rgba(255,255,255,.03)",borderRadius:10,padding:4,width:"fit-content"}}>
+        {[["categorias","📂 Categorías"],["tags","🏷️ Tags"]].map(([id,label])=>(
+          <button key={id} onClick={()=>setSubTab(id)}
+            style={{padding:"7px 18px",borderRadius:8,border:"none",cursor:"pointer",fontSize:12,fontWeight:600,
+              background:subTab===id?"rgba(0,212,170,.15)":"transparent",
+              color:subTab===id?"#00d4aa":"#666",transition:"all .15s"}}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {/* ── SUBTAB CATEGORÍAS ── */}
+      {subTab==="categorias" && (
+        <div style={{display:"flex",flexDirection:"column",gap:12}}>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:10}}>
+            {[
+              ["Categorías con gasto",catGastosOrdenadas.length,"#ff4757"],
+              ["Mayor gasto",catGastosOrdenadas[0]?catGastosOrdenadas[0][0]:"—","#f39c12",true],
+              ["Categorías con ingreso",catIngresosOrdenadas.length,"#00d4aa"],
+              ["Mayor ingreso",catIngresosOrdenadas[0]?catIngresosOrdenadas[0][0]:"—","#00d4aa",true],
+            ].map(([l,v,c,isText])=>(
+              <Card key={l} style={{padding:"12px 14px"}}>
+                <p style={{fontSize:9,color:"#555",textTransform:"uppercase",letterSpacing:.5,margin:"0 0 4px"}}>{l}</p>
+                <p style={{fontSize:isText?13:18,fontWeight:800,color:c,margin:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{v}</p>
+              </Card>
+            ))}
+          </div>
+          <Card style={{padding:0,overflow:"hidden"}}>
+            <div style={{padding:"12px 16px 10px",borderBottom:"1px solid rgba(255,255,255,.05)",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <p style={{fontSize:13,fontWeight:700,color:"#f0f0f0",margin:0}}>🔴 Gastos por categoría</p>
+              <button onClick={exportarCatExcelReports}
+                style={{padding:"4px 12px",borderRadius:7,border:"1px solid rgba(0,212,170,.25)",background:"rgba(0,212,170,.07)",color:"#00d4aa",cursor:"pointer",fontSize:11,fontWeight:700,display:"flex",alignItems:"center",gap:4}}>
+                <Ic n="download" size={11} color="#00d4aa"/> Exportar Excel
+              </button>
+            </div>
+            {catGastosOrdenadas.length===0
+              ? <p style={{padding:20,textAlign:"center",color:"#444",fontSize:13}}>Sin gastos en este período</p>
+              : catGastosOrdenadas.map(([cat,monto])=>{
+                  const pct=totalGastos>0?(monto/totalGastos*100):0;
+                  const ant=porCatAnt[cat]||0;
+                  const delta=ant>0?((monto-ant)/ant*100):null;
+                  return (
+                    <div key={cat} style={{padding:"10px 16px",borderBottom:"1px solid rgba(255,255,255,.03)"}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:5}}>
+                        <div style={{display:"flex",alignItems:"center",gap:8}}>
+                          <span style={{fontSize:12,fontWeight:600,color:"#ddd"}}>{cat}</span>
+                          {delta!==null&&(
+                            <span style={{fontSize:10,fontWeight:700,color:delta>0?"#ff4757":"#00d4aa",background:delta>0?"rgba(255,71,87,.1)":"rgba(0,212,170,.1)",borderRadius:10,padding:"1px 7px"}}>
+                              {delta>0?"↑":"↓"}{Math.abs(delta).toFixed(1)}%
+                            </span>
+                          )}
+                        </div>
+                        <div style={{display:"flex",alignItems:"center",gap:10}}>
+                          {ant>0&&<span style={{fontSize:10,color:"#444"}}>ant: {fmt(ant)}</span>}
+                          <span style={{fontSize:13,fontWeight:700,color:"#ff6b7a"}}>{fmt(monto)}</span>
+                          <span style={{fontSize:10,color:"#444",width:34,textAlign:"right"}}>{pct.toFixed(1)}%</span>
+                        </div>
+                      </div>
+                      <div style={{height:5,borderRadius:4,background:"rgba(255,255,255,.06)",overflow:"hidden"}}>
+                        <div style={{height:"100%",borderRadius:4,width:`${(monto/maxCatGasto*100).toFixed(1)}%`,background:"linear-gradient(90deg,#ff4757,#ff6b7a)",transition:"width .4s ease"}}/>
+                      </div>
+                    </div>
+                  );
+                })
+            }
+          </Card>
+          {catIngresosOrdenadas.length>0&&(
+            <Card style={{padding:0,overflow:"hidden"}}>
+              <div style={{padding:"12px 16px 10px",borderBottom:"1px solid rgba(255,255,255,.05)"}}>
+                <p style={{fontSize:13,fontWeight:700,color:"#f0f0f0",margin:0}}>💚 Ingresos por categoría</p>
+              </div>
+              {catIngresosOrdenadas.map(([cat,monto])=>{
+                const maxI=catIngresosOrdenadas[0][1]||1;
+                const pct=totalIngresos>0?(monto/totalIngresos*100):0;
+                return (
+                  <div key={cat} style={{padding:"10px 16px",borderBottom:"1px solid rgba(255,255,255,.03)"}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:5}}>
+                      <span style={{fontSize:12,fontWeight:600,color:"#ddd"}}>{cat}</span>
+                      <div style={{display:"flex",alignItems:"center",gap:10}}>
+                        <span style={{fontSize:13,fontWeight:700,color:"#00d4aa"}}>{fmt(monto)}</span>
+                        <span style={{fontSize:10,color:"#444",width:34,textAlign:"right"}}>{pct.toFixed(1)}%</span>
+                      </div>
+                    </div>
+                    <div style={{height:5,borderRadius:4,background:"rgba(255,255,255,.06)",overflow:"hidden"}}>
+                      <div style={{height:"100%",borderRadius:4,width:`${(monto/maxI*100).toFixed(1)}%`,background:"linear-gradient(90deg,#00d4aa,#00a884)",transition:"width .4s ease"}}/>
+                    </div>
+                  </div>
+                );
+              })}
+            </Card>
+          )}
+        </div>
+      )}
+
+      {/* ── SUBTAB TAGS ── */}
+      {subTab==="tags" && (
+        <div style={{display:"flex",flexDirection:"column",gap:12}}>
+          {tagsOrdenados.length===0 ? (
+            <Card style={{padding:32,textAlign:"center"}}>
+              <p style={{fontSize:32,margin:"0 0 8px"}}>🏷️</p>
+              <p style={{fontSize:14,fontWeight:700,color:"#e0e0e0",margin:"0 0 4px"}}>Sin tags en este período</p>
+              <p style={{fontSize:12,color:"#555",margin:0}}>Agrega tags (#nombre) a tus transacciones para verlos aquí</p>
+            </Card>
+          ) : (
+            <>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:10}}>
+                {[
+                  ["Tags activos",tagsOrdenados.length,"#a78bfa"],
+                  ["Mayor gasto","#"+tagsOrdenados[0]?.tag,"#ff4757",true],
+                  ["Total etiquetado",fmt(tagsOrdenados.reduce((s,d)=>s+d.gasto+d.ingreso,0)),"#3b82f6"],
+                  ["Transacciones",tagsOrdenados.reduce((s,d)=>s+d.count,0),"#00d4aa"],
+                ].map(([l,v,c,isSmall])=>(
+                  <Card key={l} style={{padding:"12px 14px"}}>
+                    <p style={{fontSize:9,color:"#555",textTransform:"uppercase",letterSpacing:.5,margin:"0 0 4px"}}>{l}</p>
+                    <p style={{fontSize:isSmall?13:18,fontWeight:800,color:c,margin:0}}>{v}</p>
+                  </Card>
+                ))}
+              </div>
+              <Card style={{padding:0,overflow:"hidden"}}>
+                <div style={{padding:"12px 16px 10px",borderBottom:"1px solid rgba(255,255,255,.05)",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <p style={{fontSize:13,fontWeight:700,color:"#f0f0f0",margin:0}}>Gasto por tag</p>
+                  <button onClick={exportarTagsExcelReports}
+                    style={{padding:"4px 12px",borderRadius:7,border:"1px solid rgba(167,139,250,.25)",background:"rgba(167,139,250,.07)",color:"#a78bfa",cursor:"pointer",fontSize:11,fontWeight:700,display:"flex",alignItems:"center",gap:4}}>
+                    <Ic n="download" size={11} color="#a78bfa"/> Exportar Excel
+                  </button>
+                </div>
+                {tagsOrdenados.slice(0,10).map(d=>{
+                  const pct=d.gasto/maxTagGasto*100;
+                  return (
+                    <div key={d.tag} style={{padding:"9px 16px",borderBottom:"1px solid rgba(255,255,255,.03)"}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:5}}>
+                        <span style={{fontSize:12,fontWeight:700,color:"#a78bfa"}}>#{d.tag}</span>
+                        <div style={{display:"flex",gap:14,alignItems:"center"}}>
+                          {d.ingreso>0&&<span style={{fontSize:11,color:"#00d4aa"}}>+{fmt(d.ingreso)}</span>}
+                          {d.gasto>0&&<span style={{fontSize:12,fontWeight:700,color:"#ff6b7a"}}>{fmt(d.gasto)}</span>}
+                          <span style={{fontSize:10,color:"#444"}}>{d.count} tx</span>
+                        </div>
+                      </div>
+                      <div style={{height:5,borderRadius:4,background:"rgba(255,255,255,.06)",overflow:"hidden"}}>
+                        <div style={{height:"100%",borderRadius:4,width:`${pct.toFixed(1)}%`,background:"linear-gradient(90deg,#a78bfa,#7c3aed)",transition:"width .4s ease"}}/>
+                      </div>
+                    </div>
+                  );
+                })}
+              </Card>
+              <Card style={{padding:0,overflow:"hidden"}}>
+                <div style={{padding:"12px 16px 10px",borderBottom:"1px solid rgba(255,255,255,.05)"}}>
+                  <p style={{fontSize:13,fontWeight:700,color:"#f0f0f0",margin:0}}>Tabla completa de tags</p>
+                </div>
+                <div style={{overflowX:"auto"}}>
+                  <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                    <thead>
+                      <tr style={{background:"rgba(255,255,255,.03)"}}>
+                        {["Tag","Gastos","Ingresos","Neto","Txs"].map(h=>(
+                          <th key={h} style={{padding:"8px 16px",textAlign:h==="Tag"?"left":"right",fontSize:10,fontWeight:700,color:"#555",textTransform:"uppercase",letterSpacing:.4,borderBottom:"1px solid rgba(255,255,255,.05)"}}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {tagsOrdenados.map((d,i)=>(
+                        <tr key={d.tag} onClick={()=>setTagSel(d.tag===tagSel?"":d.tag)}
+                          style={{cursor:"pointer",background:tagSel===d.tag?"rgba(167,139,250,.08)":i%2===0?"transparent":"rgba(255,255,255,.015)",transition:"background .1s"}}
+                          onMouseEnter={e=>e.currentTarget.style.background="rgba(167,139,250,.06)"}
+                          onMouseLeave={e=>e.currentTarget.style.background=tagSel===d.tag?"rgba(167,139,250,.08)":i%2===0?"transparent":"rgba(255,255,255,.015)"}>
+                          <td style={{padding:"9px 16px",fontWeight:700,color:"#a78bfa"}}>#{d.tag}</td>
+                          <td style={{padding:"9px 16px",textAlign:"right",color:"#ff6b7a"}}>{d.gasto>0?fmt(d.gasto):"—"}</td>
+                          <td style={{padding:"9px 16px",textAlign:"right",color:"#00d4aa"}}>{d.ingreso>0?fmt(d.ingreso):"—"}</td>
+                          <td style={{padding:"9px 16px",textAlign:"right",fontWeight:700,color:d.neto>=0?"#00d4aa":"#ff4757"}}>{d.neto>=0?"+":""}{fmt(d.neto)}</td>
+                          <td style={{padding:"9px 16px",textAlign:"right",color:"#555"}}>{d.count}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {tagSel&&<p style={{fontSize:10,color:"#555",padding:"6px 16px",margin:0,borderTop:"1px solid rgba(255,255,255,.04)"}}>Click en otra fila para cambiar · click de nuevo para cerrar ↓</p>}
+              </Card>
+              {tagSel&&(
+                <Card style={{padding:0,overflow:"hidden"}}>
+                  <div style={{padding:"12px 16px 10px",borderBottom:"1px solid rgba(255,255,255,.05)",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                    <p style={{fontSize:13,fontWeight:700,color:"#a78bfa",margin:0}}>Evolución mensual · <span style={{fontWeight:800}}>#{tagSel}</span></p>
+                    <button onClick={()=>setTagSel("")} style={{background:"none",border:"none",cursor:"pointer",color:"#555",fontSize:11}}>✕ cerrar</button>
+                  </div>
+                  <div style={{padding:"16px",display:"flex",gap:6,alignItems:"flex-end",height:130}}>
+                    {evolucionTag.map((m,i)=>{
+                      const hG=m.gasto>0?(m.gasto/maxEvo*90):0;
+                      const hI=m.ingreso>0?(m.ingreso/maxEvo*90):0;
+                      return (
+                        <div key={i} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:2}}>
+                          <div style={{display:"flex",gap:2,alignItems:"flex-end",height:100}}>
+                            {m.gasto>0&&<div style={{width:10,height:`${hG}px`,background:"#ff4757",borderRadius:"3px 3px 0 0",transition:"height .4s"}} title={fmt(m.gasto)}/>}
+                            {m.ingreso>0&&<div style={{width:10,height:`${hI}px`,background:"#00d4aa",borderRadius:"3px 3px 0 0",transition:"height .4s"}} title={fmt(m.ingreso)}/>}
+                            {m.gasto===0&&m.ingreso===0&&<div style={{width:10,height:3,background:"rgba(255,255,255,.1)",borderRadius:3}}/>}
+                          </div>
+                          <span style={{fontSize:9,color:"#444"}}>{m.label}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div style={{padding:"0 16px 12px",display:"flex",gap:14}}>
+                    <span style={{fontSize:10,color:"#ff6b7a",display:"flex",alignItems:"center",gap:4}}><span style={{width:8,height:8,borderRadius:2,background:"#ff4757",display:"inline-block"}}/>Gasto</span>
+                    <span style={{fontSize:10,color:"#00d4aa",display:"flex",alignItems:"center",gap:4}}><span style={{width:8,height:8,borderRadius:2,background:"#00d4aa",display:"inline-block"}}/>Ingreso</span>
+                  </div>
+                </Card>
+              )}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
 
 // ─── SUBCOMPONENTE: INPUT DE CATEGORÍA (aislado para evitar pérdida de foco) ──
 const CatInput = ({ tipo, onAdd }) => {
