@@ -3465,6 +3465,95 @@ const Transactions = ({ initialDate=null, initialAccount="" }) => {
           </div>
         );
       })()}
+      {/* ── Panel resumen de CATEGORÍA */}
+      {search && !search.startsWith("#") && search.length>0 && (()=>{
+        const catQ = search.toLowerCase().trim();
+        // Verificar si el resultado principal es por categoría
+        const txsPorCat = transactions.filter(t=>
+          t.category?.toLowerCase().includes(catQ) &&
+          !((t.tags||[]).some(tag=>tag.toLowerCase().includes(catQ)))
+        );
+        if (txsPorCat.length < 2) return null; // solo mostrar si hay suficientes resultados
+        // Filtrar por rango de fechas si está activo
+        const txsFiltradas = txsPorCat.filter(t=>{
+          if (dateFrom && t.date < dateFrom) return false;
+          if (dateTo && t.date > dateTo) return false;
+          return true;
+        });
+        if (txsFiltradas.length === 0) return null;
+        const totalGastado = txsFiltradas.filter(t=>t.type==="expense").reduce((s,t)=>s+parseFloat(t.amount||0),0);
+        const totalIngresado = txsFiltradas.filter(t=>t.type==="income").reduce((s,t)=>s+parseFloat(t.amount||0),0);
+        const neto = totalIngresado - totalGastado;
+        const fechas = txsFiltradas.map(t=>t.date).sort();
+        const catLabel = txsFiltradas[0]?.category || search;
+        return (
+          <div style={{marginBottom:16,borderRadius:13,border:"1px solid rgba(59,130,246,.25)",background:"rgba(59,130,246,.06)",overflow:"hidden"}}>
+            <div style={{padding:"12px 16px 10px",borderBottom:"1px solid rgba(59,130,246,.15)",display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
+              <div style={{display:"flex",alignItems:"center",gap:8}}>
+                <span style={{fontSize:16,fontWeight:800,color:"#60a5fa",background:"rgba(59,130,246,.15)",borderRadius:20,padding:"3px 12px"}}>{catLabel}</span>
+                <span style={{fontSize:12,color:"#555"}}>{txsFiltradas.length} transacción{txsFiltradas.length!==1?"es":""}</span>
+                <span style={{fontSize:11,color:"#444"}}>· {fechas[0]} → {fechas[fechas.length-1]}</span>
+              </div>
+              <div style={{display:"flex",alignItems:"center",gap:10}}>
+                <span style={{fontSize:12,fontWeight:700,color:neto>=0?"#00d4aa":"#ff4757"}}>
+                  Neto: {neto>=0?"+":""}{fmt(neto)}
+                </span>
+                <button onClick={()=>{
+                  if (!window.XLSX) {
+                    const s=document.createElement("script");
+                    s.src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
+                    s.onload=()=>document.getElementById("btn-export-cat")?.click();
+                    document.head.appendChild(s); return;
+                  }
+                  const XLSX=window.XLSX, wb=XLSX.utils.book_new();
+                  const rows=[...txsFiltradas].sort((a,b)=>a.date>b.date?1:-1).map(t=>({
+                    Fecha:t.date, Descripción:t.description||"", Categoría:t.category||"",
+                    Tipo:t.type==="income"?"Ingreso":"Gasto",
+                    Monto:t.type==="income"?parseFloat(t.amount||0):-parseFloat(t.amount||0),
+                    Cuenta:accounts.find(a=>a.id===t.accountId)?.name||"",
+                    Tags:(t.tags||[]).join(", "), Notas:t.notes||"",
+                  }));
+                  const ws=XLSX.utils.json_to_sheet(rows);
+                  ws["!cols"]=[{wch:12},{wch:35},{wch:18},{wch:10},{wch:14},{wch:20},{wch:20},{wch:30}];
+                  const ws2=XLSX.utils.json_to_sheet([
+                    {Concepto:"Categoría",Valor:catLabel},
+                    {Concepto:"Total transacciones",Valor:txsFiltradas.length},
+                    {Concepto:"Total gastos",Valor:-totalGastado},
+                    {Concepto:"Total ingresos",Valor:totalIngresado},
+                    {Concepto:"Neto",Valor:neto},
+                    {Concepto:"Período",Valor:`${fechas[0]} → ${fechas[fechas.length-1]}`},
+                    {Concepto:"Generado",Valor:new Date().toLocaleDateString("es-MX")},
+                  ]);
+                  ws2["!cols"]=[{wch:25},{wch:20}];
+                  XLSX.utils.book_append_sheet(wb,ws,"Transacciones");
+                  XLSX.utils.book_append_sheet(wb,ws2,"Resumen");
+                  XLSX.writeFile(wb,`reporte_${catLabel.replace(/\s+/g,"_")}_${new Date().toISOString().split("T")[0]}.xlsx`);
+                }}
+                  id="btn-export-cat"
+                  style={{padding:"4px 12px",borderRadius:7,border:"1px solid rgba(59,130,246,.3)",
+                    background:"rgba(59,130,246,.08)",color:"#60a5fa",cursor:"pointer",
+                    fontSize:11,fontWeight:700,display:"flex",alignItems:"center",gap:4}}>
+                  <Ic n="download" size={12} color="#60a5fa"/> Exportar Excel
+                </button>
+              </div>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))"}}>
+              {[
+                {l:"Total gastado",v:fmt(totalGastado),c:"#ff4757",show:totalGastado>0},
+                {l:"Total ingresado",v:fmt(totalIngresado),c:"#00d4aa",show:totalIngresado>0},
+                {l:"Promedio por tx",v:fmt(txsFiltradas.reduce((s,t)=>s+parseFloat(t.amount||0),0)/txsFiltradas.length),c:"#60a5fa",show:true},
+                {l:"Transacciones",v:txsFiltradas.length,c:"#3b82f6",show:true},
+              ].filter(k=>k.show).map(k=>(
+                <div key={k.l} style={{padding:"10px 16px",borderRight:"1px solid rgba(59,130,246,.1)"}}>
+                  <p style={{fontSize:9,color:"#555",textTransform:"uppercase",letterSpacing:.5,margin:"0 0 3px"}}>{k.l}</p>
+                  <p style={{fontSize:15,fontWeight:800,color:k.c,margin:0}}>{k.v}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
+
       {sorted.length===0 ? (
         <div style={{ textAlign:"center", padding:"40px 20px" }}>
           <div style={{fontSize:44,marginBottom:8}}>💳</div>
@@ -6861,7 +6950,7 @@ const Settings = () => {
               <div style={{display:"flex",gap:8}}>
                 <input
                   value={newCatCfg.tipo===tipo ? newCatCfg.nombre : ""}
-                  onChange={e=>setNewCatCfg({tipo, nombre:e.target.value})}
+                  onChange={e=>setNewCatCfg(p=>({...p, tipo, nombre:e.target.value}))}
                   onFocus={()=>setNewCatCfg(p=>({...p, tipo}))}
                   onKeyDown={e=>{ if(e.key==="Enter"){ e.preventDefault(); setNewCatCfg(p=>({...p,tipo})); addCat(tipo); } }}
                   placeholder={`Nueva categoría de ${tipo==="income"?"ingreso":"gasto"}...`}
