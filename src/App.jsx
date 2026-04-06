@@ -7198,20 +7198,27 @@ const Settings = () => {
     income:["Salario","Freelance","Negocio","Renta","Intereses","Dividendos","Intereses cobrados","Retiro de inversión","Dividendos e intereses","Ganancia de inversión","Recuperación de capital","Otro"],
     expense:["Alimentación","Transporte","Salud","Educación","Entretenimiento","Ropa","Servicios","Hipoteca / Vivienda","Pago de deuda","Pérdida de inversión","Abono a capital","Otro"],
   };
+  // Unión de: DEFAULT + guardadas en config + en uso real en transacciones
+  // Así nunca se pierde una categoría aunque config.categorias se haya reseteado
+  const catsEnUso = {
+    income:  [...new Set(transactions.filter(t=>t.type==="income"&&t.category).map(t=>t.category))],
+    expense: [...new Set(transactions.filter(t=>t.type==="expense"&&t.category).map(t=>t.category))],
+  };
   const cats = {
-    income:  [...new Set([...(config.categorias?.income  || DEFAULT_CATS.income)])],
-    expense: [...new Set([...(config.categorias?.expense || DEFAULT_CATS.expense)])],
+    income:  [...new Set([...DEFAULT_CATS.income,  ...(config.categorias?.income  ||[]), ...catsEnUso.income])],
+    expense: [...new Set([...DEFAULT_CATS.expense, ...(config.categorias?.expense ||[]), ...catsEnUso.expense])],
   };
   const addCat = (tipo, nombre, onClear) => {
     if (!nombre) { toast("Escribe el nombre de la categoría","error"); return; }
-    const actual = config.categorias?.[tipo] || DEFAULT_CATS[tipo];
-    if (actual.includes(nombre)) { toast("Ya existe esa categoría","error"); return; }
-    setConfig(c=>({...c, categorias:{...c.categorias, [tipo]:[...(c.categorias?.[tipo]||DEFAULT_CATS[tipo]), nombre]}}));
+    if (cats[tipo].includes(nombre)) { toast("Ya existe esa categoría","error"); return; }
+    setConfig(c=>({...c, categorias:{...c.categorias, [tipo]:[...cats[tipo], nombre]}}));
     if (onClear) onClear();
     toast(`Categoría "${nombre}" guardada ✓`);
   };
   const delCat = (tipo, cat) => {
-    setConfig(c=>({...c, categorias:{...c.categorias, [tipo]:(c.categorias?.[tipo]||DEFAULT_CATS[tipo]).filter(x=>x!==cat)}}));
+    // Solo elimina de config, no de transacciones existentes
+    const sinEsta = cats[tipo].filter(x=>x!==cat&&!DEFAULT_CATS[tipo].includes(x));
+    setConfig(c=>({...c, categorias:{...c.categorias, [tipo]:[...DEFAULT_CATS[tipo].filter(d=>cats[tipo].includes(d)&&d!==cat), ...sinEsta]}}));
     toast("Categoría eliminada");
   };
 
