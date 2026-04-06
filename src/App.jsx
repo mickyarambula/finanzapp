@@ -3572,6 +3572,109 @@ const Transactions = ({ initialDate=null, initialAccount="" }) => {
           </div>
         );
       })()}
+      {/* ── Panel resumen de categoría */}
+      {search && !search.startsWith("#") && search.trim().length>=2 && (()=>{
+        const catQ = search.trim().toLowerCase();
+        const txsByCat = transactions.filter(t=>t.category?.toLowerCase().includes(catQ));
+        if (txsByCat.length===0) return null;
+        // buscar categoría más frecuente que coincide
+        const catCounts = {};
+        txsByCat.forEach(t=>{ if(t.category) catCounts[t.category]=(catCounts[t.category]||0)+1; });
+        const catLabel = Object.entries(catCounts).sort((a,b)=>b[1]-a[1])[0]?.[0] || search;
+        const totalGastado = txsByCat.filter(t=>t.type==="expense").reduce((s,t)=>s+parseFloat(t.amount||0),0);
+        const totalIngresado = txsByCat.filter(t=>t.type==="income").reduce((s,t)=>s+parseFloat(t.amount||0),0);
+        const neto = totalIngresado - totalGastado;
+        const fechas = txsByCat.map(t=>t.date).sort();
+        // desglose por subcategoría/tag
+        const porTag = {};
+        txsByCat.filter(t=>t.type==="expense").forEach(t=>{
+          (t.tags||[]).forEach(tag=>{ porTag[tag]=(porTag[tag]||0)+parseFloat(t.amount||0); });
+        });
+        const topTags = Object.entries(porTag).sort((a,b)=>b[1]-a[1]).slice(0,4);
+        const exportarCatXlsx = () => {
+          const doExport = () => {
+            const XLSX=window.XLSX, wb=XLSX.utils.book_new();
+            const rows=[...txsByCat].sort((a,b)=>a.date>b.date?1:-1).map(t=>({
+              Fecha:t.date, Descripción:t.description||"", Categoría:t.category||"",
+              Tipo:t.type==="income"?"Ingreso":"Gasto",
+              Monto:t.type==="income"?parseFloat(t.amount||0):-parseFloat(t.amount||0),
+              Cuenta:accounts.find(a=>a.id===t.accountId)?.name||"",
+              Tags:(t.tags||[]).join(", "), Notas:t.notes||"",
+            }));
+            const ws=XLSX.utils.json_to_sheet(rows);
+            ws["!cols"]=[{wch:12},{wch:35},{wch:18},{wch:10},{wch:14},{wch:20},{wch:20},{wch:30}];
+            const ws2=XLSX.utils.json_to_sheet([
+              {Concepto:"Categoría",Valor:catLabel},
+              {Concepto:"Total transacciones",Valor:txsByCat.length},
+              {Concepto:"Total gastos",Valor:-totalGastado},
+              {Concepto:"Total ingresos",Valor:totalIngresado},
+              {Concepto:"Neto",Valor:neto},
+              {Concepto:"Período",Valor:`${fechas[0]} → ${fechas[fechas.length-1]}`},
+              {Concepto:"Generado",Valor:new Date().toLocaleDateString("es-MX")},
+            ]);
+            ws2["!cols"]=[{wch:25},{wch:20}];
+            XLSX.utils.book_append_sheet(wb,ws,"Transacciones");
+            XLSX.utils.book_append_sheet(wb,ws2,"Resumen");
+            XLSX.writeFile(wb,`reporte_cat_${catLabel.replace(/\s+/g,"_")}_${new Date().toISOString().split("T")[0]}.xlsx`);
+          };
+          if (!window.XLSX) {
+            const s=document.createElement("script");
+            s.src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
+            s.onload=doExport; document.head.appendChild(s);
+          } else { doExport(); }
+        };
+        return (
+          <div style={{marginBottom:16,borderRadius:13,border:"1px solid rgba(59,130,246,.25)",background:"rgba(59,130,246,.06)",overflow:"hidden"}}>
+            {/* Header */}
+            <div style={{padding:"12px 16px 10px",borderBottom:"1px solid rgba(59,130,246,.15)",display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
+              <div style={{display:"flex",alignItems:"center",gap:8}}>
+                <span style={{fontSize:15,fontWeight:800,color:"#3b82f6",background:"rgba(59,130,246,.15)",borderRadius:20,padding:"3px 12px"}}>{catLabel}</span>
+                <span style={{fontSize:12,color:"#555"}}>{txsByCat.length} transacción{txsByCat.length!==1?"es":""}</span>
+                <span style={{fontSize:11,color:"#444"}}>· {fechas[0]} → {fechas[fechas.length-1]}</span>
+              </div>
+              <div style={{display:"flex",alignItems:"center",gap:8}}>
+                <span style={{fontSize:12,fontWeight:700,color:neto>=0?"#00d4aa":"#ff4757"}}>
+                  Neto: {neto>=0?"+":""}{fmt(neto)}
+                </span>
+                <button onClick={exportarCatXlsx}
+                  style={{padding:"4px 12px",borderRadius:7,border:"1px solid rgba(59,130,246,.3)",
+                    background:"rgba(59,130,246,.08)",color:"#3b82f6",cursor:"pointer",
+                    fontSize:11,fontWeight:700,display:"flex",alignItems:"center",gap:4}}>
+                  <Ic n="download" size={12} color="#3b82f6"/> Exportar Excel
+                </button>
+              </div>
+            </div>
+            {/* KPIs */}
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:0}}>
+              {[
+                {l:"Total gastado",v:fmt(totalGastado),c:"#ff4757",show:totalGastado>0},
+                {l:"Total ingresado",v:fmt(totalIngresado),c:"#00d4aa",show:totalIngresado>0},
+                {l:"Promedio por tx",v:fmt(txsByCat.length>0?txsByCat.reduce((s,t)=>s+parseFloat(t.amount||0),0)/txsByCat.length:0),c:"#3b82f6",show:true},
+                {l:"Transacciones",v:txsByCat.length,c:"#a78bfa",show:true},
+              ].filter(k=>k.show).map(k=>(
+                <div key={k.l} style={{padding:"10px 16px",borderRight:"1px solid rgba(59,130,246,.1)"}}>
+                  <p style={{fontSize:9,color:"#555",textTransform:"uppercase",letterSpacing:.5,margin:"0 0 3px"}}>{k.l}</p>
+                  <p style={{fontSize:15,fontWeight:800,color:k.c,margin:0}}>{k.v}</p>
+                </div>
+              ))}
+            </div>
+            {/* Top tags */}
+            {topTags.length>0&&(
+              <div style={{padding:"8px 16px 10px",borderTop:"1px solid rgba(59,130,246,.1)"}}>
+                <p style={{fontSize:10,color:"#555",textTransform:"uppercase",letterSpacing:.5,margin:"0 0 8px"}}>Top etiquetas en gastos</p>
+                <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                  {topTags.map(([tag,monto])=>(
+                    <div key={tag} style={{display:"flex",alignItems:"center",gap:6,padding:"4px 10px",borderRadius:20,background:"rgba(167,139,250,.08)",border:"1px solid rgba(167,139,250,.2)"}}>
+                      <span style={{fontSize:11,color:"#a78bfa",fontWeight:600}}>#{tag}</span>
+                      <span style={{fontSize:11,color:"#666"}}>{fmt(monto)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })()}
       {sorted.length===0 ? (
         <div style={{ textAlign:"center", padding:"40px 20px" }}>
           <div style={{fontSize:44,marginBottom:8}}>💳</div>
