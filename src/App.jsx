@@ -2785,7 +2785,7 @@ const Dashboard = () => {
 
 // ─── CUENTAS ──────────────────────────────────────────────────────────────────
 const Accounts = () => {
-  const { user, toast } = useCtx();
+  const { user, toast, navigate } = useCtx();
   const [accounts, setAccounts] = useData(user.id, "accounts");
   const [transactions] = useData(user.id, "transactions");
   const [open, setOpen]     = useState(false);
@@ -3132,12 +3132,20 @@ const Accounts = () => {
                   </div>
                 )}
               </div>
-              <div style={{padding:"12px 20px",borderTop:"1px solid rgba(255,255,255,.06)",display:"flex",gap:8,flexShrink:0}}>
-                <Btn onClick={()=>{setDetailAccount(null);openEdit(a);}} variant="secondary" style={{flex:1,justifyContent:"center"}}>
+              <div style={{padding:"12px 20px",borderTop:"1px solid rgba(255,255,255,.06)",display:"flex",gap:8,flexShrink:0,flexWrap:"wrap"}}>
+                <Btn onClick={()=>{setDetailAccount(null);openEdit(a);}} variant="secondary" style={{flex:1,justifyContent:"center",minWidth:120}}>
                   <Ic n="edit" size={14}/>Editar cuenta
                 </Btn>
+                <Btn onClick={()=>{
+                  setDetailAccount(null);
+                  // Guardar la cuenta en sessionStorage para que Transactions la tome
+                  sessionStorage.setItem("fp_new_tx_account", a.id);
+                  navigate("transactions:new");
+                }} style={{flex:1,justifyContent:"center",minWidth:120,background:"linear-gradient(135deg,rgba(0,212,170,.15),rgba(0,212,170,.08))",border:"1px solid rgba(0,212,170,.3)",color:"#00d4aa"}}>
+                  <Ic n="plus" size={14}/>Nuevo movimiento
+                </Btn>
                 {a.type==="credit"&&(
-                  <Btn onClick={()=>{setDetailAccount(null);abrirPago(a);}} style={{flex:1,justifyContent:"center",background:"linear-gradient(135deg,rgba(255,71,87,.2),rgba(255,71,87,.1))",border:"1px solid rgba(255,71,87,.3)",color:"#ff6b7a"}}>
+                  <Btn onClick={()=>{setDetailAccount(null);abrirPago(a);}} style={{flex:1,justifyContent:"center",minWidth:120,background:"linear-gradient(135deg,rgba(255,71,87,.2),rgba(255,71,87,.1))",border:"1px solid rgba(255,71,87,.3)",color:"#ff6b7a"}}>
                     <Ic n="transfers" size={14}/>Pagar tarjeta
                   </Btn>
                 )}
@@ -3197,7 +3205,7 @@ const Accounts = () => {
 };
 
 // ─── TRANSACCIONES ────────────────────────────────────────────────────────────
-const Transactions = ({ initialDate=null }) => {
+const Transactions = ({ initialDate=null, initialAccount="" }) => {
   const { user, toast } = useCtx();
   const [transactions, setTransactions] = useData(user.id, "transactions");
   const [accounts, setAccounts] = useData(user.id, "accounts");
@@ -3217,6 +3225,13 @@ const Transactions = ({ initialDate=null }) => {
   const f = k => e => setForm(p=>({...p,[k]:e.target.value}));
   // Si se navega desde Calendario con fecha, abrir modal automáticamente
   React.useEffect(()=>{ if(initialDate){ setForm(p=>({...p,date:initialDate})); setOpen(true); } },[initialDate]);
+  React.useEffect(()=>{
+    if(initialAccount){
+      setForm(p=>({...p,accountId:initialAccount}));
+      setOpen(true);
+      sessionStorage.removeItem("fp_new_tx_account");
+    }
+  },[initialAccount]);
 
   const DEFAULT_CATS = {
     income:["Salario","Freelance","Negocio","Renta","Intereses","Dividendos","Intereses cobrados","Retiro de inversión","Dividendos e intereses","Ganancia de inversión","Recuperación de capital","Otro"],
@@ -3590,8 +3605,28 @@ const Transactions = ({ initialDate=null }) => {
             />
             <p style={{fontSize:10,color:"#444",margin:"4px 0 0"}}>Presiona Enter, coma o espacio para agregar. Clic en el tag para eliminarlo.</p>
           </div>
-          <div style={{ display:"flex", gap:8, justifyContent:"flex-end", marginTop:6 }}>
+          <div style={{ display:"flex", gap:8, justifyContent:"flex-end", marginTop:6, flexWrap:"wrap" }}>
             <Btn variant="secondary" onClick={close}>Cancelar</Btn>
+            {!editing&&(
+              <Btn variant="secondary" onClick={()=>{
+                if (!form.description.trim()||!form.amount||!form.accountId) { toast("Completa los campos requeridos.","error"); return; }
+                const amount=parseFloat(form.amount);
+                if(isNaN(amount)||amount<=0){ toast("Monto inválido.","error"); return; }
+                const newDelta=form.type==="income"?Math.abs(amount):-Math.abs(amount);
+                const txId=genId();
+                setAccounts(applyDelta(accounts,form.accountId,newDelta));
+                setTransactions(p=>[{id:txId,...form,amount,createdAt:new Date().toISOString()},...p]);
+                if(form.metaId){
+                  setGoals(prev=>prev.map(g=>g.id===form.metaId?{...g,aportaciones:[...(g.aportaciones||[]),{id:genId(),monto:amount,fecha:form.date,notas:form.description,txId}]}:g));
+                }
+                toast("Registrado ✓ — agrega el siguiente","success");
+                // mantener cuenta, fecha y tipo — limpiar monto, descripción, tags
+                setForm(p=>({...blank, type:p.type, accountId:p.accountId, date:p.date, currency:p.currency}));
+                setTagInput("");
+              }} style={{background:"rgba(0,212,170,.07)",border:"1px solid rgba(0,212,170,.2)",color:"#00d4aa"}}>
+                <Ic n="plus" size={14}/> Guardar y agregar otro
+              </Btn>
+            )}
             <Btn onClick={save} disabled={accounts.length===0}><Ic n="check" size={15}/>{editing?"Guardar":"Registrar"}</Btn>
           </div>
         </Modal>
@@ -12884,6 +12919,7 @@ export default function App() {
       case "settings":     return <Settings/>;
       default:
         if(id?.startsWith("transactions:new:")) return <Transactions initialDate={id.split(":")[2]}/>;
+        if(id==="transactions:new") return <Transactions initialAccount={sessionStorage.getItem("fp_new_tx_account")||""}/>;
         return <Dashboard/>;
     }
   };
