@@ -3457,9 +3457,10 @@ const Transactions = ({ initialDate=null, initialAccount="" }) => {
     income:["Salario","Freelance","Negocio","Renta","Intereses","Dividendos","Intereses cobrados","Retiro de inversión","Dividendos e intereses","Ganancia de inversión","Recuperación de capital","Otro"],
     expense:["Alimentación","Transporte","Salud","Educación","Entretenimiento","Ropa","Servicios","Hipoteca / Vivienda","Pago de deuda","Pérdida de inversión","Abono a capital","Otro"],
   };
+  // Unión de DEFAULT + config guardado + categorías en uso real → nunca pierde ninguna
   const cats = {
-    income: [...new Set([...(config.categorias?.income||DEFAULT_CATS.income)])],
-    expense: [...new Set([...(config.categorias?.expense||DEFAULT_CATS.expense)])],
+    income: [...new Set([...DEFAULT_CATS.income, ...(config.categorias?.income||[]), ...transactions.filter(t=>t.type==="income"&&t.category).map(t=>t.category)])],
+    expense: [...new Set([...DEFAULT_CATS.expense, ...(config.categorias?.expense||[]), ...transactions.filter(t=>t.type==="expense"&&t.category).map(t=>t.category)])],
   };
 
   const applyDelta = (accs, id, delta) => accs.map(a=>a.id===id?{...a,balance:parseFloat(a.balance||0)+delta}:a);
@@ -10031,8 +10032,8 @@ const Recurring = () => {
     income:["Salario","Freelance","Negocio","Renta","Intereses","Dividendos","Otro"],
     expense:["Alimentación","Transporte","Salud","Educación","Entretenimiento","Ropa","Servicios","Hipoteca / Vivienda","Pago de deuda","Pérdida de inversión","Abono a capital","Otro"],
   };
-  const CATS_GASTO   = [...new Set([...(config.categorias?.expense||DEFAULT_CATS.expense)])];
-  const CATS_INGRESO = [...new Set([...(config.categorias?.income||DEFAULT_CATS.income)])];
+  const CATS_GASTO   = [...new Set([...DEFAULT_CATS.expense, ...(config.categorias?.expense||[]), ...transactions.filter(t=>t.type==="expense"&&t.category).map(t=>t.category)])];
+  const CATS_INGRESO = [...new Set([...DEFAULT_CATS.income,  ...(config.categorias?.income ||[]), ...transactions.filter(t=>t.type==="income" &&t.category).map(t=>t.category)])];
   const FRECS = [{value:"semanal",label:"Semanal"},{value:"quincenal",label:"Quincenal"},{value:"mensual",label:"Mensual"},{value:"anual",label:"Anual"}];
 
   const emptyForm = {
@@ -11946,8 +11947,8 @@ const Presupuestos = () => {
     expense:["Alimentación","Transporte","Salud","Educación","Entretenimiento","Ropa","Servicios","Hipoteca / Vivienda","Pago de deuda","Pérdida de inversión","Abono a capital","Otro"],
   };
   const cats = {
-    income: [...new Set([...(config.categorias?.income||DEFAULT_CATS.income)])],
-    expense: [...new Set([...(config.categorias?.expense||DEFAULT_CATS.expense)])],
+    income: [...new Set([...DEFAULT_CATS.income, ...(config.categorias?.income||[]), ...transactions.filter(t=>t.type==="income"&&t.category).map(t=>t.category)])],
+    expense: [...new Set([...DEFAULT_CATS.expense, ...(config.categorias?.expense||[]), ...transactions.filter(t=>t.type==="expense"&&t.category).map(t=>t.category)])],
   };
 
   const emptyForm = {
@@ -12814,10 +12815,6 @@ ${bloque}`}]})
                 </thead>
                 <tbody>
                   {preview.map((row)=>{
-                    const DEFAULT_CATS = {
-                      income:["Salario","Freelance","Negocio","Renta","Intereses","Dividendos","Otro"],
-                      expense:["Alimentación","Transporte","Salud","Educación","Entretenimiento","Servicios","Otro"],
-                    };
                     const isDup = row._dup;
                     const isSel = !!selected[row._id];
                     return (
@@ -12843,7 +12840,7 @@ ${bloque}`}]})
                           <select value={row.categoria} onChange={e=>setPreview(p=>p.map(r=>r._id===row._id?{...r,categoria:e.target.value}:r))}
                             style={{background:"rgba(255,255,255,.05)",border:"1px solid rgba(255,255,255,.08)",borderRadius:6,color:"#ccc",fontSize:11,padding:"3px 6px",width:"100%",outline:"none"}}>
                             <option value="">Sin categoría</option>
-                            {(DEFAULT_CATS[row.tipo]||[]).map(c=><option key={c} value={c}>{c}</option>)}
+                            {(cats[row.tipo]||[]).map(c=><option key={c} value={c}>{c}</option>)}
                           </select>
                         </td>
                         <td style={{padding:"7px 12px",whiteSpace:"nowrap"}}>
@@ -12919,8 +12916,8 @@ const Asistente = () => {
     expense:["Alimentación","Transporte","Salud","Educación","Entretenimiento","Ropa","Servicios","Hipoteca / Vivienda","Pago de deuda","Pérdida de inversión","Abono a capital","Otro"],
   };
   const cats = {
-    income:[...new Set([...(config.categorias?.income||DEFAULT_CATS.income)])],
-    expense:[...new Set([...(config.categorias?.expense||DEFAULT_CATS.expense)])],
+    income:[...new Set([...DEFAULT_CATS.income, ...(config.categorias?.income||[]), ...transactions.filter(t=>t.type==="income"&&t.category).map(t=>t.category)])],
+    expense:[...new Set([...DEFAULT_CATS.expense, ...(config.categorias?.expense||[]), ...transactions.filter(t=>t.type==="expense"&&t.category).map(t=>t.category)])],
   };
 
   // ── Contexto financiero para el sistema prompt
@@ -13347,8 +13344,8 @@ Sé directo, positivo y usa 1 emoji relevante. No repitas los números exactos s
     expense:["Alimentación","Transporte","Salud","Educación","Entretenimiento","Ropa","Servicios","Hipoteca / Vivienda","Pago de deuda","Otro"],
   };
   const cats = {
-    income:[...new Set([...(config.categorias?.income||DEFAULT_CATS.income)])],
-    expense:[...new Set([...(config.categorias?.expense||DEFAULT_CATS.expense)])],
+    income:[...new Set([...DEFAULT_CATS.income, ...(config.categorias?.income||[]), ...transactions.filter(t=>t.type==="income"&&t.category).map(t=>t.category)])],
+    expense:[...new Set([...DEFAULT_CATS.expense, ...(config.categorias?.expense||[]), ...transactions.filter(t=>t.type==="expense"&&t.category).map(t=>t.category)])],
   };
 
   // ── Lógica de recurrentes pendientes
