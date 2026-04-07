@@ -4527,123 +4527,13 @@ const Loans = () => {
         <AmortizacionChart loan={selected} pagos={bd.map(p=>({date:p.date,saldoRestante:p.balanceAfter}))}/>
 
         {/* ── TRAMOS DE TASA */}
-        {(()=>{
-          const tramos = [...(selected.tramos||[])].sort((a,b)=>new Date(a.desde)-new Date(b.desde));
-          const tramoActual = (() => {
-            let t = {rate:selected.rate, rateType:selected.rateType, desde:selected.startDate};
-            for (const tr of tramos) { if (new Date(tr.desde)<=new Date()) t=tr; }
-            return t;
-          })();
-          const [showTramoForm, setShowTramoForm] = React.useState(false);
-          const [nuevoTramo, setNuevoTramo] = React.useState({desde:today(), rate:"", rateType:selected.rateType||"monthly"});
-          const guardarTramo = () => {
-            if (!nuevoTramo.rate||!nuevoTramo.desde) { toast("Completa fecha y tasa","error"); return; }
-            const nuevosTramos = [...tramos, {id:genId(), desde:nuevoTramo.desde, rate:parseFloat(nuevoTramo.rate), rateType:nuevoTramo.rateType}]
-              .sort((a,b)=>new Date(a.desde)-new Date(b.desde));
-            setLoans(loans.map(l=>l.id===selected.id?{...l,tramos:nuevosTramos}:l));
-            setShowTramoForm(false);
-            toast("Nuevo tramo de tasa guardado ✓","success");
-          };
-          const eliminarTramo = (id) => {
-            setLoans(loans.map(l=>l.id===selected.id?{...l,tramos:(l.tramos||[]).filter(t=>t.id!==id)}:l));
-            toast("Tramo eliminado","warning");
-          };
-          return (
-            <Card style={{marginBottom:16,padding:0,overflow:"hidden",borderColor:"rgba(167,139,250,.2)",background:"rgba(167,139,250,.03)"}}>
-              <div style={{padding:"11px 16px 9px",borderBottom:"1px solid rgba(167,139,250,.12)",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
-                <div style={{display:"flex",alignItems:"center",gap:8}}>
-                  <span style={{fontSize:14}}>📈</span>
-                  <p style={{fontSize:13,fontWeight:800,color:"#a78bfa",margin:0}}>Tasa vigente</p>
-                  <span style={{fontSize:13,fontWeight:800,color:"#f0f0f0",background:"rgba(167,139,250,.15)",borderRadius:8,padding:"2px 10px"}}>
-                    {tramoActual.rate}% {tramoActual.rateType==="annual"?"anual":tramoActual.rateType==="monthly"?"mensual":"diaria"}
-                    <span style={{fontSize:10,color:"#a78bfa",marginLeft:6}}>({(dailyRate(tramoActual.rate,tramoActual.rateType)*100).toFixed(5)}% diario)</span>
-                  </span>
-                </div>
-                <button onClick={()=>setShowTramoForm(s=>!s)}
-                  style={{padding:"5px 12px",borderRadius:7,border:"1px solid rgba(167,139,250,.3)",background:"rgba(167,139,250,.08)",color:"#a78bfa",cursor:"pointer",fontSize:11,fontWeight:700}}>
-                  {showTramoForm?"✕ Cancelar":"+ Cambiar tasa"}
-                </button>
-              </div>
-              {/* Historial de tramos */}
-              <div style={{padding:"8px 16px"}}>
-                <div style={{display:"flex",flexDirection:"column",gap:3}}>
-                  {/* Tasa original siempre primera */}
-                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"5px 8px",borderRadius:7,background:"rgba(255,255,255,.03)"}}>
-                    <div style={{display:"flex",alignItems:"center",gap:8}}>
-                      <span style={{fontSize:10,color:"#555",width:70}}>{new Date(selected.startDate+"T12:00:00").toLocaleDateString("es-MX",{day:"2-digit",month:"short",year:"2-digit"})}</span>
-                      <span style={{fontSize:12,fontWeight:600,color:"#888"}}>Tasa inicial</span>
-                    </div>
-                    <span style={{fontSize:13,fontWeight:700,color:tramos.length===0?"#a78bfa":"#666"}}>
-                      {selected.rate}% {selected.rateType==="annual"?"anual":selected.rateType==="monthly"?"mensual":"diaria"}
-                    </span>
-                  </div>
-                  {tramos.map((t,i)=>(
-                    <div key={t.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"5px 8px",borderRadius:7,background:i===tramos.length-1?"rgba(167,139,250,.08)":"rgba(255,255,255,.02)"}}>
-                      <div style={{display:"flex",alignItems:"center",gap:8}}>
-                        <span style={{fontSize:10,color:"#555",width:70}}>{new Date(t.desde+"T12:00:00").toLocaleDateString("es-MX",{day:"2-digit",month:"short",year:"2-digit"})}</span>
-                        <span style={{fontSize:12,fontWeight:600,color:i===tramos.length-1?"#c4b5fd":"#777"}}>
-                          {i===tramos.length-1?"✓ Vigente":"Histórico"}
-                        </span>
-                      </div>
-                      <div style={{display:"flex",alignItems:"center",gap:8}}>
-                        <span style={{fontSize:13,fontWeight:700,color:i===tramos.length-1?"#a78bfa":"#666"}}>
-                          {t.rate}% {t.rateType==="annual"?"anual":t.rateType==="monthly"?"mensual":"diaria"}
-                        </span>
-                        <button onClick={()=>eliminarTramo(t.id)}
-                          style={{background:"none",border:"none",cursor:"pointer",color:"#444",fontSize:12,padding:"1px 5px"}}
-                          onMouseEnter={e=>e.currentTarget.style.color="#ff4757"}
-                          onMouseLeave={e=>e.currentTarget.style.color="#444"}>✕</button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-                {/* Formulario nuevo tramo */}
-                {showTramoForm&&(
-                  <div style={{marginTop:10,padding:"12px",borderRadius:9,background:"rgba(167,139,250,.07)",border:"1px solid rgba(167,139,250,.2)"}}>
-                    <p style={{fontSize:11,color:"#a78bfa",fontWeight:700,margin:"0 0 10px"}}>Nueva tasa a partir de:</p>
-                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:10}}>
-                      <div>
-                        <p style={{fontSize:10,color:"#555",margin:"0 0 4px"}}>Desde</p>
-                        <input type="date" value={nuevoTramo.desde} onChange={e=>setNuevoTramo(p=>({...p,desde:e.target.value}))}
-                          style={{width:"100%",background:"rgba(255,255,255,.05)",border:"1px solid rgba(255,255,255,.1)",borderRadius:7,color:"#e0e0e0",fontSize:12,padding:"6px 8px",outline:"none",boxSizing:"border-box"}}/>
-                      </div>
-                      <div>
-                        <p style={{fontSize:10,color:"#555",margin:"0 0 4px"}}>Nueva tasa</p>
-                        <input type="number" placeholder="2.0" value={nuevoTramo.rate} onChange={e=>setNuevoTramo(p=>({...p,rate:e.target.value}))}
-                          style={{width:"100%",background:"rgba(255,255,255,.05)",border:"1px solid rgba(255,255,255,.1)",borderRadius:7,color:"#e0e0e0",fontSize:12,padding:"6px 8px",outline:"none",boxSizing:"border-box"}}/>
-                      </div>
-                      <div>
-                        <p style={{fontSize:10,color:"#555",margin:"0 0 4px"}}>Tipo</p>
-                        <select value={nuevoTramo.rateType} onChange={e=>setNuevoTramo(p=>({...p,rateType:e.target.value}))}
-                          style={{width:"100%",background:"rgba(255,255,255,.05)",border:"1px solid rgba(255,255,255,.1)",borderRadius:7,color:"#e0e0e0",fontSize:12,padding:"6px 8px",outline:"none",boxSizing:"border-box"}}>
-                          <option value="monthly">% Mensual</option>
-                          <option value="annual">% Anual</option>
-                          <option value="daily">% Diaria</option>
-                        </select>
-                      </div>
-                    </div>
-                    {nuevoTramo.rate&&(
-                      <p style={{fontSize:11,color:"#a78bfa",margin:"0 0 10px"}}>
-                        💡 {(dailyRate(nuevoTramo.rate,nuevoTramo.rateType)*100).toFixed(5)}% diario
-                        · El sistema recalculará intereses con la tasa anterior hasta el {nuevoTramo.desde} y con {nuevoTramo.rate}% a partir de ahí.
-                      </p>
-                    )}
-                    <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
-                      <button onClick={()=>setShowTramoForm(false)}
-                        style={{padding:"6px 14px",borderRadius:7,border:"1px solid rgba(255,255,255,.1)",background:"transparent",color:"#666",cursor:"pointer",fontSize:12}}>
-                        Cancelar
-                      </button>
-                      <button onClick={guardarTramo}
-                        style={{padding:"6px 14px",borderRadius:7,border:"none",background:"linear-gradient(135deg,#a78bfa,#7c3aed)",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>
-                        ✓ Guardar cambio de tasa
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </Card>
-          );
-        })()}
+        <TramosPanel
+          loan={selected}
+          loans={loans}
+          setLoans={setLoans}
+          dailyRate={dailyRate}
+          toast={toast}
+        />
 
         {/* ── CORTE MENSUAL */}
         {selected.type==="given" && !st.isPaid && (
@@ -7196,6 +7086,127 @@ const Reports = ({ initialTab="balance" }) => {
   );
 };
 
+
+// ─── SUBCOMPONENTE: TRAMOS DE TASA EN PRÉSTAMO ───────────────────────────────
+const TramosPanel = ({ loan, loans, setLoans, dailyRate, toast }) => {
+  const [showTramoForm, setShowTramoForm] = useState(false);
+  const [nuevoTramo, setNuevoTramo] = useState({desde:today(), rate:"", rateType:loan.rateType||"monthly"});
+
+  const tramos = [...(loan.tramos||[])].sort((a,b)=>new Date(a.desde)-new Date(b.desde));
+  const tramoActual = (() => {
+    let t = {rate:loan.rate, rateType:loan.rateType, desde:loan.startDate};
+    for (const tr of tramos) { if (new Date(tr.desde)<=new Date()) t=tr; }
+    return t;
+  })();
+
+  const guardarTramo = () => {
+    if (!nuevoTramo.rate||!nuevoTramo.desde) { toast("Completa fecha y tasa","error"); return; }
+    const nuevosTramos = [...tramos, {id:genId(), desde:nuevoTramo.desde, rate:parseFloat(nuevoTramo.rate), rateType:nuevoTramo.rateType}]
+      .sort((a,b)=>new Date(a.desde)-new Date(b.desde));
+    setLoans(loans.map(l=>l.id===loan.id?{...l,tramos:nuevosTramos}:l));
+    setShowTramoForm(false);
+    setNuevoTramo({desde:today(), rate:"", rateType:loan.rateType||"monthly"});
+    toast("Nuevo tramo de tasa guardado ✓","success");
+  };
+
+  const eliminarTramo = (id) => {
+    setLoans(loans.map(l=>l.id===loan.id?{...l,tramos:(l.tramos||[]).filter(t=>t.id!==id)}:l));
+    toast("Tramo eliminado","warning");
+  };
+
+  return (
+    <Card style={{marginBottom:16,padding:0,overflow:"hidden",borderColor:"rgba(167,139,250,.2)",background:"rgba(167,139,250,.03)"}}>
+      <div style={{padding:"11px 16px 9px",borderBottom:"1px solid rgba(167,139,250,.12)",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          <span style={{fontSize:14}}>📈</span>
+          <p style={{fontSize:13,fontWeight:800,color:"#a78bfa",margin:0}}>Tasa vigente</p>
+          <span style={{fontSize:13,fontWeight:800,color:"#f0f0f0",background:"rgba(167,139,250,.15)",borderRadius:8,padding:"2px 10px"}}>
+            {tramoActual.rate}% {tramoActual.rateType==="annual"?"anual":tramoActual.rateType==="monthly"?"mensual":"diaria"}
+            <span style={{fontSize:10,color:"#a78bfa",marginLeft:6}}>({(dailyRate(tramoActual.rate,tramoActual.rateType)*100).toFixed(5)}% diario)</span>
+          </span>
+        </div>
+        <button onClick={()=>setShowTramoForm(s=>!s)}
+          style={{padding:"5px 12px",borderRadius:7,border:"1px solid rgba(167,139,250,.3)",background:"rgba(167,139,250,.08)",color:"#a78bfa",cursor:"pointer",fontSize:11,fontWeight:700}}>
+          {showTramoForm?"✕ Cancelar":"+ Cambiar tasa"}
+        </button>
+      </div>
+      <div style={{padding:"8px 16px"}}>
+        <div style={{display:"flex",flexDirection:"column",gap:3}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"5px 8px",borderRadius:7,background:"rgba(255,255,255,.03)"}}>
+            <div style={{display:"flex",alignItems:"center",gap:8}}>
+              <span style={{fontSize:10,color:"#555",width:70}}>{new Date(loan.startDate+"T12:00:00").toLocaleDateString("es-MX",{day:"2-digit",month:"short",year:"2-digit"})}</span>
+              <span style={{fontSize:12,fontWeight:600,color:"#888"}}>Tasa inicial</span>
+            </div>
+            <span style={{fontSize:13,fontWeight:700,color:tramos.length===0?"#a78bfa":"#666"}}>
+              {loan.rate}% {loan.rateType==="annual"?"anual":loan.rateType==="monthly"?"mensual":"diaria"}
+            </span>
+          </div>
+          {tramos.map((t,i)=>(
+            <div key={t.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"5px 8px",borderRadius:7,background:i===tramos.length-1?"rgba(167,139,250,.08)":"rgba(255,255,255,.02)"}}>
+              <div style={{display:"flex",alignItems:"center",gap:8}}>
+                <span style={{fontSize:10,color:"#555",width:70}}>{new Date(t.desde+"T12:00:00").toLocaleDateString("es-MX",{day:"2-digit",month:"short",year:"2-digit"})}</span>
+                <span style={{fontSize:12,fontWeight:600,color:i===tramos.length-1?"#c4b5fd":"#777"}}>
+                  {i===tramos.length-1?"✓ Vigente":"Histórico"}
+                </span>
+              </div>
+              <div style={{display:"flex",alignItems:"center",gap:8}}>
+                <span style={{fontSize:13,fontWeight:700,color:i===tramos.length-1?"#a78bfa":"#666"}}>
+                  {t.rate}% {t.rateType==="annual"?"anual":t.rateType==="monthly"?"mensual":"diaria"}
+                </span>
+                <button onClick={()=>eliminarTramo(t.id)}
+                  style={{background:"none",border:"none",cursor:"pointer",color:"#444",fontSize:12,padding:"1px 5px"}}
+                  onMouseEnter={e=>e.currentTarget.style.color="#ff4757"}
+                  onMouseLeave={e=>e.currentTarget.style.color="#444"}>✕</button>
+              </div>
+            </div>
+          ))}
+        </div>
+        {showTramoForm&&(
+          <div style={{marginTop:10,padding:"12px",borderRadius:9,background:"rgba(167,139,250,.07)",border:"1px solid rgba(167,139,250,.2)"}}>
+            <p style={{fontSize:11,color:"#a78bfa",fontWeight:700,margin:"0 0 10px"}}>Nueva tasa a partir de:</p>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:10}}>
+              <div>
+                <p style={{fontSize:10,color:"#555",margin:"0 0 4px"}}>Desde</p>
+                <input type="date" value={nuevoTramo.desde} onChange={e=>setNuevoTramo(p=>({...p,desde:e.target.value}))}
+                  style={{width:"100%",background:"rgba(255,255,255,.05)",border:"1px solid rgba(255,255,255,.1)",borderRadius:7,color:"#e0e0e0",fontSize:12,padding:"6px 8px",outline:"none",boxSizing:"border-box"}}/>
+              </div>
+              <div>
+                <p style={{fontSize:10,color:"#555",margin:"0 0 4px"}}>Nueva tasa</p>
+                <input type="number" placeholder="2.0" value={nuevoTramo.rate} onChange={e=>setNuevoTramo(p=>({...p,rate:e.target.value}))}
+                  style={{width:"100%",background:"rgba(255,255,255,.05)",border:"1px solid rgba(255,255,255,.1)",borderRadius:7,color:"#e0e0e0",fontSize:12,padding:"6px 8px",outline:"none",boxSizing:"border-box"}}/>
+              </div>
+              <div>
+                <p style={{fontSize:10,color:"#555",margin:"0 0 4px"}}>Tipo</p>
+                <select value={nuevoTramo.rateType} onChange={e=>setNuevoTramo(p=>({...p,rateType:e.target.value}))}
+                  style={{width:"100%",background:"rgba(255,255,255,.05)",border:"1px solid rgba(255,255,255,.1)",borderRadius:7,color:"#e0e0e0",fontSize:12,padding:"6px 8px",outline:"none",boxSizing:"border-box"}}>
+                  <option value="monthly">% Mensual</option>
+                  <option value="annual">% Anual</option>
+                  <option value="daily">% Diaria</option>
+                </select>
+              </div>
+            </div>
+            {nuevoTramo.rate&&(
+              <p style={{fontSize:11,color:"#a78bfa",margin:"0 0 10px"}}>
+                💡 {(dailyRate(nuevoTramo.rate,nuevoTramo.rateType)*100).toFixed(5)}% diario
+                · Intereses hasta el {nuevoTramo.desde} con tasa anterior; a partir de ahí con {nuevoTramo.rate}%.
+              </p>
+            )}
+            <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+              <button onClick={()=>setShowTramoForm(false)}
+                style={{padding:"6px 14px",borderRadius:7,border:"1px solid rgba(255,255,255,.1)",background:"transparent",color:"#666",cursor:"pointer",fontSize:12}}>
+                Cancelar
+              </button>
+              <button onClick={guardarTramo}
+                style={{padding:"6px 14px",borderRadius:7,border:"none",background:"linear-gradient(135deg,#a78bfa,#7c3aed)",color:"#fff",cursor:"pointer",fontSize:12,fontWeight:700}}>
+                ✓ Guardar cambio de tasa
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </Card>
+  );
+};
 
 // ─── SUBCOMPONENTE: CORTE MENSUAL DE PRÉSTAMO ────────────────────────────────
 const CorteMensual = ({ loan, calcState, dailyRate, openNewPay, setPF, blankPay, setOpenPay, accounts }) => {
