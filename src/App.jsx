@@ -4753,6 +4753,20 @@ const Loans = () => {
             </span>
           </div>
         )}
+        {isGiven&&st.totalPaid>0&&(
+          <div style={{marginTop:6,padding:"5px 9px",borderRadius:7,background:"rgba(0,212,170,.05)",border:"1px solid rgba(0,212,170,.15)"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <span style={{fontSize:10,color:"#00d4aa",fontWeight:600}}>✅ Ya cobrado</span>
+              <span style={{fontSize:12,fontWeight:800,color:"#00d4aa",fontVariantNumeric:"tabular-nums"}}>{fmt(st.totalPaid,loan.currency)}</span>
+            </div>
+            {(()=>{
+              const bd=getBreakdown(loan);
+              const int=bd.reduce((a,p)=>a+p.toInterest,0);
+              const cap=bd.reduce((a,p)=>a+p.toPrincipal,0);
+              return <span style={{fontSize:9,color:"#555"}}>{bd.length} pago{bd.length!==1?"s":""} · interés {fmt(int,loan.currency)} · capital {fmt(cap,loan.currency)}</span>;
+            })()}
+          </div>
+        )}
       </Card>
     );
   };
@@ -4768,6 +4782,16 @@ const Loans = () => {
   },0);
 
   const prestamosGivenActivos = activeLoans.filter(l=>l.type==="given");
+
+  // ── Totales cobrados (todos los préstamos, activos y liquidados)
+  const givenLoans = loans.filter(l=>l.type==="given");
+  const totalCobradoIntereses = givenLoans.reduce((s,l)=>s+getBreakdown(l).reduce((a,p)=>a+p.toInterest,0),0);
+  const totalCobradoCapital   = givenLoans.reduce((s,l)=>s+getBreakdown(l).reduce((a,p)=>a+p.toPrincipal,0),0);
+  const totalCobrado          = totalCobradoIntereses + totalCobradoCapital;
+  const desgloseCobrado = givenLoans.map(l=>{
+    const bd=getBreakdown(l);
+    return { loan:l, intereses:bd.reduce((a,p)=>a+p.toInterest,0), capital:bd.reduce((a,p)=>a+p.toPrincipal,0), pagos:bd.length };
+  }).filter(d=>d.intereses+d.capital>0);
 
   return (
     <div>
@@ -4800,6 +4824,45 @@ const Loans = () => {
               <p style={{fontSize:10,color:"#0078ff",textTransform:"uppercase",letterSpacing:.4,margin:"0 0 4px"}}>Interés acumulado a cobrar</p>
               <p style={{fontSize:18,fontWeight:800,color:"#0078ff",margin:0}}>+{fmt(interesPorCobrar)}</p>
               <p style={{fontSize:10,color:"#444",margin:"3px 0 0"}}>A la fecha de hoy</p>
+            </Card>
+          )}
+          {totalCobrado>0&&(
+            <Card style={{padding:0,overflow:"hidden",borderColor:"rgba(0,212,170,.2)",background:"rgba(0,212,170,.03)",gridColumn:"1 / -1"}}>
+              <div style={{padding:"11px 16px 9px",borderBottom:"1px solid rgba(0,212,170,.1)",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
+                <p style={{fontSize:13,fontWeight:800,color:"#00d4aa",margin:0}}>✅ Total cobrado (histórico)</p>
+                <p style={{fontSize:11,color:"#555",margin:0}}>Suma de todos los pagos recibidos</p>
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:0}}>
+                {[
+                  {l:"Total cobrado",v:fmt(totalCobrado),c:"#00d4aa",big:true},
+                  {l:"En intereses",v:fmt(totalCobradoIntereses),c:"#f39c12"},
+                  {l:"A capital",v:fmt(totalCobradoCapital),c:"#3b82f6"},
+                  {l:"Préstamos con cobros",v:desgloseCobrado.length,c:"#888"},
+                ].map(k=>(
+                  <div key={k.l} style={{padding:"10px 16px",borderRight:"1px solid rgba(0,212,170,.07)"}}>
+                    <p style={{fontSize:9,color:"#555",textTransform:"uppercase",letterSpacing:.5,margin:"0 0 3px"}}>{k.l}</p>
+                    <p style={{fontSize:k.big?20:14,fontWeight:800,color:k.c,margin:0,fontVariantNumeric:"tabular-nums"}}>{k.v}</p>
+                  </div>
+                ))}
+              </div>
+              {desgloseCobrado.length>0&&(
+                <div style={{borderTop:"1px solid rgba(0,212,170,.08)"}}>
+                  {desgloseCobrado.map((d,i)=>(
+                    <div key={d.loan.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",
+                      padding:"7px 16px",borderBottom:i<desgloseCobrado.length-1?"1px solid rgba(255,255,255,.03)":"none",
+                      background:i%2===0?"transparent":"rgba(255,255,255,.01)",cursor:"pointer"}}
+                      onClick={()=>{setSelectedId(d.loan.id);setView("detail");}}>
+                      <div style={{flex:1,minWidth:0}}>
+                        <p style={{fontSize:12,fontWeight:600,color:"#ccc",margin:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{d.loan.name}</p>
+                        <p style={{fontSize:10,color:"#555",margin:0}}>{d.pagos} pago{d.pagos!==1?"s":""} · interés {fmt(d.intereses)} · capital {fmt(d.capital)}</p>
+                      </div>
+                      <p style={{fontSize:13,fontWeight:800,color:"#00d4aa",margin:0,flexShrink:0,fontVariantNumeric:"tabular-nums"}}>
+                        {fmt(d.intereses+d.capital)}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )}
             </Card>
           )}
           {prestamosGivenActivos.length>0&&(
