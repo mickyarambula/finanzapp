@@ -1684,11 +1684,11 @@ const ProyeccionFlujo = ({ recurrents, loans, mortgages, transactions, accounts,
   // ── calcular saldo de un préstamo (simple)
   const calcLoanBal = loan => {
     const dr=(parseFloat(loan.rate)||0)/100/(loan.rateType==="annual"?365:30);
-    let bal=parseFloat(loan.principal||0), last=new Date(loan.startDate);
+    let bal=parseFloat(loan.principal||0), last=new Date(loan.startDate+"T12:00:00");
     for(const p of [...(loan.payments||[])].sort((a,b)=>new Date(a.date)-new Date(b.date))){
-      const days=Math.max(0,Math.floor((new Date(p.date)-last)/86400000));
+      const days=Math.max(0,Math.floor((new Date(p.date+"T12:00:00")-last)/86400000));
       bal=Math.max(0, bal-(p.amount-Math.min(p.amount,bal*dr*days)));
-      last=new Date(p.date);
+      last=new Date(p.date+"T12:00:00");
     }
     return bal;
   };
@@ -2144,11 +2144,11 @@ const Dashboard = () => {
 
   const calcLoanBalance = loan => {
     const dr=(parseFloat(loan.rate)||0)/100/(loan.rateType==="annual"?365:30);
-    let bal=parseFloat(loan.principal||0), last=new Date(loan.startDate);
+    let bal=parseFloat(loan.principal||0), last=new Date(loan.startDate+"T12:00:00");
     for(const p of [...(loan.payments||[])].sort((a,b)=>new Date(a.date)-new Date(b.date))){
-      const days=Math.max(0,Math.floor((new Date(p.date)-last)/86400000));
+      const days=Math.max(0,Math.floor((new Date(p.date+"T12:00:00")-last)/86400000));
       bal=Math.max(0, bal-(p.amount - Math.min(p.amount, bal*dr*days)));
-      last=new Date(p.date);
+      last=new Date(p.date+"T12:00:00");
     }
     return bal;
   };
@@ -4255,8 +4255,8 @@ const Loans = () => {
     // Construir períodos con su tasa correspondiente
     let total = 0, cursor = new Date(fromDate);
     const hitos = [
-      {fecha: new Date(loan.startDate), rate: loan.rate, rateType: loan.rateType},
-      ...tramos.map(t=>({fecha: new Date(t.desde), rate: t.rate, rateType: t.rateType||loan.rateType}))
+      {fecha: new Date(loan.startDate+"T12:00:00"), rate: loan.rate, rateType: loan.rateType},
+      ...tramos.map(t=>({fecha: new Date(t.desde+"T12:00:00"), rate: t.rate, rateType: t.rateType||loan.rateType}))
     ].sort((a,b)=>a.fecha-b.fecha);
     for (let i=0; i<hitos.length; i++) {
       const siguienteCambio = hitos[i+1]?.fecha || toDate;
@@ -4274,11 +4274,11 @@ const Loans = () => {
 
   const calcState = loan => {
     let balance = parseFloat(loan.principal), totalPaid=0;
-    let lastDate = new Date(loan.startDate);
+    let lastDate = new Date(loan.startDate+"T12:00:00");
     for (const pmt of [...(loan.payments||[])].sort((a,b)=>new Date(a.date)-new Date(b.date))) {
-      const accrued = calcInteresTramos(loan, balance, lastDate, new Date(pmt.date));
-      if (pmt.paymentType==="interest_only") { totalPaid+=pmt.amount; lastDate=new Date(pmt.date); }
-      else { const toInt=Math.min(pmt.amount,accrued); balance=Math.max(0,balance-(pmt.amount-toInt)); totalPaid+=pmt.amount; lastDate=new Date(pmt.date); }
+      const accrued = calcInteresTramos(loan, balance, lastDate, new Date(pmt.date+"T12:00:00"));
+      if (pmt.paymentType==="interest_only") { totalPaid+=pmt.amount; lastDate=new Date(pmt.date+"T12:00:00"); }
+      else { const toInt=Math.min(pmt.amount,accrued); balance=Math.max(0,balance-(pmt.amount-toInt)); totalPaid+=pmt.amount; lastDate=new Date(pmt.date+"T12:00:00"); }
     }
     const pendingInterest = calcInteresTramos(loan, balance, lastDate, new Date());
     return { originalPrincipal:parseFloat(loan.principal), currentBalance:balance, pendingInterest, totalOwed:balance+pendingInterest, totalPaid, isPaid:balance<=0.01 };
@@ -4286,13 +4286,13 @@ const Loans = () => {
 
   const getBreakdown = loan => {
     const dr = dailyRate(loan.rate, loan.rateType);
-    let balance=parseFloat(loan.principal), lastDate=new Date(loan.startDate);
+    let balance=parseFloat(loan.principal), lastDate=new Date(loan.startDate+"T12:00:00");
     return [...(loan.payments||[])].sort((a,b)=>new Date(a.date)-new Date(b.date)).map((pmt,i)=>{
-      const days=Math.max(0,Math.floor((new Date(pmt.date)-lastDate)/86400000));
+      const days=Math.max(0,Math.floor((new Date(pmt.date+"T12:00:00")-lastDate)/86400000));
       const accrued=balance*dr*days;
-      if (pmt.paymentType==="interest_only") { lastDate=new Date(pmt.date); return{...pmt,idx:i+1,days,accrued,toInterest:pmt.amount,toPrincipal:0,balanceAfter:balance,isInterestOnly:true}; }
+      if (pmt.paymentType==="interest_only") { lastDate=new Date(pmt.date+"T12:00:00"); return{...pmt,idx:i+1,days,accrued,toInterest:pmt.amount,toPrincipal:0,balanceAfter:balance,isInterestOnly:true}; }
       const toInt=Math.min(pmt.amount,accrued); const toCap=pmt.amount-toInt;
-      balance=Math.max(0,balance-toCap); lastDate=new Date(pmt.date);
+      balance=Math.max(0,balance-toCap); lastDate=new Date(pmt.date+"T12:00:00");
       return{...pmt,idx:i+1,days,accrued,toInterest:toInt,toPrincipal:toCap,balanceAfter:balance,isInterestOnly:false};
     });
   };
@@ -6037,11 +6037,11 @@ const Reports = ({ initialTab="balance" }) => {
   const calcLoanBalance = (loan) => {
     const dr = (parseFloat(loan.rate)||0)/100/(loan.rateType==="annual"?365:30);
     let bal = parseFloat(loan.principal||0);
-    let last = new Date(loan.startDate);
+    let last = new Date(loan.startDate+"T12:00:00");
     for (const p of [...(loan.payments||[])].sort((a,b)=>new Date(a.date)-new Date(b.date))) {
-      const days = Math.max(0, Math.floor((new Date(p.date)-last)/86400000));
+      const days = Math.max(0, Math.floor((new Date(p.date+"T12:00:00")-last)/86400000));
       bal = Math.max(0, bal - (p.amount - Math.min(p.amount, bal*dr*days)));
-      last = new Date(p.date);
+      last = new Date(p.date+"T12:00:00");
     }
     return bal;
   };
@@ -7046,19 +7046,19 @@ const Reports = ({ initialTab="balance" }) => {
 const CorteGlobalPanel = ({ loans, calcInteresTramos, fechaCorteGlobalInput, setFechaCorteGlobalInput, fmt }) => {
   const calcStateAtFecha = (loan, fechaStr) => {
     let balance = parseFloat(loan.principal);
-    let lastDate = new Date(loan.startDate);
+    let lastDate = new Date(loan.startDate+"T12:00:00");
     const targetDate = new Date(fechaStr + "T23:59:59");
     const pagos = [...(loan.payments||[])]
-      .filter(p => new Date(p.date) <= targetDate)
+      .filter(p => new Date(p.date+"T12:00:00") <= targetDate)
       .sort((a,b) => new Date(a.date) - new Date(b.date));
     for (const pmt of pagos) {
-      const accrued = calcInteresTramos(loan, balance, lastDate, new Date(pmt.date));
+      const accrued = calcInteresTramos(loan, balance, lastDate, new Date(pmt.date+"T12:00:00"));
       if (pmt.paymentType === "interest_only") {
-        lastDate = new Date(pmt.date);
+        lastDate = new Date(pmt.date+"T12:00:00");
       } else {
         const toInt = Math.min(pmt.amount, accrued);
         balance = Math.max(0, balance - (pmt.amount - toInt));
-        lastDate = new Date(pmt.date);
+        lastDate = new Date(pmt.date+"T12:00:00");
       }
     }
     return {
@@ -7259,21 +7259,21 @@ const CorteMensual = ({ loan, calcState, dailyRate, openNewPay, setPF, blankPay,
     const dr = dailyRate(loan.rate, loan.rateType);
     let balance = parseFloat(loan.principal);
     let totalPaid = 0;
-    let lastDate = new Date(loan.startDate);
+    let lastDate = new Date(loan.startDate+"T12:00:00");
     const targetDate = new Date(targetDateStr + "T23:59:59");
     // Solo pagos anteriores o iguales a la fecha de corte
     const pagosAnteriores = [...(loan.payments||[])]
-      .filter(p => new Date(p.date) <= targetDate)
+      .filter(p => new Date(p.date+"T12:00:00") <= targetDate)
       .sort((a,b) => new Date(a.date) - new Date(b.date));
     for (const pmt of pagosAnteriores) {
-      const days = Math.max(0, Math.floor((new Date(pmt.date) - lastDate) / 86400000));
+      const days = Math.max(0, Math.floor((new Date(pmt.date+"T12:00:00") - lastDate) / 86400000));
       const accrued = balance * dr * days;
       if (pmt.paymentType === "interest_only") {
-        totalPaid += pmt.amount; lastDate = new Date(pmt.date);
+        totalPaid += pmt.amount; lastDate = new Date(pmt.date+"T12:00:00");
       } else {
         const toInt = Math.min(pmt.amount, accrued);
         balance = Math.max(0, balance - (pmt.amount - toInt));
-        totalPaid += pmt.amount; lastDate = new Date(pmt.date);
+        totalPaid += pmt.amount; lastDate = new Date(pmt.date+"T12:00:00");
       }
     }
     const daysSince = Math.max(0, Math.round((targetDate - lastDate) / 86400000));
@@ -11120,11 +11120,11 @@ const Patrimonio = () => {
     const calcLoanBal = loan => {
       const dr=(parseFloat(loan.rate)||0)/100/(loan.rateType==="annual"?365:30);
       let bal=parseFloat(loan.principal||0);
-      let last=new Date(loan.startDate);
+      let last=new Date(loan.startDate+"T12:00:00");
       for (const p of [...(loan.payments||[])].sort((a,b)=>new Date(a.date)-new Date(b.date))) {
-        const days=Math.max(0,Math.floor((new Date(p.date)-last)/86400000));
+        const days=Math.max(0,Math.floor((new Date(p.date+"T12:00:00")-last)/86400000));
         bal=Math.max(0,bal-(p.amount-Math.min(p.amount,bal*dr*days)));
-        last=new Date(p.date);
+        last=new Date(p.date+"T12:00:00");
       }
       return bal;
     };
@@ -11151,10 +11151,10 @@ const Patrimonio = () => {
     // Incluir préstamos por cobrar (lo que te deben)
     const calcLoanBalP = loan => {
       const dr=(parseFloat(loan.rate)||0)/100/(loan.rateType==="annual"?365:30);
-      let bal=parseFloat(loan.principal||0); let last=new Date(loan.startDate);
+      let bal=parseFloat(loan.principal||0); let last=new Date(loan.startDate+"T12:00:00");
       for (const p of [...(loan.payments||[])].sort((a,b)=>new Date(a.date)-new Date(b.date))) {
-        const days=Math.max(0,Math.floor((new Date(p.date)-last)/86400000));
-        bal=Math.max(0,bal-(p.amount-Math.min(p.amount,bal*dr*days))); last=new Date(p.date);
+        const days=Math.max(0,Math.floor((new Date(p.date+"T12:00:00")-last)/86400000));
+        bal=Math.max(0,bal-(p.amount-Math.min(p.amount,bal*dr*days))); last=new Date(p.date+"T12:00:00");
       }
       return bal;
     };
@@ -13405,10 +13405,10 @@ Sé directo, positivo y usa 1 emoji relevante. No repitas los números exactos s
     // Préstamos con saldo e interés acumulado
     const calcLoanState = (loan) => {
       const dr=(parseFloat(loan.rate)||0)/100/(loan.rateType==="annual"?365:loan.rateType==="monthly"?30:1);
-      let bal=parseFloat(loan.principal||0), last=new Date(loan.startDate);
+      let bal=parseFloat(loan.principal||0), last=new Date(loan.startDate+"T12:00:00");
       for(const p of [...(loan.payments||[])].sort((a,b)=>new Date(a.date)-new Date(b.date))){
-        const days=Math.max(0,Math.floor((new Date(p.date)-last)/86400000));
-        bal=Math.max(0,bal-(p.amount-Math.min(p.amount,bal*dr*days))); last=new Date(p.date);
+        const days=Math.max(0,Math.floor((new Date(p.date+"T12:00:00")-last)/86400000));
+        bal=Math.max(0,bal-(p.amount-Math.min(p.amount,bal*dr*days))); last=new Date(p.date+"T12:00:00");
       }
       const daysSince=Math.max(0,Math.floor((new Date()-last)/86400000));
       const interest=bal*dr*daysSince;
@@ -13554,12 +13554,12 @@ ${presInfo.length>0?presInfo.join("\n"):"Sin presupuestos"}`;
   // ── Calcular estado de préstamo (para saber interés acumulado)
   const calcLoanStateFlot = (loan) => {
     const dr=(parseFloat(loan.rate)||0)/100/(loan.rateType==="annual"?365:loan.rateType==="monthly"?30:1);
-    let bal=parseFloat(loan.principal||0), last=new Date(loan.startDate), totalPaid=0;
+    let bal=parseFloat(loan.principal||0), last=new Date(loan.startDate+"T12:00:00"), totalPaid=0;
     for(const p of [...(loan.payments||[])].sort((a,b)=>new Date(a.date)-new Date(b.date))){
-      const days=Math.max(0,Math.floor((new Date(p.date)-last)/86400000));
+      const days=Math.max(0,Math.floor((new Date(p.date+"T12:00:00")-last)/86400000));
       const accrued=bal*dr*days;
-      if(p.paymentType==="interest_only"){totalPaid+=p.amount;last=new Date(p.date);}
-      else{const toInt=Math.min(p.amount,accrued);bal=Math.max(0,bal-(p.amount-toInt));totalPaid+=p.amount;last=new Date(p.date);}
+      if(p.paymentType==="interest_only"){totalPaid+=p.amount;last=new Date(p.date+"T12:00:00");}
+      else{const toInt=Math.min(p.amount,accrued);bal=Math.max(0,bal-(p.amount-toInt));totalPaid+=p.amount;last=new Date(p.date+"T12:00:00");}
     }
     const daysSince=Math.max(0,Math.floor((new Date()-last)/86400000));
     const interest=bal*dr*daysSince;
