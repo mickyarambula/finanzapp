@@ -4226,6 +4226,7 @@ const Loans = () => {
   const blankPay  = { amount:"", date:today(), paymentType:"interest_only", targetAccountId:"", notes:"", registrarComoTx:true };
   const [lf, setLF] = useState(blankLoan);
   const [pf, setPF] = useState(blankPay);
+  const [fechaCorteGlobalInput, setFechaCorteGlobalInput] = useState(today());
   const lc = k => e => setLF(p=>({...p,[k]:e.target.value}));
   const pc = k => e => setPF(p=>({...p,[k]:e.target.value}));
 
@@ -4714,35 +4715,7 @@ const Loans = () => {
     return s + calcState(l).currentBalance * dr * 30;
   },0);
 
-  // KPI: total a cobrar al próximo día de corte configurable
-  const [diaCorteGlobal, setDiaCorteGlobal] = useState(5);
-  const fechaCorteGlobal = (() => {
-    const hoy = new Date();
-    const intento = new Date(hoy.getFullYear(), hoy.getMonth(), diaCorteGlobal);
-    // Si el día de corte ya pasó este mes, usar el del mes que viene
-    return intento <= hoy
-      ? new Date(hoy.getFullYear(), hoy.getMonth()+1, diaCorteGlobal)
-      : intento;
-  })();
-  const fechaCorteGlobalStr = fechaCorteGlobal.toISOString().split("T")[0];
-  const calcStateAtDateGlobal = (loan, targetDateStr) => {
-    let balance = parseFloat(loan.principal);
-    let lastDate = new Date(loan.startDate);
-    const targetDate = new Date(targetDateStr+"T23:59:59");
-    const pagos = [...(loan.payments||[])].filter(p=>new Date(p.date)<=targetDate).sort((a,b)=>new Date(a.date)-new Date(b.date));
-    for (const pmt of pagos) {
-      const accrued = calcInteresTramos(loan, balance, lastDate, new Date(pmt.date));
-      if (pmt.paymentType==="interest_only") { lastDate=new Date(pmt.date); }
-      else { const toInt=Math.min(pmt.amount,accrued); balance=Math.max(0,balance-Math.max(0,pmt.amount-toInt)); lastDate=new Date(pmt.date); }
-    }
-    const interes = calcInteresTramos(loan, balance, lastDate, targetDate);
-    return { currentBalance: balance, pendingInterest: interes, totalOwed: balance+interes };
-  };
   const prestamosGivenActivos = activeLoans.filter(l=>l.type==="given");
-  const totalACobrarAlCorte = prestamosGivenActivos.reduce((s,l)=>s+calcStateAtDateGlobal(l,fechaCorteGlobalStr).pendingInterest,0);
-  const detalleCorteGlobal = prestamosGivenActivos.map(l=>({
-    loan:l, st:calcStateAtDateGlobal(l,fechaCorteGlobalStr)
-  }));
 
   return (
     <div>
@@ -4777,33 +4750,14 @@ const Loans = () => {
               <p style={{fontSize:10,color:"#444",margin:"3px 0 0"}}>A la fecha de hoy</p>
             </Card>
           )}
-          {prestamosGivenActivos.length>0&&totalACobrarAlCorte>0&&(
-            <Card style={{padding:"12px 14px",borderColor:"rgba(59,130,246,.3)",background:"rgba(59,130,246,.06)",gridColumn:"span 2"}}>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:8}}>
-                <div>
-                  <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
-                    <p style={{fontSize:10,color:"#93c5fd",textTransform:"uppercase",letterSpacing:.4,margin:0}}>📅 Total intereses a cobrar al día</p>
-                    <input type="number" min="1" max="28" value={diaCorteGlobal}
-                      onChange={e=>setDiaCorteGlobal(Math.min(28,Math.max(1,parseInt(e.target.value)||5)))}
-                      style={{width:40,background:"rgba(59,130,246,.15)",border:"1px solid rgba(59,130,246,.3)",borderRadius:6,color:"#93c5fd",fontSize:12,padding:"2px 6px",outline:"none",textAlign:"center",fontWeight:700}}/>
-                    <span style={{fontSize:10,color:"#555"}}>de cada mes</span>
-                  </div>
-                  <p style={{fontSize:22,fontWeight:800,color:"#3b82f6",margin:"0 0 2px",fontVariantNumeric:"tabular-nums"}}>+{fmt(totalACobrarAlCorte)}</p>
-                  <p style={{fontSize:10,color:"#555",margin:0}}>Próximo corte: {fechaCorteGlobal.toLocaleDateString("es-MX",{day:"2-digit",month:"long",year:"numeric"})}</p>
-                </div>
-                <div style={{display:"flex",flexDirection:"column",gap:3,minWidth:200}}>
-                  {detalleCorteGlobal.map(({loan,st})=>(
-                    <div key={loan.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"4px 8px",borderRadius:7,background:"rgba(255,255,255,.04)"}}>
-                      <span style={{fontSize:11,color:"#ccc",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:120}}>{loan.name}</span>
-                      <div style={{display:"flex",gap:8,alignItems:"center",flexShrink:0}}>
-                        <span style={{fontSize:10,color:"#555"}}>{fmt(st.currentBalance)} cap.</span>
-                        <span style={{fontSize:12,fontWeight:700,color:"#3b82f6",fontVariantNumeric:"tabular-nums"}}>+{fmt(st.pendingInterest)}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </Card>
+          {prestamosGivenActivos.length>0&&(
+            <CorteGlobalPanel
+              loans={prestamosGivenActivos}
+              calcInteresTramos={calcInteresTramos}
+              fechaCorteGlobalInput={fechaCorteGlobalInput}
+              setFechaCorteGlobalInput={setFechaCorteGlobalInput}
+              fmt={fmt}
+            />
           )}
           {interesPorPagar>0&&(
             <Card style={{padding:"12px 14px",borderColor:"rgba(243,156,18,.2)",background:"rgba(243,156,18,.03)"}}>
@@ -7086,6 +7040,84 @@ const Reports = ({ initialTab="balance" }) => {
   );
 };
 
+
+// ─── SUBCOMPONENTE: CORTE GLOBAL DE PRÉSTAMOS ────────────────────────────────
+const CorteGlobalPanel = ({ loans, calcInteresTramos, fechaCorteGlobalInput, setFechaCorteGlobalInput, fmt }) => {
+  const calcStateAtFecha = (loan, fechaStr) => {
+    let balance = parseFloat(loan.principal);
+    let lastDate = new Date(loan.startDate);
+    const targetDate = new Date(fechaStr + "T23:59:59");
+    const pagos = [...(loan.payments||[])]
+      .filter(p => new Date(p.date) <= targetDate)
+      .sort((a,b) => new Date(a.date) - new Date(b.date));
+    for (const pmt of pagos) {
+      const accrued = calcInteresTramos(loan, balance, lastDate, new Date(pmt.date));
+      if (pmt.paymentType === "interest_only") {
+        lastDate = new Date(pmt.date);
+      } else {
+        const toInt = Math.min(pmt.amount, accrued);
+        balance = Math.max(0, balance - (pmt.amount - toInt));
+        lastDate = new Date(pmt.date);
+      }
+    }
+    return {
+      currentBalance: balance,
+      pendingInterest: calcInteresTramos(loan, balance, lastDate, targetDate),
+    };
+  };
+
+  const detalle = loans.map(l => ({ loan: l, st: calcStateAtFecha(l, fechaCorteGlobalInput) }));
+  const totalInteres = detalle.reduce((s, d) => s + d.st.pendingInterest, 0);
+  const totalCapital = detalle.reduce((s, d) => s + d.st.currentBalance, 0);
+  const fmtFecha = (str) => new Date(str + "T12:00:00").toLocaleDateString("es-MX", {day:"2-digit", month:"long", year:"numeric"});
+
+  return (
+    <Card style={{padding:0,overflow:"hidden",borderColor:"rgba(59,130,246,.25)",background:"rgba(59,130,246,.04)",gridColumn:"1 / -1"}}>
+      {/* Header con selector de fecha */}
+      <div style={{padding:"12px 16px 10px",borderBottom:"1px solid rgba(59,130,246,.12)",display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:10}}>
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          <span style={{fontSize:15}}>📅</span>
+          <p style={{fontSize:13,fontWeight:800,color:"#93c5fd",margin:0}}>Intereses a cobrar al</p>
+          <input
+            type="date"
+            value={fechaCorteGlobalInput}
+            onChange={e => setFechaCorteGlobalInput(e.target.value)}
+            style={{background:"rgba(59,130,246,.15)",border:"1px solid rgba(59,130,246,.3)",borderRadius:7,
+              color:"#93c5fd",fontSize:12,padding:"4px 8px",outline:"none",cursor:"pointer",fontWeight:700}}
+          />
+        </div>
+        <p style={{fontSize:11,color:"#555",margin:0}}>{fmtFecha(fechaCorteGlobalInput)}</p>
+      </div>
+      {/* KPI total */}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:0}}>
+        <div style={{padding:"12px 16px",borderRight:"1px solid rgba(59,130,246,.08)"}}>
+          <p style={{fontSize:9,color:"#555",textTransform:"uppercase",letterSpacing:.5,margin:"0 0 3px"}}>Total intereses a cobrar</p>
+          <p style={{fontSize:22,fontWeight:800,color:"#3b82f6",margin:0,fontVariantNumeric:"tabular-nums"}}>+{fmt(totalInteres)}</p>
+        </div>
+        <div style={{padding:"12px 16px"}}>
+          <p style={{fontSize:9,color:"#555",textTransform:"uppercase",letterSpacing:.5,margin:"0 0 3px"}}>Capital total prestado</p>
+          <p style={{fontSize:22,fontWeight:800,color:"#888",margin:0,fontVariantNumeric:"tabular-nums"}}>{fmt(totalCapital)}</p>
+        </div>
+      </div>
+      {/* Desglose por préstamo */}
+      <div style={{borderTop:"1px solid rgba(59,130,246,.08)"}}>
+        {detalle.map(({loan, st}, i) => (
+          <div key={loan.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",
+            padding:"8px 16px",borderBottom:i<detalle.length-1?"1px solid rgba(255,255,255,.03)":"none",
+            background:i%2===0?"transparent":"rgba(255,255,255,.01)"}}>
+            <div style={{minWidth:0,flex:1}}>
+              <p style={{fontSize:12,fontWeight:600,color:"#ccc",margin:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{loan.name}</p>
+              <p style={{fontSize:10,color:"#555",margin:0}}>Capital: {fmt(st.currentBalance)}</p>
+            </div>
+            <p style={{fontSize:14,fontWeight:800,color:"#3b82f6",margin:0,flexShrink:0,fontVariantNumeric:"tabular-nums"}}>
+              +{fmt(st.pendingInterest)}
+            </p>
+          </div>
+        ))}
+      </div>
+    </Card>
+  );
+};
 
 // ─── SUBCOMPONENTE: TRAMOS DE TASA EN PRÉSTAMO ───────────────────────────────
 const TramosPanel = ({ loan, loans, setLoans, dailyRate, toast }) => {
