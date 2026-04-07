@@ -4490,6 +4490,20 @@ const Loans = () => {
 
         <AmortizacionChart loan={selected} pagos={bd.map(p=>({date:p.date,saldoRestante:p.balanceAfter}))}/>
 
+        {/* ── CORTE MENSUAL */}
+        {selected.type==="given" && !st.isPaid && (
+          <CorteMensual
+            loan={selected}
+            calcState={calcState}
+            dailyRate={dailyRate}
+            openNewPay={openNewPay}
+            setPF={setPF}
+            blankPay={blankPay}
+            setOpenPay={setOpenPay}
+            accounts={accounts}
+          />
+        )}
+
         <p style={{ fontSize:14, fontWeight:600, color:"#e0e0e0", marginBottom:10 }}>Historial de Pagos ({bd.length})</p>
         {bd.length===0 ? <Card><p style={{ textAlign:"center", color:"#444", fontSize:13, padding:"16px 0", margin:0 }}>Sin pagos.</p></Card> : (
           <div style={{ overflowX:"auto" }}>
@@ -6969,6 +6983,207 @@ const Reports = ({ initialTab="balance" }) => {
   );
 };
 
+
+// ─── SUBCOMPONENTE: CORTE MENSUAL DE PRÉSTAMO ────────────────────────────────
+const CorteMensual = ({ loan, calcState, dailyRate, openNewPay, setPF, blankPay, setOpenPay, accounts }) => {
+  const hoy = new Date();
+  // Default: día 5 del mes en curso (si ya pasó, del mes actual; si no ha llegado, del actual)
+  const defaultCorte = (() => {
+    const d = new Date(hoy.getFullYear(), hoy.getMonth(), 5);
+    return d.toISOString().split("T")[0];
+  })();
+  const [fechaCorte, setFechaCorte] = React.useState(defaultCorte);
+  const [historial, setHistorial] = React.useState(
+    () => JSON.parse(localStorage.getItem(`fp_cortes_${loan.id}`) || "[]")
+  );
+
+  // ── Calcular estado AL día de corte (no a hoy)
+  const calcStateAtDate = (targetDateStr) => {
+    const dr = dailyRate(loan.rate, loan.rateType);
+    let balance = parseFloat(loan.principal);
+    let totalPaid = 0;
+    let lastDate = new Date(loan.startDate);
+    const targetDate = new Date(targetDateStr + "T23:59:59");
+    // Solo pagos anteriores o iguales a la fecha de corte
+    const pagosAnteriores = [...(loan.payments||[])]
+      .filter(p => new Date(p.date) <= targetDate)
+      .sort((a,b) => new Date(a.date) - new Date(b.date));
+    for (const pmt of pagosAnteriores) {
+      const days = Math.max(0, Math.round((new Date(pmt.date) - lastDate) / 86400000));
+      const accrued = balance * dr * days;
+      if (pmt.paymentType === "interest_only") {
+        totalPaid += pmt.amount; lastDate = new Date(pmt.date);
+      } else {
+        const toInt = Math.min(pmt.amount, accrued);
+        balance = Math.max(0, balance - (pmt.amount - toInt));
+        totalPaid += pmt.amount; lastDate = new Date(pmt.date);
+      }
+    }
+    const daysSince = Math.max(0, Math.round((targetDate - lastDate) / 86400000));
+    const pendingInterest = balance * dr * daysSince;
+    return { currentBalance: balance, pendingInterest, totalOwed: balance + pendingInterest, totalPaid, lastDate };
+  };
+
+  const stCorte = calcStateAtDate(fechaCorte);
+  const stHoy = calcState(loan);
+  const cur = loan.currency || "MXN";
+  const fmt2 = (v) => new Intl.NumberFormat("es-MX", {style:"currency",currency:cur==="USD"?"USD":"MXN"}).format(v||0);
+  const fmtD = (d) => new Date(d+"T12:00:00").toLocaleDateString("es-MX",{day:"2-digit",month:"short",year:"numeric"});
+
+  // Días entre último pago y fecha de corte
+  const diasPeriodo = Math.max(0, Math.round((new Date(fechaCorte+"T23:59:59") - stCorte.lastDate) / 86400000));
+  const interesDelPeriodo = stCorte.currentBalance * dailyRate(loan.rate, loan.rateType) * diasPeriodo;
+
+  // ── Guardar corte en historial local
+  const guardarCorte = () => {
+    const nuevoCorte = {
+      id: Date.now().toString(),
+      fecha: fechaCorte,
+      saldoCapital: stCorte.currentBalance,
+      interesAcumulado: stCorte.pendingInterest,
+      totalACobrar: stCorte.totalOwed,
+      diasPeriodo,
+      creadoEn: new Date().toISOString(),
+    };
+    const nuevo = [nuevoCorte, ...historial].slice(0, 24); // max 24 cortes
+    setHistorial(nuevo);
+    localStorage.setItem(`fp_cortes_${loan.id}`, JSON.stringify(nuevo));
+  };
+
+  const eliminarCorte = (id) => {
+    const nuevo = historial.filter(c => c.id !== id);
+    setHistorial(nuevo);
+    localStorage.setItem(`fp_cortes_${loan.id}`, JSON.stringify(nuevo));
+  };
+
+  // ── Pre-llenar modal de pago con datos del corte
+  const registrarCobro = () => {
+    setPF({
+      ...blankPay,
+      amount: stCorte.pendingInterest.toFixed(2),
+      date: fechaCorte,
+      paymentType: "interest_only",
+      targetAccountId: accounts.find(a=>a.id===loan.accountId)?.id || accounts[0]?.id || "",
+      notes: `Intereses corte ${fechaCorte}`,
+    });
+    setOpenPay(true);
+  };
+
+  return (
+    <div style={{marginBottom:16}}>
+      <div style={{borderRadius:13,border:"1px solid rgba(0,120,255,.2)",background:"rgba(0,120,255,.04)",overflow:"hidden"}}>
+        {/* Header */}
+        <div style={{padding:"12px 16px 10px",borderBottom:"1px solid rgba(0,120,255,.12)",display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
+          <div style={{display:"flex",alignItems:"center",gap:8}}>
+            <span style={{fontSize:16}}>📅</span>
+            <p style={{fontSize:13,fontWeight:800,color:"#3b82f6",margin:0}}>Corte mensual</p>
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:8}}>
+            <span style={{fontSize:11,color:"#555"}}>Fecha de corte:</span>
+            <input type="date" value={fechaCorte} onChange={e=>setFechaCorte(e.target.value)}
+              style={{background:"rgba(59,130,246,.1)",border:"1px solid rgba(59,130,246,.3)",borderRadius:7,color:"#93c5fd",fontSize:12,padding:"4px 8px",outline:"none",cursor:"pointer"}}/>
+          </div>
+        </div>
+
+        {/* KPIs del corte */}
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:0}}>
+          {[
+            {l:"Saldo capital",v:fmt2(stCorte.currentBalance),c:"#e0e0e0"},
+            {l:`Interés del período (${diasPeriodo}d)`,v:fmt2(stCorte.pendingInterest),c:"#f39c12"},
+            {l:"Total a cobrar al corte",v:fmt2(stCorte.totalOwed),c:"#3b82f6",big:true},
+          ].map(k=>(
+            <div key={k.l} style={{padding:"12px 16px",borderRight:"1px solid rgba(59,130,246,.08)"}}>
+              <p style={{fontSize:9,color:"#555",textTransform:"uppercase",letterSpacing:.5,margin:"0 0 3px",lineHeight:1.3}}>{k.l}</p>
+              <p style={{fontSize:k.big?17:14,fontWeight:k.big?800:700,color:k.c,margin:0,fontVariantNumeric:"tabular-nums"}}>{k.v}</p>
+            </div>
+          ))}
+        </div>
+
+        {/* Desglose del período */}
+        <div style={{padding:"10px 16px",borderTop:"1px solid rgba(59,130,246,.08)",background:"rgba(0,0,0,.1)"}}>
+          <p style={{fontSize:10,color:"#555",textTransform:"uppercase",letterSpacing:.4,margin:"0 0 8px"}}>Desglose del período</p>
+          <div style={{display:"flex",flexDirection:"column",gap:5}}>
+            {[
+              {l:"Último pago / inicio", v: fmtD(stCorte.lastDate.toISOString().split("T")[0]), c:"#666"},
+              {l:"Fecha de corte",       v: fmtD(fechaCorte),                                    c:"#93c5fd"},
+              {l:"Días del período",     v: `${diasPeriodo} días`,                                c:"#a78bfa"},
+              {l:"Tasa diaria",          v: `${(dailyRate(loan.rate,loan.rateType)*100).toFixed(5)}%`, c:"#666"},
+              {l:"Interés del período",  v: fmt2(interesDelPeriodo),                              c:"#f39c12"},
+            ].map(row=>(
+              <div key={row.l} style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <span style={{fontSize:11,color:"#555"}}>{row.l}</span>
+                <span style={{fontSize:11,fontWeight:600,color:row.c,fontVariantNumeric:"tabular-nums"}}>{row.v}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Diferencia vs hoy */}
+        {Math.abs(stCorte.pendingInterest - stHoy.pendingInterest) > 0.01 && (
+          <div style={{padding:"8px 16px",borderTop:"1px solid rgba(59,130,246,.08)",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <span style={{fontSize:11,color:"#555"}}>Interés acumulado a hoy ({new Date().toLocaleDateString("es-MX",{day:"2-digit",month:"short"})})</span>
+            <span style={{fontSize:12,fontWeight:700,color:"#f39c12",fontVariantNumeric:"tabular-nums"}}>{fmt2(stHoy.pendingInterest)}</span>
+          </div>
+        )}
+
+        {/* Botones */}
+        <div style={{padding:"10px 16px",borderTop:"1px solid rgba(59,130,246,.12)",display:"flex",gap:8,flexWrap:"wrap"}}>
+          <button onClick={registrarCobro}
+            style={{flex:1,minWidth:140,padding:"8px 14px",borderRadius:8,border:"none",cursor:"pointer",
+              background:"linear-gradient(135deg,#3b82f6,#1d4ed8)",color:"#fff",fontSize:12,fontWeight:700,
+              display:"flex",alignItems:"center",gap:6,justifyContent:"center"}}>
+            ✓ Registrar cobro de este corte
+          </button>
+          <button onClick={guardarCorte}
+            style={{padding:"8px 14px",borderRadius:8,border:"1px solid rgba(59,130,246,.3)",cursor:"pointer",
+              background:"rgba(59,130,246,.08)",color:"#93c5fd",fontSize:12,fontWeight:600,
+              display:"flex",alignItems:"center",gap:6}}>
+            💾 Guardar corte
+          </button>
+        </div>
+      </div>
+
+      {/* Historial de cortes */}
+      {historial.length > 0 && (
+        <div style={{marginTop:10,borderRadius:10,border:"1px solid rgba(255,255,255,.06)",overflow:"hidden"}}>
+          <div style={{padding:"8px 14px",borderBottom:"1px solid rgba(255,255,255,.05)",background:"rgba(255,255,255,.02)"}}>
+            <p style={{fontSize:10,color:"#444",textTransform:"uppercase",letterSpacing:.5,margin:0}}>Historial de cortes guardados</p>
+          </div>
+          <div style={{overflowX:"auto"}}>
+            <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
+              <thead>
+                <tr style={{background:"rgba(255,255,255,.02)"}}>
+                  {["Fecha corte","Capital","Interés","Total a cobrar","Días",""].map(h=>(
+                    <th key={h} style={{padding:"7px 12px",textAlign:h===""||h==="Fecha corte"?"left":"right",
+                      fontSize:9,fontWeight:700,color:"#555",textTransform:"uppercase",letterSpacing:.4,
+                      borderBottom:"1px solid rgba(255,255,255,.04)"}}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {historial.map((c,i)=>(
+                  <tr key={c.id} style={{background:i%2===0?"transparent":"rgba(255,255,255,.01)",borderBottom:"1px solid rgba(255,255,255,.03)"}}>
+                    <td style={{padding:"7px 12px",color:"#93c5fd",fontWeight:600}}>{fmtD(c.fecha)}</td>
+                    <td style={{padding:"7px 12px",textAlign:"right",color:"#888",fontVariantNumeric:"tabular-nums"}}>{fmt2(c.saldoCapital)}</td>
+                    <td style={{padding:"7px 12px",textAlign:"right",color:"#f39c12",fontVariantNumeric:"tabular-nums"}}>{fmt2(c.interesAcumulado)}</td>
+                    <td style={{padding:"7px 12px",textAlign:"right",fontWeight:700,color:"#3b82f6",fontVariantNumeric:"tabular-nums"}}>{fmt2(c.totalACobrar)}</td>
+                    <td style={{padding:"7px 12px",textAlign:"right",color:"#555"}}>{c.diasPeriodo}d</td>
+                    <td style={{padding:"7px 12px"}}>
+                      <button onClick={()=>eliminarCorte(c.id)}
+                        style={{background:"none",border:"none",cursor:"pointer",color:"#444",fontSize:11,padding:"2px 6px",borderRadius:4}}
+                        onMouseEnter={e=>e.currentTarget.style.color="#ff4757"}
+                        onMouseLeave={e=>e.currentTarget.style.color="#444"}>✕</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
 
 // ─── SUBCOMPONENTE: ANÁLISIS DE CATEGORÍAS Y TAGS ────────────────────────────
 const AnalisisTab = ({ txsRango, transactions, accounts }) => {
