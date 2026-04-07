@@ -4613,6 +4613,7 @@ const Loans = () => {
             </div>
           </Modal>
         )}
+        {confirmModal}
       </div>
     );
   }
