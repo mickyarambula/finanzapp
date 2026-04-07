@@ -2895,7 +2895,7 @@ const Accounts = () => {
   const { user, toast, navigate } = useCtx();
   const [accounts, setAccounts] = useData(user.id, "accounts");
   const [transactions] = useData(user.id, "transactions");
-  const [transfers] = useData(user.id, "transfers");
+  const [transfers, setTransfers] = useData(user.id, "transfers");
   const [open, setOpen]     = useState(false);
   const [editing, setEditing] = useState(null);
   const [askConfirm, confirmModal] = useConfirm();
@@ -2939,6 +2939,23 @@ const Accounts = () => {
       if (a.id===pagoCard.id)    return {...a, balance: nuevoSaldoTarjeta};
       return a;
     }));
+    // Guardar en transfers para que aparezca en el historial de ambas cuentas
+    setTransfers(prev=>[{
+      id: genId(),
+      fromId: pagoForm.fromId,
+      toId: pagoCard.id,
+      amount: monto,
+      toAmount: monto,
+      date: pagoForm.date||today(),
+      description: pagoForm.descripcion||`Pago tarjeta: ${pagoCard.name}`,
+      tipoPago: "pago_tarjeta",
+      fromName: origen?.name||"",
+      toName: pagoCard.name,
+      fromCurrency: origen?.currency||"MXN",
+      toCurrency: pagoCard.currency||"MXN",
+      notas: pagoForm.notas||"",
+      createdAt: new Date().toISOString(),
+    }, ...(prev||[])]);
     toast(`Pago de ${fmt(monto)} a ${pagoCard.name} registrado ✓`,"success");
     setPagoOpen(false);
   };
