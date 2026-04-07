@@ -2895,6 +2895,7 @@ const Accounts = () => {
   const { user, toast, navigate } = useCtx();
   const [accounts, setAccounts] = useData(user.id, "accounts");
   const [transactions] = useData(user.id, "transactions");
+  const [transfers] = useData(user.id, "transfers");
   const [open, setOpen]     = useState(false);
   const [editing, setEditing] = useState(null);
   const [askConfirm, confirmModal] = useConfirm();
@@ -3119,20 +3120,82 @@ const Accounts = () => {
       {detailAccount&&(()=>{
         const a = accounts.find(x=>x.id===detailAccount.id)||detailAccount;
         const color = TIPO_COLOR[a.type]||"#777";
-        const txs = transactions.filter(t=>t.accountId===a.id).sort((x,y)=>new Date(y.date)-new Date(x.date));
-        const meses = [...new Set(txs.map(t=>t.date?.slice(0,7)))].sort((a,b)=>b.localeCompare(a)).slice(0,6);
-        const txsFiltradas = mesFilter==="all" ? txs : txs.filter(t=>t.date?.startsWith(mesFilter));
-        const totalIngresos = txsFiltradas.filter(t=>t.type==="income").reduce((s,t)=>s+parseFloat(t.amount||0),0);
-        const totalGastos   = txsFiltradas.filter(t=>t.type==="expense").reduce((s,t)=>s+parseFloat(t.amount||0),0);
-        const catMap = {};
-        txsFiltradas.filter(t=>t.type==="expense").forEach(t=>{ catMap[t.category||"Sin cat"]=(catMap[t.category||"Sin cat"]||0)+parseFloat(t.amount||0); });
-        const topCats = Object.entries(catMap).sort((a,b)=>b[1]-a[1]).slice(0,4);
+        const cur = a.currency||"MXN";
+
+        // ── Transacciones de esta cuenta
+        const txsCuenta = transactions.filter(t=>t.accountId===a.id);
+
+        // ── Transferencias que involucran esta cuenta (como salida o entrada)
+        const trCuenta = (transfers||[]).filter(t=>t.fromId===a.id||t.toId===a.id);
+
+        // ── Unificar en lista de movimientos normalizada
+        const movimientos = [
+          ...txsCuenta.map(t=>({
+            _id: t.id,
+            _tipo: "tx",
+            _raw: t,
+            date: t.date,
+            description: t.description||"Sin descripción",
+            delta: t.type==="income" ? parseFloat(t.amount||0) : -parseFloat(t.amount||0),
+            badge: t.category||null,
+            badgeColor: t.type==="income"?"#00d4aa":"#ff4757",
+            icon: t.type==="income"?"plus":"minus",
+            iconBg: t.type==="income"?"rgba(0,212,170,.1)":"rgba(255,71,87,.1)",
+            iconColor: t.type==="income"?"#00d4aa":"#ff4757",
+          })),
+          ...trCuenta.map(t=>{
+            const esSalida = t.fromId===a.id;
+            const contraparteNombre = esSalida ? t.toName : t.fromName;
+            const delta = esSalida ? -parseFloat(t.amount||0) : parseFloat(t.toAmount||t.amount||0);
+            const esPagoTarjeta = t.tipoPago==="pago_tarjeta";
+            return {
+              _id: t.id,
+              _tipo: "transfer",
+              _raw: t,
+              date: t.date,
+              description: t.description || (esPagoTarjeta ? `Pago tarjeta: ${contraparteNombre}` : esSalida ? `Transferencia a ${contraparteNombre}` : `Transferencia de ${contraparteNombre}`),
+              delta,
+              badge: esSalida ? `→ ${contraparteNombre}` : `← ${contraparteNombre}`,
+              badgeColor: "#3b82f6",
+              icon: "transfers",
+              iconBg: "rgba(59,130,246,.1)",
+              iconColor: "#3b82f6",
+              esPagoTarjeta,
+            };
+          }),
+        ].sort((x,y)=> x.date!==y.date ? (x.date<y.date?1:-1) : new Date(y._raw.createdAt||0)-new Date(x._raw.createdAt||0));
+
+        // ── Running balance: partimos del saldo actual y restamos hacia atrás
+        const saldoActual = parseFloat(a.balance||0);
+        let runBal = saldoActual;
+        const movConSaldo = movimientos.map(m=>{
+          const bal = runBal;
+          runBal -= m.delta;
+          return {...m, saldoTras: bal};
+        });
+
+        // ── Filtro por mes
+        const mesesDisp = [...new Set(movimientos.map(m=>m.date?.slice(0,7)))].sort((a,b)=>b.localeCompare(a)).slice(0,6);
+        const movFiltrados = mesFilter==="all" ? movConSaldo : movConSaldo.filter(m=>m.date?.startsWith(mesFilter));
+
+        // ── KPIs del período
+        const entradasPeriodo  = movFiltrados.filter(m=>m.delta>0).reduce((s,m)=>s+m.delta,0);
+        const salidasPeriodo   = movFiltrados.filter(m=>m.delta<0).reduce((s,m)=>s+Math.abs(m.delta),0);
+        const txCount = movFiltrados.filter(m=>m._tipo==="tx").length;
+        const trCount = movFiltrados.filter(m=>m._tipo==="transfer").length;
+
+        // ── Top categorías (solo transacciones gasto)
+        const catMap={};
+        movFiltrados.filter(m=>m._tipo==="tx"&&m.delta<0).forEach(m=>{ const c=m._raw.category||"Sin cat"; catMap[c]=(catMap[c]||0)+Math.abs(m.delta); });
+        const topCats=Object.entries(catMap).sort((a,b)=>b[1]-a[1]).slice(0,4);
+
         return (
           <>
             <div onClick={()=>setDetailAccount(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.45)",zIndex:1000,backdropFilter:"blur(2px)"}}/>
-            <div style={{position:"fixed",top:0,right:0,width:"min(460px,100vw)",height:"100vh",background:"#161b27",borderLeft:"1px solid rgba(255,255,255,.08)",zIndex:1001,display:"flex",flexDirection:"column",animation:"slideIn .2s ease",overflowY:"auto"}}>
-              <div style={{padding:"20px 20px 16px",borderBottom:"1px solid rgba(255,255,255,.06)",flexShrink:0}}>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12}}>
+            <div style={{position:"fixed",top:0,right:0,width:"min(480px,100vw)",height:"100vh",background:"#161b27",borderLeft:"1px solid rgba(255,255,255,.08)",zIndex:1001,display:"flex",flexDirection:"column",animation:"slideIn .2s ease"}}>
+              {/* ── HEADER */}
+              <div style={{padding:"20px 20px 14px",borderBottom:"1px solid rgba(255,255,255,.06)",flexShrink:0}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
                   <div style={{display:"flex",alignItems:"center",gap:12}}>
                     <div style={{width:42,height:42,borderRadius:12,background:`${color}18`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
                       <Ic n="accounts" size={20} color={color}/>
@@ -3141,7 +3204,7 @@ const Accounts = () => {
                       <p style={{fontSize:17,fontWeight:800,color:"#f0f0f0",margin:0,fontFamily:"'Syne',sans-serif"}}>{a.name}</p>
                       <div style={{display:"flex",gap:6,marginTop:3,flexWrap:"wrap"}}>
                         <Badge label={TIPOS[a.type]||a.type} color={color}/>
-                        <Badge label={a.currency} color="#555"/>
+                        <Badge label={cur} color="#555"/>
                         {a.bank&&<Badge label={a.bank} color="#444"/>}
                       </div>
                     </div>
@@ -3150,58 +3213,68 @@ const Accounts = () => {
                     <Ic n="close" size={20}/>
                   </button>
                 </div>
-                <p style={{fontSize:32,fontWeight:800,color:parseFloat(a.balance||0)<0&&a.type!=="credit"?"#ff4757":color,margin:"0 0 4px"}}>{fmt(a.balance,a.currency)}</p>
+                {/* Saldo actual */}
+                <p style={{fontSize:32,fontWeight:800,color:parseFloat(a.balance||0)<0&&a.type!=="credit"?"#ff4757":color,margin:"0 0 4px"}}>{fmt(a.balance,cur)}</p>
                 {a.type==="credit"&&parseFloat(a.creditLimit||0)>0&&(
-                  <div style={{marginBottom:8}}>
+                  <div style={{marginBottom:6}}>
                     <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
-                      <span style={{fontSize:11,color:"#555"}}>Usado: {fmt(Math.abs(parseFloat(a.balance||0)),a.currency)}</span>
-                      <span style={{fontSize:11,color:"#00d4aa"}}>Disponible: {fmt(parseFloat(a.creditLimit||0)-Math.abs(parseFloat(a.balance||0)),a.currency)}</span>
+                      <span style={{fontSize:11,color:"#555"}}>Usado: {fmt(Math.abs(parseFloat(a.balance||0)),cur)}</span>
+                      <span style={{fontSize:11,color:"#00d4aa"}}>Disponible: {fmt(parseFloat(a.creditLimit||0)-Math.abs(parseFloat(a.balance||0)),cur)}</span>
                     </div>
                     <div style={{height:6,borderRadius:3,background:"rgba(255,255,255,.06)"}}>
                       <div style={{height:"100%",borderRadius:3,background:color,width:`${Math.min(Math.abs(parseFloat(a.balance||0))/parseFloat(a.creditLimit)*100,100)}%`,transition:"width .5s"}}/>
                     </div>
                     <div style={{display:"flex",justifyContent:"space-between",marginTop:3}}>
-                      <span style={{fontSize:10,color:"#444"}}>{(Math.abs(parseFloat(a.balance||0))/parseFloat(a.creditLimit)*100).toFixed(0)}% del límite ({fmt(a.creditLimit,a.currency)})</span>
+                      <span style={{fontSize:10,color:"#444"}}>{(Math.abs(parseFloat(a.balance||0))/parseFloat(a.creditLimit)*100).toFixed(0)}% del límite ({fmt(a.creditLimit,cur)})</span>
                       {a.fechaPago&&<span style={{fontSize:10,color:"#f39c12"}}>Pago: {a.fechaPago}</span>}
                     </div>
                   </div>
                 )}
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginTop:10}}>
-                  <div style={{background:"rgba(0,212,170,.06)",border:"1px solid rgba(0,212,170,.1)",borderRadius:9,padding:"8px 12px"}}>
-                    <p style={{fontSize:10,color:"#555",margin:"0 0 2px",textTransform:"uppercase",letterSpacing:.4}}>Ingresos {mesFilter==="all"?"totales":mesFilter}</p>
-                    <p style={{fontSize:14,fontWeight:700,color:"#00d4aa",margin:0}}>{fmt(totalIngresos)}</p>
+                {/* KPIs período */}
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,marginTop:8}}>
+                  <div style={{background:"rgba(0,212,170,.06)",border:"1px solid rgba(0,212,170,.1)",borderRadius:8,padding:"7px 10px"}}>
+                    <p style={{fontSize:9,color:"#555",margin:"0 0 2px",textTransform:"uppercase",letterSpacing:.4}}>Entradas</p>
+                    <p style={{fontSize:13,fontWeight:700,color:"#00d4aa",margin:0}}>{fmt(entradasPeriodo,cur)}</p>
                   </div>
-                  <div style={{background:"rgba(255,71,87,.06)",border:"1px solid rgba(255,71,87,.1)",borderRadius:9,padding:"8px 12px"}}>
-                    <p style={{fontSize:10,color:"#555",margin:"0 0 2px",textTransform:"uppercase",letterSpacing:.4}}>Gastos {mesFilter==="all"?"totales":mesFilter}</p>
-                    <p style={{fontSize:14,fontWeight:700,color:"#ff4757",margin:0}}>{fmt(totalGastos)}</p>
+                  <div style={{background:"rgba(255,71,87,.06)",border:"1px solid rgba(255,71,87,.1)",borderRadius:8,padding:"7px 10px"}}>
+                    <p style={{fontSize:9,color:"#555",margin:"0 0 2px",textTransform:"uppercase",letterSpacing:.4}}>Salidas</p>
+                    <p style={{fontSize:13,fontWeight:700,color:"#ff4757",margin:0}}>{fmt(salidasPeriodo,cur)}</p>
+                  </div>
+                  <div style={{background:"rgba(59,130,246,.06)",border:"1px solid rgba(59,130,246,.1)",borderRadius:8,padding:"7px 10px"}}>
+                    <p style={{fontSize:9,color:"#555",margin:"0 0 2px",textTransform:"uppercase",letterSpacing:.4}}>Movimientos</p>
+                    <p style={{fontSize:13,fontWeight:700,color:"#3b82f6",margin:0}}>{txCount} tx · {trCount} tr</p>
                   </div>
                 </div>
               </div>
-              <div style={{padding:"12px 20px",borderBottom:"1px solid rgba(255,255,255,.05)",flexShrink:0}}>
-                <div style={{display:"flex",gap:6,overflowX:"auto",paddingBottom:2}}>
-                  <button onClick={()=>setMesFilter("all")} style={{padding:"5px 12px",borderRadius:7,border:`1px solid ${mesFilter==="all"?"rgba(0,212,170,.4)":"rgba(255,255,255,.08)"}`,background:mesFilter==="all"?"rgba(0,212,170,.1)":"transparent",color:mesFilter==="all"?"#00d4aa":"#555",fontSize:11,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}}>
-                    Todos ({txs.length})
+
+              {/* ── FILTRO MES */}
+              <div style={{padding:"10px 20px",borderBottom:"1px solid rgba(255,255,255,.05)",flexShrink:0}}>
+                <div style={{display:"flex",gap:5,overflowX:"auto",paddingBottom:2}}>
+                  <button onClick={()=>setMesFilter("all")} style={{padding:"4px 11px",borderRadius:7,border:`1px solid ${mesFilter==="all"?"rgba(0,212,170,.4)":"rgba(255,255,255,.08)"}`,background:mesFilter==="all"?"rgba(0,212,170,.1)":"transparent",color:mesFilter==="all"?"#00d4aa":"#555",fontSize:11,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}}>
+                    Todos ({movimientos.length})
                   </button>
-                  {meses.map(m=>(
-                    <button key={m} onClick={()=>setMesFilter(m)} style={{padding:"5px 12px",borderRadius:7,border:`1px solid ${mesFilter===m?"rgba(0,212,170,.4)":"rgba(255,255,255,.08)"}`,background:mesFilter===m?"rgba(0,212,170,.1)":"transparent",color:mesFilter===m?"#00d4aa":"#555",fontSize:11,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}}>
-                      {new Date(m+"-15").toLocaleDateString("es-MX",{month:"short",year:"2-digit"})} ({txs.filter(t=>t.date?.startsWith(m)).length})
+                  {mesesDisp.map(m=>(
+                    <button key={m} onClick={()=>setMesFilter(m)} style={{padding:"4px 11px",borderRadius:7,border:`1px solid ${mesFilter===m?"rgba(0,212,170,.4)":"rgba(255,255,255,.08)"}`,background:mesFilter===m?"rgba(0,212,170,.1)":"transparent",color:mesFilter===m?"#00d4aa":"#555",fontSize:11,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}}>
+                      {new Date(m+"-15").toLocaleDateString("es-MX",{month:"short",year:"2-digit"})} ({movimientos.filter(mv=>mv.date?.startsWith(m)).length})
                     </button>
                   ))}
                 </div>
               </div>
+
+              {/* ── TOP CATEGORÍAS */}
               {topCats.length>0&&(
-                <div style={{padding:"12px 20px",borderBottom:"1px solid rgba(255,255,255,.05)",flexShrink:0}}>
-                  <p style={{fontSize:10,color:"#444",textTransform:"uppercase",letterSpacing:.4,marginBottom:8}}>Top categorías de gasto</p>
-                  <div style={{display:"flex",flexDirection:"column",gap:5}}>
+                <div style={{padding:"10px 20px",borderBottom:"1px solid rgba(255,255,255,.05)",flexShrink:0}}>
+                  <p style={{fontSize:9,color:"#444",textTransform:"uppercase",letterSpacing:.4,marginBottom:6}}>Top categorías de gasto</p>
+                  <div style={{display:"flex",flexDirection:"column",gap:4}}>
                     {topCats.map(([cat,val])=>{
-                      const pct = totalGastos>0?val/totalGastos*100:0;
+                      const pct=salidasPeriodo>0?val/salidasPeriodo*100:0;
                       return (
                         <div key={cat}>
                           <div style={{display:"flex",justifyContent:"space-between",marginBottom:2}}>
                             <span style={{fontSize:11,color:"#888"}}>{cat}</span>
                             <span style={{fontSize:11,color:"#ff4757",fontWeight:600}}>{fmt(val)}</span>
                           </div>
-                          <div style={{height:4,borderRadius:2,background:"rgba(255,255,255,.05)"}}>
+                          <div style={{height:3,borderRadius:2,background:"rgba(255,255,255,.05)"}}>
                             <div style={{height:"100%",borderRadius:2,background:"#ff4757",width:`${pct}%`}}/>
                           </div>
                         </div>
@@ -3210,49 +3283,72 @@ const Accounts = () => {
                   </div>
                 </div>
               )}
-              <div style={{flex:1,overflowY:"auto",padding:"12px 20px"}}>
-                <p style={{fontSize:10,color:"#444",textTransform:"uppercase",letterSpacing:.4,marginBottom:10}}>Movimientos ({txsFiltradas.length})</p>
-                {txsFiltradas.length===0?(
+
+              {/* ── LISTA DE MOVIMIENTOS */}
+              <div style={{flex:1,overflowY:"auto",padding:"10px 20px"}}>
+                <p style={{fontSize:9,color:"#444",textTransform:"uppercase",letterSpacing:.4,marginBottom:8}}>
+                  Estado de cuenta · {movFiltrados.length} movimiento{movFiltrados.length!==1?"s":""}
+                </p>
+                {movFiltrados.length===0?(
                   <div style={{textAlign:"center",padding:"40px 0",color:"#444"}}>
                     <Ic n="transactions" size={32} color="#333"/>
                     <p style={{marginTop:8,fontSize:13}}>Sin movimientos en este período</p>
                   </div>
                 ):(
-                  <div style={{display:"flex",flexDirection:"column",gap:2}}>
-                    {txsFiltradas.map(tx=>(
-                      <div key={tx.id} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",borderRadius:9,background:"rgba(255,255,255,.02)",marginBottom:2}}>
-                        <div style={{width:32,height:32,borderRadius:8,background:tx.type==="income"?"rgba(0,212,170,.1)":"rgba(255,71,87,.1)",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-                          <Ic n={tx.type==="income"?"plus":"minus"} size={15} color={tx.type==="income"?"#00d4aa":"#ff4757"}/>
-                        </div>
-                        <div style={{flex:1,minWidth:0}}>
-                          <p style={{fontSize:12,fontWeight:600,color:"#e0e0e0",margin:"0 0 1px",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{tx.description||"Sin descripción"}</p>
-                          <div style={{display:"flex",gap:5,alignItems:"center"}}>
-                            <span style={{fontSize:10,color:"#444"}}>{fmtDate(tx.date)}</span>
-                            {tx.category&&<Badge label={tx.category} color={tx.type==="income"?"#00d4aa":"#ff4757"}/>}
+                  <div style={{display:"flex",flexDirection:"column",gap:1}}>
+                    {movFiltrados.map((mv,i)=>(
+                      <div key={mv._id} style={{borderRadius:9,background:i%2===0?"rgba(255,255,255,.015)":"transparent",marginBottom:1,overflow:"hidden"}}>
+                        <div style={{display:"flex",alignItems:"center",gap:9,padding:"9px 10px"}}>
+                          {/* Ícono */}
+                          <div style={{width:30,height:30,borderRadius:8,background:mv.iconBg,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                            <Ic n={mv.icon} size={14} color={mv.iconColor}/>
+                          </div>
+                          {/* Descripción */}
+                          <div style={{flex:1,minWidth:0}}>
+                            <p style={{fontSize:12,fontWeight:600,color:"#e0e0e0",margin:"0 0 2px",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{mv.description}</p>
+                            <div style={{display:"flex",gap:5,alignItems:"center",flexWrap:"wrap"}}>
+                              <span style={{fontSize:10,color:"#444"}}>{fmtDate(mv.date)}</span>
+                              {mv.badge&&<Badge label={mv.badge} color={mv.badgeColor}/>}
+                            </div>
+                          </div>
+                          {/* Monto + saldo tras */}
+                          <div style={{textAlign:"right",flexShrink:0}}>
+                            <p style={{fontSize:13,fontWeight:700,color:mv.delta>=0?"#00d4aa":"#ff4757",margin:"0 0 1px"}}>
+                              {mv.delta>=0?"+":""}{fmt(Math.abs(mv.delta),cur)}
+                            </p>
+                            <p style={{fontSize:10,color:"#444",margin:0,fontVariantNumeric:"tabular-nums"}}>
+                              {fmt(mv.saldoTras,cur)}
+                            </p>
                           </div>
                         </div>
-                        <span style={{fontSize:13,fontWeight:700,color:tx.type==="income"?"#00d4aa":"#ff4757",flexShrink:0}}>
-                          {tx.type==="income"?"+":"-"}{fmt(tx.amount,tx.currency||a.currency)}
-                        </span>
                       </div>
                     ))}
+                    {/* Saldo inicial estimado al final */}
+                    <div style={{margin:"8px 0 0",padding:"8px 10px",borderRadius:8,background:"rgba(255,255,255,.03)",border:"1px dashed rgba(255,255,255,.07)",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                      <span style={{fontSize:10,color:"#444"}}>Saldo inicial estimado (antes de estos movimientos)</span>
+                      <span style={{fontSize:12,fontWeight:700,color:"#666",fontVariantNumeric:"tabular-nums"}}>{fmt(movFiltrados.length>0?movFiltrados[movFiltrados.length-1].saldoTras-movFiltrados[movFiltrados.length-1].delta:saldoActual,cur)}</span>
+                    </div>
                   </div>
                 )}
               </div>
+
+              {/* ── BOTONES */}
               <div style={{padding:"12px 20px",borderTop:"1px solid rgba(255,255,255,.06)",display:"flex",gap:8,flexShrink:0,flexWrap:"wrap"}}>
-                <Btn onClick={()=>{setDetailAccount(null);openEdit(a);}} variant="secondary" style={{flex:1,justifyContent:"center",minWidth:120}}>
-                  <Ic n="edit" size={14}/>Editar cuenta
+                <Btn onClick={()=>{setDetailAccount(null);openEdit(a);}} variant="secondary" style={{flex:1,justifyContent:"center",minWidth:100}}>
+                  <Ic n="edit" size={14}/>Editar
                 </Btn>
                 <Btn onClick={()=>{
                   setDetailAccount(null);
-                  // Guardar la cuenta en sessionStorage para que Transactions la tome
                   sessionStorage.setItem("fp_new_tx_account", a.id);
                   navigate("transactions:new");
-                }} style={{flex:1,justifyContent:"center",minWidth:120,background:"linear-gradient(135deg,rgba(0,212,170,.15),rgba(0,212,170,.08))",border:"1px solid rgba(0,212,170,.3)",color:"#00d4aa"}}>
-                  <Ic n="plus" size={14}/>Nuevo movimiento
+                }} style={{flex:1,justifyContent:"center",minWidth:100,background:"linear-gradient(135deg,rgba(0,212,170,.15),rgba(0,212,170,.08))",border:"1px solid rgba(0,212,170,.3)",color:"#00d4aa"}}>
+                  <Ic n="plus" size={14}/>Nueva tx
+                </Btn>
+                <Btn onClick={()=>{setDetailAccount(null);navigate("transfers");}} style={{flex:1,justifyContent:"center",minWidth:100,background:"linear-gradient(135deg,rgba(59,130,246,.15),rgba(59,130,246,.08))",border:"1px solid rgba(59,130,246,.3)",color:"#3b82f6"}}>
+                  <Ic n="transfers" size={14}/>Transferir
                 </Btn>
                 {a.type==="credit"&&(
-                  <Btn onClick={()=>{setDetailAccount(null);abrirPago(a);}} style={{flex:1,justifyContent:"center",minWidth:120,background:"linear-gradient(135deg,rgba(255,71,87,.2),rgba(255,71,87,.1))",border:"1px solid rgba(255,71,87,.3)",color:"#ff6b7a"}}>
+                  <Btn onClick={()=>{setDetailAccount(null);abrirPago(a);}} style={{flex:1,justifyContent:"center",minWidth:100,background:"linear-gradient(135deg,rgba(255,71,87,.2),rgba(255,71,87,.1))",border:"1px solid rgba(255,71,87,.3)",color:"#ff6b7a"}}>
                     <Ic n="transfers" size={14}/>Pagar tarjeta
                   </Btn>
                 )}
