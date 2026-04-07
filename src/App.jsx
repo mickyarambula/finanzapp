@@ -4364,7 +4364,8 @@ const Loans = () => {
     if (pf.paymentType!=="interest_only"&&amount>st.totalOwed+1) { toast(`No puede exceder lo adeudado: ${fmt(st.totalOwed,selected.currency)}`,"error"); return; }
     const targetId=pf.targetAccountId||selected.accountId;
     setAccounts(applyDelta(accounts, targetId, selected.type==="given"?amount:-amount));
-    const newPmt={id:genId(),...pf,amount,targetAccountId:targetId};
+    const pmtId = genId();
+    const newPmt={id:pmtId,...pf,amount,targetAccountId:targetId};
     setLoans(loans.map(l=>l.id===selected.id?{...l,payments:[...(l.payments||[]),newPmt]}:l));
     // ── híbrido: crear transacción si el usuario lo eligió
     if (pf.registrarComoTx) {
@@ -4378,7 +4379,7 @@ const Loans = () => {
           description: isIngreso?`Intereses cobrados — ${selected.name}`:`Pago intereses — ${selected.name}`,
           category: isIngreso?"Intereses cobrados":"Pago de deuda",
           accountId: targetId, currency: selected.currency||"MXN",
-          origen:"prestamo", origenId:selected.id, notes: pf.notes||"",
+          origen:"prestamo", origenId:selected.id, pmtId, notes: pf.notes||"",
         });
       } else {
         // Capital + interés: separar ambas partes
@@ -4392,7 +4393,7 @@ const Loans = () => {
             description: isIngreso?`Intereses cobrados — ${selected.name}`:`Pago intereses — ${selected.name}`,
             category: isIngreso?"Intereses cobrados":"Pago de deuda",
             accountId: targetId, currency: selected.currency||"MXN",
-            origen:"prestamo", origenId:selected.id, notes: pf.notes||"",
+            origen:"prestamo", origenId:selected.id, pmtId, notes: pf.notes||"",
           });
         }
         // El capital es recuperación de activo (préstamo dado) o reducción de pasivo (préstamo recibido)
@@ -4403,7 +4404,7 @@ const Loans = () => {
             description: isIngreso?`Recuperación de capital — ${selected.name}`:`Abono a capital — ${selected.name}`,
             category: isIngreso?"Recuperación de capital":"Abono a capital",
             accountId: targetId, currency: selected.currency||"MXN",
-            origen:"prestamo", origenId:selected.id, notes: pf.notes||"",
+            origen:"prestamo", origenId:selected.id, pmtId, notes: pf.notes||"",
           });
         }
       }
@@ -4414,13 +4415,24 @@ const Loans = () => {
   };
 
   const delPay = async pmtId => {
-    const ok = await askConfirm("¿Eliminar este pago? El saldo de la cuenta se revertirá.");
+    const ok = await askConfirm("¿Eliminar este pago? El saldo de la cuenta y las transacciones vinculadas se revertirán.");
     if (!ok) return;
     const pmt=selected.payments.find(p=>p.id===pmtId);
+    if (!pmt) return;
     const targetId=pmt.targetAccountId||selected.accountId;
+    // Revertir saldo de cuenta
     setAccounts(applyDelta(accounts, targetId, selected.type==="given"?-pmt.amount:pmt.amount));
+    // Eliminar el pago del préstamo
     setLoans(loans.map(l=>l.id===selected.id?{...l,payments:l.payments.filter(p=>p.id!==pmtId)}:l));
-    toast("Pago eliminado y saldo revertido.","warning");
+    // Eliminar transacciones vinculadas (por pmtId o por origenId+fecha+monto como fallback)
+    setTransactions(prev=>prev.filter(t=>{
+      if (t.pmtId && t.pmtId===pmtId) return false; // link directo
+      // fallback para pagos viejos sin pmtId: misma fecha, mismo origenId, mismo monto aprox
+      if (!t.pmtId && t.origenId===selected.id && t.date===pmt.date &&
+          Math.abs(parseFloat(t.amount||0)-pmt.amount)<0.02) return false;
+      return true;
+    }));
+    toast("Pago eliminado, saldo y transacciones revertidos.","warning");
   };
 
   if (view==="detail"&&selected) {
@@ -4551,6 +4563,44 @@ const Loans = () => {
           />
         )}
 
+        {/* ── Desglose de lo pagado */}
+        {bd.length>0&&(()=>{
+          const totalInteresesPagados = bd.reduce((s,p)=>s+p.toInterest,0);
+          const totalCapitalPagado = bd.reduce((s,p)=>s+p.toPrincipal,0);
+          const totalPagosReal = bd.reduce((s,p)=>s+p.amount,0);
+          return (
+            <Card style={{marginBottom:14,padding:0,overflow:"hidden"}}>
+              <div style={{padding:"10px 16px 8px",borderBottom:"1px solid rgba(255,255,255,.05)"}}>
+                <p style={{fontSize:12,fontWeight:700,color:"#e0e0e0",margin:0}}>Resumen de pagos realizados</p>
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:0}}>
+                {[
+                  {l:"Total pagado",v:fmt(totalPagosReal,selected.currency),c:"#00d4aa"},
+                  {l:"En intereses",v:fmt(totalInteresesPagados,selected.currency),c:"#f39c12"},
+                  {l:"A capital",v:fmt(totalCapitalPagado,selected.currency),c:"#3b82f6"},
+                  {l:"Pagos registrados",v:bd.length,c:"#888"},
+                ].map(k=>(
+                  <div key={k.l} style={{padding:"10px 16px",borderRight:"1px solid rgba(255,255,255,.04)"}}>
+                    <p style={{fontSize:9,color:"#555",textTransform:"uppercase",letterSpacing:.5,margin:"0 0 3px"}}>{k.l}</p>
+                    <p style={{fontSize:15,fontWeight:800,color:k.c,margin:0,fontVariantNumeric:"tabular-nums"}}>{k.v}</p>
+                  </div>
+                ))}
+              </div>
+              {totalInteresesPagados>0&&(
+                <div style={{padding:"6px 16px 8px",borderTop:"1px solid rgba(255,255,255,.04)"}}>
+                  <div style={{height:6,borderRadius:4,background:"rgba(255,255,255,.06)",overflow:"hidden",display:"flex"}}>
+                    <div style={{height:"100%",background:"#f39c12",width:`${totalPagosReal>0?(totalInteresesPagados/totalPagosReal*100).toFixed(1):0}%`,transition:"width .4s"}}/>
+                    <div style={{height:"100%",background:"#3b82f6",width:`${totalPagosReal>0?(totalCapitalPagado/totalPagosReal*100).toFixed(1):0}%`,transition:"width .4s"}}/>
+                  </div>
+                  <div style={{display:"flex",gap:14,marginTop:4}}>
+                    <span style={{fontSize:9,color:"#f39c12",display:"flex",alignItems:"center",gap:3}}><span style={{width:7,height:7,borderRadius:2,background:"#f39c12",display:"inline-block"}}/>{totalPagosReal>0?(totalInteresesPagados/totalPagosReal*100).toFixed(1):0}% intereses</span>
+                    <span style={{fontSize:9,color:"#3b82f6",display:"flex",alignItems:"center",gap:3}}><span style={{width:7,height:7,borderRadius:2,background:"#3b82f6",display:"inline-block"}}/>{totalPagosReal>0?(totalCapitalPagado/totalPagosReal*100).toFixed(1):0}% capital</span>
+                  </div>
+                </div>
+              )}
+            </Card>
+          );
+        })()}
         <p style={{ fontSize:14, fontWeight:600, color:"#e0e0e0", marginBottom:10 }}>Historial de Pagos ({bd.length})</p>
         {bd.length===0 ? <Card><p style={{ textAlign:"center", color:"#444", fontSize:13, padding:"16px 0", margin:0 }}>Sin pagos.</p></Card> : (
           <div style={{ overflowX:"auto" }}>
@@ -7157,6 +7207,7 @@ const TramosPanel = ({ loan, loans, setLoans, dailyRate, toast }) => {
           <span style={{fontSize:13,fontWeight:800,color:"#f0f0f0",background:"rgba(167,139,250,.15)",borderRadius:8,padding:"2px 10px"}}>
             {tramoActual.rate}% {tramoActual.rateType==="annual"?"anual":tramoActual.rateType==="monthly"?"mensual":"diaria"}
             <span style={{fontSize:10,color:"#a78bfa",marginLeft:6}}>({(dailyRate(tramoActual.rate,tramoActual.rateType)*100).toFixed(5)}% diario)</span>
+          <span style={{fontSize:9,color:"#555",marginLeft:8}}>· el día del cambio usa tasa anterior</span>
           </span>
         </div>
         <button onClick={()=>setShowTramoForm(s=>!s)}
