@@ -1686,7 +1686,7 @@ const ProyeccionFlujo = ({ recurrents, loans, mortgages, transactions, accounts,
     const dr=(parseFloat(loan.rate)||0)/100/(loan.rateType==="annual"?365:30);
     let bal=parseFloat(loan.principal||0), last=new Date(loan.startDate);
     for(const p of [...(loan.payments||[])].sort((a,b)=>new Date(a.date)-new Date(b.date))){
-      const days=Math.max(0,Math.round((new Date(p.date)-last)/86400000));
+      const days=Math.max(0,Math.floor((new Date(p.date)-last)/86400000));
       bal=Math.max(0, bal-(p.amount-Math.min(p.amount,bal*dr*days)));
       last=new Date(p.date);
     }
@@ -2146,7 +2146,7 @@ const Dashboard = () => {
     const dr=(parseFloat(loan.rate)||0)/100/(loan.rateType==="annual"?365:30);
     let bal=parseFloat(loan.principal||0), last=new Date(loan.startDate);
     for(const p of [...(loan.payments||[])].sort((a,b)=>new Date(a.date)-new Date(b.date))){
-      const days=Math.max(0,Math.round((new Date(p.date)-last)/86400000));
+      const days=Math.max(0,Math.floor((new Date(p.date)-last)/86400000));
       bal=Math.max(0, bal-(p.amount - Math.min(p.amount, bal*dr*days)));
       last=new Date(p.date);
     }
@@ -4249,7 +4249,7 @@ const Loans = () => {
   const calcInteresTramos = (loan, balance, fromDate, toDate) => {
     const tramos = [...(loan.tramos||[])].sort((a,b)=>new Date(a.desde)-new Date(b.desde));
     if (tramos.length===0) {
-      const days = Math.max(0, Math.round((toDate-fromDate)/86400000));
+      const days = Math.max(0, Math.floor((toDate-fromDate)/86400000));
       return balance * dailyRate(loan.rate, loan.rateType) * days;
     }
     // Construir períodos con su tasa correspondiente
@@ -4264,7 +4264,7 @@ const Loans = () => {
       if (cursor >= finPeriodo) continue;
       if (cursor < hitos[i].fecha) cursor = new Date(hitos[i].fecha);
       if (cursor >= finPeriodo) continue;
-      const days = Math.max(0, Math.round((finPeriodo - cursor)/86400000));
+      const days = Math.max(0, Math.floor((finPeriodo - cursor)/86400000));
       total += balance * dailyRate(hitos[i].rate, hitos[i].rateType) * days;
       cursor = new Date(finPeriodo);
       if (cursor >= toDate) break;
@@ -4288,7 +4288,7 @@ const Loans = () => {
     const dr = dailyRate(loan.rate, loan.rateType);
     let balance=parseFloat(loan.principal), lastDate=new Date(loan.startDate);
     return [...(loan.payments||[])].sort((a,b)=>new Date(a.date)-new Date(b.date)).map((pmt,i)=>{
-      const days=Math.max(0,Math.round((new Date(pmt.date)-lastDate)/86400000));
+      const days=Math.max(0,Math.floor((new Date(pmt.date)-lastDate)/86400000));
       const accrued=balance*dr*days;
       if (pmt.paymentType==="interest_only") { lastDate=new Date(pmt.date); return{...pmt,idx:i+1,days,accrued,toInterest:pmt.amount,toPrincipal:0,balanceAfter:balance,isInterestOnly:true}; }
       const toInt=Math.min(pmt.amount,accrued); const toCap=pmt.amount-toInt;
@@ -6039,7 +6039,7 @@ const Reports = ({ initialTab="balance" }) => {
     let bal = parseFloat(loan.principal||0);
     let last = new Date(loan.startDate);
     for (const p of [...(loan.payments||[])].sort((a,b)=>new Date(a.date)-new Date(b.date))) {
-      const days = Math.max(0, Math.round((new Date(p.date)-last)/86400000));
+      const days = Math.max(0, Math.floor((new Date(p.date)-last)/86400000));
       bal = Math.max(0, bal - (p.amount - Math.min(p.amount, bal*dr*days)));
       last = new Date(p.date);
     }
@@ -7266,7 +7266,7 @@ const CorteMensual = ({ loan, calcState, dailyRate, openNewPay, setPF, blankPay,
       .filter(p => new Date(p.date) <= targetDate)
       .sort((a,b) => new Date(a.date) - new Date(b.date));
     for (const pmt of pagosAnteriores) {
-      const days = Math.max(0, Math.round((new Date(pmt.date) - lastDate) / 86400000));
+      const days = Math.max(0, Math.floor((new Date(pmt.date) - lastDate) / 86400000));
       const accrued = balance * dr * days;
       if (pmt.paymentType === "interest_only") {
         totalPaid += pmt.amount; lastDate = new Date(pmt.date);
@@ -11122,7 +11122,7 @@ const Patrimonio = () => {
       let bal=parseFloat(loan.principal||0);
       let last=new Date(loan.startDate);
       for (const p of [...(loan.payments||[])].sort((a,b)=>new Date(a.date)-new Date(b.date))) {
-        const days=Math.max(0,Math.round((new Date(p.date)-last)/86400000));
+        const days=Math.max(0,Math.floor((new Date(p.date)-last)/86400000));
         bal=Math.max(0,bal-(p.amount-Math.min(p.amount,bal*dr*days)));
         last=new Date(p.date);
       }
@@ -11153,7 +11153,7 @@ const Patrimonio = () => {
       const dr=(parseFloat(loan.rate)||0)/100/(loan.rateType==="annual"?365:30);
       let bal=parseFloat(loan.principal||0); let last=new Date(loan.startDate);
       for (const p of [...(loan.payments||[])].sort((a,b)=>new Date(a.date)-new Date(b.date))) {
-        const days=Math.max(0,Math.round((new Date(p.date)-last)/86400000));
+        const days=Math.max(0,Math.floor((new Date(p.date)-last)/86400000));
         bal=Math.max(0,bal-(p.amount-Math.min(p.amount,bal*dr*days))); last=new Date(p.date);
       }
       return bal;
@@ -13407,10 +13407,10 @@ Sé directo, positivo y usa 1 emoji relevante. No repitas los números exactos s
       const dr=(parseFloat(loan.rate)||0)/100/(loan.rateType==="annual"?365:loan.rateType==="monthly"?30:1);
       let bal=parseFloat(loan.principal||0), last=new Date(loan.startDate);
       for(const p of [...(loan.payments||[])].sort((a,b)=>new Date(a.date)-new Date(b.date))){
-        const days=Math.max(0,Math.round((new Date(p.date)-last)/86400000));
+        const days=Math.max(0,Math.floor((new Date(p.date)-last)/86400000));
         bal=Math.max(0,bal-(p.amount-Math.min(p.amount,bal*dr*days))); last=new Date(p.date);
       }
-      const daysSince=Math.max(0,Math.round((new Date()-last)/86400000));
+      const daysSince=Math.max(0,Math.floor((new Date()-last)/86400000));
       const interest=bal*dr*daysSince;
       return {bal,interest,total:bal+interest};
     };
@@ -13556,12 +13556,12 @@ ${presInfo.length>0?presInfo.join("\n"):"Sin presupuestos"}`;
     const dr=(parseFloat(loan.rate)||0)/100/(loan.rateType==="annual"?365:loan.rateType==="monthly"?30:1);
     let bal=parseFloat(loan.principal||0), last=new Date(loan.startDate), totalPaid=0;
     for(const p of [...(loan.payments||[])].sort((a,b)=>new Date(a.date)-new Date(b.date))){
-      const days=Math.max(0,Math.round((new Date(p.date)-last)/86400000));
+      const days=Math.max(0,Math.floor((new Date(p.date)-last)/86400000));
       const accrued=bal*dr*days;
       if(p.paymentType==="interest_only"){totalPaid+=p.amount;last=new Date(p.date);}
       else{const toInt=Math.min(p.amount,accrued);bal=Math.max(0,bal-(p.amount-toInt));totalPaid+=p.amount;last=new Date(p.date);}
     }
-    const daysSince=Math.max(0,Math.round((new Date()-last)/86400000));
+    const daysSince=Math.max(0,Math.floor((new Date()-last)/86400000));
     const interest=bal*dr*daysSince;
     return {bal,interest,total:bal+interest,totalPaid,dr,lastDate:last};
   };
