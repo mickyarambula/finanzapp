@@ -6006,6 +6006,11 @@ const Investments = () => {
               <p style={{ fontSize:20, fontWeight:700, color:"#00d4aa", margin:0 }}>{fmt(totalMXN,"MXN")}</p>
               {totalUSD>0&&<p style={{fontSize:11,color:"#0078ff",margin:"2px 0 0"}}>+ {fmt(totalUSD,"USD")}</p>}
             </Card>
+            <Card style={{ borderColor:"rgba(59,130,246,.2)" }}>
+              <p style={{ fontSize:11, color:"#666", textTransform:"uppercase", letterSpacing:.4, margin:"0 0 4px" }}>Capital invertido total</p>
+              <p style={{ fontSize:20, fontWeight:700, color:"#3b82f6", margin:0 }}>{fmt(totalAportado,"MXN")}</p>
+              <p style={{fontSize:10,color:"#555",margin:"3px 0 0"}}>Lo que pusiste de tu bolsillo</p>
+            </Card>
             <Card style={{ borderColor:`${rendColor}33` }}>
               <p style={{ fontSize:11, color:"#666", textTransform:"uppercase", letterSpacing:.4, margin:"0 0 4px" }}>Rendimiento real neto</p>
               <p style={{ fontSize:20, fontWeight:700, color:rendColor, margin:0 }}>{rendTotal>=0?"+":""}{fmt(rendTotal,"MXN")}</p>
@@ -14091,6 +14096,7 @@ const AsisteFlotante = () => {
   const [loading, setLoading] = useState(false);
   const [adjunto, setAdjunto] = useState(null);
   const [pendingTx, setPendingTx] = useState(null);
+  const [pendingConc, setPendingConc] = useState(null); // {accountId, fechaDesde, fechaHasta, transacciones, seleccionadas}
   const bottomRef = useRef(null);
   const fileRef = useRef(null);
   const inputRef = useRef(null);
@@ -14306,6 +14312,12 @@ Puedes registrar CUALQUIERA de estas operaciones usando el JSON correspondiente 
 1. TRANSACCIÓN (gasto/ingreso):
 TRANSACCIONES_JSON:[{"type":"expense|income","amount":0,"date":"${hoyStr}","category":"...","description":"...","account":"ID_CUENTA"}]
 
+MODO CONCILIACIÓN — cuando el usuario suba un estado de cuenta bancario:
+- Extrae TODAS las transacciones del período
+- Responde con CONCILIACION_JSON al final indicando cuenta, período y transacciones extraídas
+CONCILIACION_JSON:{"accountId":"ID_CUENTA","fechaDesde":"YYYY-MM-DD","fechaHasta":"YYYY-MM-DD","transacciones":[{"date":"YYYY-MM-DD","description":"...","amount":0,"type":"expense|income"}]}
+El usuario revisará cada transacción una por una antes de confirmar.
+
 2. PAGO DE PRÉSTAMO (capital+interés o solo interés):
 PAGO_PRESTAMO_JSON:{"loanId":"ID_PRESTAMO","amount":0,"date":"${hoyStr}","paymentType":"mixed|interest_only","account":"ID_CUENTA","notes":""}
 
@@ -14363,6 +14375,16 @@ ${presInfo.length>0?presInfo.join("\n"):"Sin presupuestos"}`;
   };
 
   // ── Parser multi-acción
+  const parseConciliacion = (text) => {
+    const m = text.match(/CONCILIACION_JSON:(\{[\s\S]*?\})(?:\n|$)/);
+    if (!m) return null;
+    try {
+      const data = JSON.parse(m[1]);
+      if (!data.transacciones?.length) return null;
+      return data;
+    } catch { return null; }
+  };
+
   const parseAcciones = (text) => {
     const acciones = [];
     // 1. Transacciones
@@ -14561,9 +14583,22 @@ ${presInfo.length>0?presInfo.join("\n"):"Sin presupuestos"}`;
       const data = await res.json();
       const reply = data.content?.[0]?.text || "Sin respuesta.";
       const acciones = parseAcciones(reply);
+      const conc = parseConciliacion(reply);
       const replyLimpio = limpiarReply(reply);
       setMessages(p=>[...p,{role:"assistant",content:replyLimpio}]);
-      if (acciones) setPendingTx(acciones);
+      if (conc) {
+        // Modo conciliación: comparar con transacciones existentes
+        const txsExist = transactions.filter(t=>t.date>=conc.fechaDesde&&t.date<=conc.fechaHasta&&t.accountId===conc.accountId);
+        const enriquecidas = conc.transacciones.map(t=>{
+          // Buscar coincidencia aproximada por fecha y monto
+          const match = txsExist.find(ex=>ex.date===t.date&&Math.abs(parseFloat(ex.amount)-Math.abs(t.amount))<0.01);
+          const matchAprox = !match && txsExist.find(ex=>Math.abs(new Date(ex.date)-new Date(t.date))/86400000<=2&&Math.abs(parseFloat(ex.amount)-Math.abs(t.amount))<0.01);
+          return { ...t, yaExiste:!!match, coincidenciaAprox:matchAprox||null, seleccionada:!match };
+        });
+        setPendingConc({ ...conc, transacciones:enriquecidas });
+      } else if (acciones) {
+        setPendingTx(acciones);
+      }
     } catch { setMessages(p=>[...p,{role:"assistant",content:"❌ Error al conectar con la API."}]); }
     setLoading(false);
   };
@@ -14706,6 +14741,77 @@ ${presInfo.length>0?presInfo.join("\n"):"Sin presupuestos"}`;
                 </div>
               </div>
             )}
+
+            {/* Panel de Conciliación Bancaria */}
+            {pendingConc && (() => {
+              const cuenta = accounts.find(a=>a.id===pendingConc.accountId);
+              const novedades = pendingConc.transacciones.filter(t=>t.seleccionada);
+              const yaExisten = pendingConc.transacciones.filter(t=>t.yaExiste);
+              const guardarConc = () => {
+                const nuevas = novedades.map(t=>({
+                  id:genId(), date:t.date,
+                  type:t.type||( t.amount>0?"income":"expense"),
+                  amount:Math.abs(t.amount),
+                  description:t.description||"Sin descripción",
+                  category:t.category||"Otro",
+                  accountId:pendingConc.accountId,
+                  currency:cuenta?.currency||"MXN",
+                  notes:"Importado via conciliación",
+                }));
+                setTransactions(p=>[...nuevas,...p]);
+                nuevas.forEach(tx=>{
+                  if(tx.accountId) setAccounts(p=>p.map(a=>a.id===tx.accountId?{...a,balance:parseFloat(a.balance||0)+(tx.type==="income"?tx.amount:-tx.amount)}:a));
+                });
+                setMessages(p=>[...p,{role:"assistant",content:"✅ Conciliación completada. "+nuevas.length+" transacciones importadas. "+(yaExisten.length>0?yaExisten.length+" ya existían y se omitieron.":"")}]);
+                setPendingConc(null);
+              };
+              return (
+                <div style={{border:"1px solid rgba(59,130,246,.3)",borderRadius:10,padding:10,background:"rgba(59,130,246,.04)"}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                    <p style={{fontSize:11,fontWeight:700,color:"#3b82f6",margin:0}}>🏦 Conciliación — {cuenta?.name||"Cuenta"}</p>
+                    <span style={{fontSize:10,color:"#555"}}>{pendingConc.fechaDesde} → {pendingConc.fechaHasta}</span>
+                  </div>
+                  <p style={{fontSize:10,color:"#555",margin:"0 0 8px"}}>
+                    {pendingConc.transacciones.length} movimientos extraídos · {yaExisten.length} ya registrados · {pendingConc.transacciones.filter(t=>!t.yaExiste).length} nuevos
+                  </p>
+                  <div style={{maxHeight:220,overflowY:"auto",display:"flex",flexDirection:"column",gap:4,marginBottom:8}}>
+                    {pendingConc.transacciones.map((t,i)=>(
+                      <div key={i} style={{display:"flex",alignItems:"center",gap:6,padding:"5px 8px",borderRadius:7,
+                        background:t.yaExiste?"rgba(255,255,255,.02)":t.seleccionada?"rgba(0,212,170,.05)":"rgba(255,255,255,.02)",
+                        border:`1px solid ${t.yaExiste?"rgba(255,255,255,.04)":t.seleccionada?"rgba(0,212,170,.2)":"rgba(255,255,255,.06)"}`,
+                        opacity:t.yaExiste?0.5:1
+                      }}>
+                        {!t.yaExiste&&(
+                          <input type="checkbox" checked={t.seleccionada} onChange={e=>{
+                            const updated=[...pendingConc.transacciones];
+                            updated[i]={...updated[i],seleccionada:e.target.checked};
+                            setPendingConc(p=>({...p,transacciones:updated}));
+                          }} style={{accentColor:"#00d4aa",flexShrink:0}}/>
+                        )}
+                        {t.yaExiste&&<span style={{fontSize:10,flexShrink:0}}>✓</span>}
+                        <div style={{flex:1,minWidth:0}}>
+                          <p style={{fontSize:11,color:t.yaExiste?"#555":"#ccc",margin:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.description}</p>
+                          <span style={{fontSize:10,color:"#444"}}>{t.date}{t.yaExiste?" · ya registrado":""}{t.coincidenciaAprox?" · similar encontrado":""}</span>
+                        </div>
+                        <span style={{fontSize:11,fontWeight:700,flexShrink:0,color:t.amount>0?"#00d4aa":"#ff4757"}}>
+                          {t.amount>0?"+":""}{fmt(Math.abs(t.amount))}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                  <div style={{display:"flex",gap:6}}>
+                    <button onClick={guardarConc} disabled={novedades.length===0}
+                      style={{flex:1,padding:"6px 0",borderRadius:8,background:novedades.length>0?"#00d4aa":"#333",border:"none",color:"#fff",fontSize:11,fontWeight:700,cursor:novedades.length>0?"pointer":"default"}}>
+                      ✓ Importar {novedades.length} nuevas
+                    </button>
+                    <button onClick={()=>setPendingConc(null)}
+                      style={{flex:1,padding:"6px 0",borderRadius:8,background:"rgba(255,71,87,.15)",border:"1px solid rgba(255,71,87,.3)",color:"#ff4757",fontSize:11,fontWeight:600,cursor:"pointer"}}>
+                      ✕ Cancelar
+                    </button>
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Confirmar transacciones */}
             {pendingTx && (
