@@ -6007,9 +6007,23 @@ const Investments = () => {
               {totalUSD>0&&<p style={{fontSize:11,color:"#0078ff",margin:"2px 0 0"}}>+ {fmt(totalUSD,"USD")}</p>}
             </Card>
             <Card style={{ borderColor:"rgba(59,130,246,.2)" }}>
-              <p style={{ fontSize:11, color:"#666", textTransform:"uppercase", letterSpacing:.4, margin:"0 0 4px" }}>Capital invertido total</p>
+              <p style={{ fontSize:11, color:"#666", textTransform:"uppercase", letterSpacing:.4, margin:"0 0 4px" }}>Capital activo invertido</p>
               <p style={{ fontSize:20, fontWeight:700, color:"#3b82f6", margin:0 }}>{fmt(totalAportado,"MXN")}</p>
-              <p style={{fontSize:10,color:"#555",margin:"3px 0 0"}}>Lo que pusiste de tu bolsillo</p>
+              {(()=>{
+                const capHistorico = investments.reduce((s,i)=>{
+                  const st=calcInv(i);
+                  const base=st.costoTitulos>0?st.costoTitulos:st.totalInvertido;
+                  return s+(i.currency==="USD"?base*TC:base);
+                },0);
+                const capLiquidadas = capHistorico - totalAportado;
+                return capLiquidadas > 0 ? (
+                  <p style={{fontSize:10,color:"#555",margin:"3px 0 0"}}>
+                    + {fmt(capLiquidadas)} en liquidadas = <strong style={{color:"#888"}}>{fmt(capHistorico)} histórico</strong>
+                  </p>
+                ) : (
+                  <p style={{fontSize:10,color:"#555",margin:"3px 0 0"}}>Solo inversiones activas</p>
+                );
+              })()}
             </Card>
             <Card style={{ borderColor:`${rendColor}33` }}>
               <p style={{ fontSize:11, color:"#666", textTransform:"uppercase", letterSpacing:.4, margin:"0 0 4px" }}>Rendimiento real neto</p>
@@ -14313,10 +14327,12 @@ Puedes registrar CUALQUIERA de estas operaciones usando el JSON correspondiente 
 TRANSACCIONES_JSON:[{"type":"expense|income","amount":0,"date":"${hoyStr}","category":"...","description":"...","account":"ID_CUENTA"}]
 
 MODO CONCILIACIÓN — cuando el usuario suba un estado de cuenta bancario:
-- Extrae TODAS las transacciones del período
-- Responde con CONCILIACION_JSON al final indicando cuenta, período y transacciones extraídas
-CONCILIACION_JSON:{"accountId":"ID_CUENTA","fechaDesde":"YYYY-MM-DD","fechaHasta":"YYYY-MM-DD","transacciones":[{"date":"YYYY-MM-DD","description":"...","amount":0,"type":"expense|income"}]}
-El usuario revisará cada transacción una por una antes de confirmar.
+- Analiza el PDF e identifica el banco/cuenta. Usa EXACTAMENTE el ID de la cuenta correspondiente de la lista de cuentas de arriba.
+- Extrae TODAS las transacciones: fecha exacta, descripción completa, monto (positivo=ingreso, negativo=gasto) y tipo.
+- Los cargos/débitos son type:"expense" con amount negativo. Los abonos/créditos son type:"income" con amount positivo.
+- Responde explicando qué encontraste y termina SIEMPRE con el JSON exactamente en este formato:
+CONCILIACION_JSON:{"accountId":"ID_EXACTO_DE_LA_CUENTA","fechaDesde":"YYYY-MM-DD","fechaHasta":"YYYY-MM-DD","transacciones":[{"date":"YYYY-MM-DD","description":"descripcion completa","amount":0,"type":"expense"}]}
+IMPORTANTE: El accountId debe ser el ID real de la cuenta (ej: mmjmdi50rw45ng7yqya para Santander Cheques). El usuario verá cada transacción y decidirá cuáles importar.
 
 2. PAGO DE PRÉSTAMO (capital+interés o solo interés):
 PAGO_PRESTAMO_JSON:{"loanId":"ID_PRESTAMO","amount":0,"date":"${hoyStr}","paymentType":"mixed|interest_only","account":"ID_CUENTA","notes":""}
