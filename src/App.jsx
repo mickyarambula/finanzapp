@@ -5036,8 +5036,15 @@ const Investments = () => {
       valorActual = parseFloat(inv.currentValue);
     } else if (titulos > 0 && precioActual > 0) {
       valorActual = titulos * precioActual;
+    } else if (parseFloat(inv.currentValue)>0) {
+      valorActual = parseFloat(inv.currentValue);
+    } else if (parseFloat(inv.tasaAnual)>0 && (totalInvertido > 0 || costoTitulos > 0)) {
+      // Sin precio de mercado pero con tasa anual → proyectar valor con rendimiento acumulado
+      const baseVal = costoTitulos > 0 ? costoTitulos : totalInvertido;
+      const tasaDiaria = parseFloat(inv.tasaAnual) / 100 / 365;
+      valorActual = baseVal + (baseVal * tasaDiaria * diasActiva);
     } else {
-      valorActual = parseFloat(inv.currentValue)||totalInvertido;
+      valorActual = totalInvertido;
     }
     const rendimiento = valorActual - base;
     const rendPct = base > 0 ? (rendimiento/base)*100 : 0;
@@ -5941,7 +5948,12 @@ const Investments = () => {
             <Inp label="Plataforma" value={invForm.platform} onChange={ic("platform")} placeholder="Actinver, Binance, GBM..."/>
             <Inp label="Ticker / Clave" value={invForm.ticker} onChange={ic("ticker")} placeholder="ACTIGOB B, AMZN, BTC..."/>
           </div>
-          <Inp label={<>Tasa de rendimiento anual estimada (opcional)<HelpTip text="Solo para proyección. No afecta valores reales. Ej: fondo inmobiliario 12%, CETES 11%, acciones 8%. Se usa para calcular el rendimiento esperado a la fecha y anual."/></>} type="number" value={invForm.tasaAnual} onChange={ic("tasaAnual")} placeholder="Ej. 10.5" suffix="% anual"/>
+          <Inp label={<>Tasa de rendimiento anual estimada (opcional)<HelpTip text="Si la inversión no tiene precio de mercado (fondos privados, bienes raíces, etc.), esta tasa se usa para calcular el VALOR ACTUAL PROYECTADO: capital + rendimiento acumulado desde la fecha de inicio. Para inversiones con precio de mercado, es solo referencia."/></>} type="number" value={invForm.tasaAnual} onChange={ic("tasaAnual")} placeholder="Ej. 10.5" suffix="% anual"/>
+          {invForm.tasaAnual && !invForm.precioActual && !invForm.currentValue && (
+            <div style={{padding:"8px 12px",background:"rgba(0,212,170,.06)",border:"1px solid rgba(0,212,170,.2)",borderRadius:8,marginTop:-10,marginBottom:14,fontSize:11,color:"#00d4aa"}}>
+              ✓ Sin precio de mercado — el valor actual se calculará como capital + rendimiento acumulado al {(parseFloat(invForm.tasaAnual)||0).toFixed(2)}% anual
+            </div>
+          )}
 
           {!editing && (
             <div style={{ background:"rgba(0,212,170,.06)", border:"1px solid rgba(0,212,170,.15)", borderRadius:10, padding:"12px 14px", marginBottom:14 }}>
@@ -10156,7 +10168,9 @@ const Recurring = () => {
   const emptyForm = {
     nombre:"", tipo:"expense", monto:"", frecuencia:"mensual",
     fechaInicio:today(), cuentaId:"", categoria:"", notas:"", activo:true,
+    esVariable:false,
   };
+  const [montoVariableModal, setMontoVariableModal] = useState(null); // {recurrente, monto}
   const [form, setForm] = useState(emptyForm);
   const f = k => e => setForm(p=>({...p,[k]:e.target.value}));
 
@@ -10182,8 +10196,8 @@ const Recurring = () => {
   const esPendiente = (r) => r.activo!==false && calcNext(r) <= new Date();
 
   // ── confirmar y registrar transacción
-  const confirmar = (r) => {
-    const monto = parseFloat(r.monto)||0;
+  const confirmarConMonto = (r, montoFinal) => {
+    const monto = parseFloat(montoFinal)||0;
     const cta = accounts.find(a=>a.id===r.cuentaId);
     if (r.tipo==="expense" && cta && parseFloat(cta.balance||0) < monto) {
       toast(`Saldo insuficiente en ${cta.name}`,"error"); return;
@@ -10192,7 +10206,8 @@ const Recurring = () => {
       id:genId(), date:today(), amount:monto,
       type:r.tipo, description:r.nombre,
       category:r.categoria||"", accountId:r.cuentaId,
-      currency:cta?.currency||"MXN", notes:"Recurrente confirmado",
+      currency:cta?.currency||"MXN",
+      notes: r.esVariable ? `Recurrente variable confirmado (estimado: ${fmt(parseFloat(r.monto)||0)})` : "Recurrente confirmado",
     };
     setTransactions(p=>[newTx,...p]);
     if (r.cuentaId) {
@@ -10202,6 +10217,16 @@ const Recurring = () => {
     }
     setRecurrents(p=>p.map(x=>x.id===r.id?{...x,ultimoRegistro:today()}:x));
     toast(`"${r.nombre}" registrado ✓`);
+    setMontoVariableModal(null);
+  };
+
+  const confirmar = (r) => {
+    if (r.esVariable) {
+      // Para variables: abrir modal para ingresar monto real
+      setMontoVariableModal({ recurrente: r, monto: r.monto });
+    } else {
+      confirmarConMonto(r, r.monto);
+    }
   };
 
   const guardar = () => {
@@ -10314,10 +10339,13 @@ const Recurring = () => {
                       </div>
                     </div>
                     <div style={{display:"flex",alignItems:"center",gap:12,flexShrink:0}}>
-                      <span style={{fontSize:16,fontWeight:700,color:r.tipo==="income"?"#00d4aa":"#ff4757"}}>
-                        {r.tipo==="income"?"+":"-"}{fmt(parseFloat(r.monto||0),cta?.currency||"MXN")}
-                      </span>
-                      <Btn onClick={()=>confirmar(r)}><Ic n="check" size={15}/>Confirmar</Btn>
+                      <div style={{textAlign:"right"}}>
+                        <span style={{fontSize:16,fontWeight:700,color:r.tipo==="income"?"#00d4aa":"#ff4757"}}>
+                          {r.tipo==="income"?"+":"-"}{fmt(parseFloat(r.monto||0),cta?.currency||"MXN")}
+                        </span>
+                        {r.esVariable&&<p style={{fontSize:10,color:"#f39c12",margin:"2px 0 0",fontWeight:600}}>⚡ Monto variable</p>}
+                      </div>
+                      <Btn onClick={()=>confirmar(r)}><Ic n="check" size={15}/>{r.esVariable?"Ingresar monto":"Confirmar"}</Btn>
                       <Actions onEdit={()=>{setForm({...r});setShowForm(true);}} onDelete={()=>eliminar(r.id)}/>
                     </div>
                   </div>
@@ -10428,7 +10456,18 @@ const Recurring = () => {
             <Sel label="Tipo" value={form.tipo} onChange={f("tipo")} options={[{value:"expense",label:"Gasto"},{value:"income",label:"Ingreso"}]}/>
             <Sel label="Frecuencia" value={form.frecuencia} onChange={f("frecuencia")} options={FRECS}/>
           </div>
-          <Inp label="Monto *" type="number" prefix="$" value={form.monto} onChange={f("monto")}/>
+          <div style={{display:"grid",gridTemplateColumns:"1fr auto",gap:12,alignItems:"flex-end"}}>
+            <Inp label="Monto estimado *" type="number" prefix="$" value={form.monto} onChange={f("monto")}/>
+            <label style={{display:"flex",alignItems:"center",gap:8,padding:"9px 13px",background:form.esVariable?"rgba(243,156,18,.08)":"rgba(255,255,255,.04)",border:`1px solid ${form.esVariable?"rgba(243,156,18,.3)":"rgba(255,255,255,.08)"}`,borderRadius:9,cursor:"pointer",whiteSpace:"nowrap",marginBottom:14}}>
+              <input type="checkbox" checked={!!form.esVariable} onChange={e=>setForm(p=>({...p,esVariable:e.target.checked}))} style={{accentColor:"#f39c12",width:14,height:14}}/>
+              <span style={{fontSize:12,color:form.esVariable?"#f39c12":"#666",fontWeight:600}}>Monto variable</span>
+            </label>
+          </div>
+          {form.esVariable&&(
+            <div style={{padding:"8px 12px",background:"rgba(243,156,18,.06)",border:"1px solid rgba(243,156,18,.2)",borderRadius:8,marginTop:-10,marginBottom:14,fontSize:11,color:"#f39c12"}}>
+              💡 Al confirmar te pedirá el monto real de ese período. El monto estimado es para proyecciones.
+            </div>
+          )}
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
             <Sel label="Categoría" value={form.categoria} onChange={f("categoria")}
               options={[{value:"",label:"— Seleccionar —"},...(form.tipo==="income"?CATS_INGRESO:CATS_GASTO).map(c=>({value:c,label:c}))]}/>
@@ -10452,6 +10491,28 @@ const Recurring = () => {
           <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
             <Btn variant="secondary" onClick={()=>{setShowForm(false);setForm(emptyForm);}}>Cancelar</Btn>
             <Btn onClick={guardar}><Ic n="check" size={15}/>{form.id?"Actualizar":"Guardar"}</Btn>
+          </div>
+        </Modal>
+      )}
+      {/* Modal monto variable */}
+      {montoVariableModal&&(
+        <Modal title={`Confirmar: ${montoVariableModal.recurrente.nombre}`} onClose={()=>setMontoVariableModal(null)} width={420}>
+          <p style={{fontSize:13,color:"#888",marginBottom:16}}>
+            Este recurrente tiene monto variable. Ingresa el monto real de este período:
+          </p>
+          <div style={{background:"rgba(243,156,18,.06)",border:"1px solid rgba(243,156,18,.2)",borderRadius:9,padding:"10px 14px",marginBottom:14}}>
+            <p style={{fontSize:11,color:"#777",margin:"0 0 2px"}}>Monto estimado (referencia)</p>
+            <p style={{fontSize:16,fontWeight:700,color:"#f39c12",margin:0}}>{fmt(parseFloat(montoVariableModal.recurrente.monto)||0)}</p>
+          </div>
+          <Inp label="Monto real de este período *" type="number" prefix="$"
+            value={montoVariableModal.monto}
+            onChange={e=>setMontoVariableModal(p=>({...p,monto:e.target.value}))}
+            placeholder={montoVariableModal.recurrente.monto}/>
+          <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:6}}>
+            <Btn variant="secondary" onClick={()=>setMontoVariableModal(null)}>Cancelar</Btn>
+            <Btn onClick={()=>confirmarConMonto(montoVariableModal.recurrente, montoVariableModal.monto)}>
+              <Ic n="check" size={15}/>Registrar
+            </Btn>
           </div>
         </Modal>
       )}
