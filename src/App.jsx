@@ -2472,6 +2472,75 @@ const Dashboard = () => {
   })();
 
   // Ordenar: error primero, luego warning
+
+  // ── CIERRE MES ANTERIOR ─────────────────────────────────────────────────
+  const cierreMesAnt = (() => {
+    const d = new Date(now.getFullYear(), now.getMonth()-1, 1);
+    const mk = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
+    const label = d.toLocaleDateString("es-MX",{month:"long",year:"numeric"});
+    const txs = transactions.filter(t=>t.date?.startsWith(mk));
+    if (txs.length === 0) return null;
+    const ingr = txs.filter(t=>t.type==="income").reduce((s,t)=>s+parseFloat(t.amount||0),0);
+    const gast = txs.filter(t=>t.type==="expense").reduce((s,t)=>s+parseFloat(t.amount||0),0);
+    const flujo = ingr - gast;
+    const tasa = ingr>0 ? (flujo/ingr*100) : 0;
+    // Top categorías de gasto
+    const cats = {};
+    txs.filter(t=>t.type==="expense").forEach(t=>{
+      cats[t.category||"Sin categoría"] = (cats[t.category||"Sin categoría"]||0)+parseFloat(t.amount||0);
+    });
+    const topCats = Object.entries(cats).sort((a,b)=>b[1]-a[1]).slice(0,3);
+    // Snapshot del fin de mes (último snap del mes anterior)
+    const snapMesAnt = [...(snapshots||[])]
+      .filter(s=>s.fecha?.startsWith(mk))
+      .sort((a,b)=>b.fecha>a.fecha?1:-1)[0];
+    return { mk, label, ingr, gast, flujo, tasa, topCats, snap:snapMesAnt, txCount:txs.length };
+  })();
+
+  // ── CARTERA DE PRÉSTAMOS HOY ──────────────────────────────────────────────
+  const carteraHoy = (() => {
+    const givenActive = loans.filter(l=>l.type==="given");
+    if (givenActive.length === 0) return null;
+    const calcIntAcum = loan => {
+      const dr = (parseFloat(loan.rate)||0)/100/(loan.rateType==="annual"?365:30);
+      let bal = parseFloat(loan.principal||0), last = new Date(loan.startDate+"T12:00:00");
+      for (const p of [...(loan.payments||[])].sort((a,b)=>new Date(a.date)-new Date(b.date))) {
+        const days = Math.max(0,Math.floor((new Date(p.date+"T12:00:00")-last)/86400000));
+        const accrued = bal*dr*days;
+        if (p.paymentType==="interest_only") { last=new Date(p.date+"T12:00:00"); }
+        else { bal=Math.max(0,bal-(p.amount-Math.min(p.amount,accrued))); last=new Date(p.date+"T12:00:00"); }
+      }
+      const daysNow = Math.max(0,Math.floor((new Date()-last)/86400000));
+      return { bal, intAcum: bal*dr*daysNow, intDiario: bal*dr };
+    };
+    const detalle = givenActive.map(l=>({ ...l, ...calcIntAcum(l) }));
+    const totalCap = detalle.reduce((s,l)=>s+l.bal,0);
+    const totalInt = detalle.reduce((s,l)=>s+l.intAcum,0);
+    const intDiario = detalle.reduce((s,l)=>s+l.intDiario,0);
+    return { detalle, totalCap, totalInt, intDiario };
+  })();
+
+  // ── INVERSIONES PRIVADAS HOY ──────────────────────────────────────────────
+  const invPrivadas = (() => {
+    const privs = investments.filter(i=>
+      i.estado!=="liquidada" &&
+      ["fund_real_estate","fund_general","other"].includes(i.type) &&
+      parseFloat(i.tasaAnual)>0
+    );
+    if (privs.length===0) return null;
+    return privs.map(inv=>{
+      const ap = (inv.aportaciones||[]).reduce((s,a)=>s+parseFloat(a.amount||0),0);
+      const start = new Date((inv.startDate||today())+"T12:00:00");
+      const dias = Math.max(0,Math.floor((new Date()-start)/86400000));
+      const tasa = parseFloat(inv.tasaAnual)||0;
+      const rendAcum = ap*(tasa/100/365)*dias;
+      const valorProy = ap+rendAcum;
+      const rendDiario = ap*(tasa/100/365);
+      const valorMXN = inv.currency==="USD" ? valorProy*TC : valorProy;
+      return { ...inv, ap, dias, rendAcum, valorProy, rendDiario, valorMXN };
+    });
+  })();
+
   alertas.sort((a,b)=>a.nivel==="error"&&b.nivel!=="error"?-1:1);
 
   // ── recurrentes pendientes
@@ -2668,6 +2737,129 @@ const Dashboard = () => {
             })}
           </div>
         </Card>
+      )}
+
+      {/* ── CIERRE MES ANTERIOR */}
+      {cierreMesAnt && now.getDate() <= 20 && (
+        <Card style={{padding:0,overflow:"hidden",borderColor:"rgba(124,58,237,.2)",background:"rgba(124,58,237,.03)"}}>
+          <div style={{padding:"11px 16px 9px",borderBottom:"1px solid rgba(124,58,237,.1)",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
+            <div style={{display:"flex",alignItems:"center",gap:8}}>
+              <span style={{fontSize:16}}>📅</span>
+              <p style={{fontSize:13,fontWeight:800,color:"#a78bfa",margin:0,textTransform:"capitalize"}}>Cierre de {cierreMesAnt.label}</p>
+            </div>
+            <span style={{fontSize:11,color:"#555"}}>{cierreMesAnt.txCount} transacciones</span>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(120px,1fr))",gap:0}}>
+            {[
+              {l:"Ingresos",v:fmt(cierreMesAnt.ingr),c:"#00d4aa"},
+              {l:"Gastos",v:fmt(cierreMesAnt.gast),c:"#ff4757"},
+              {l:"Flujo neto",v:(cierreMesAnt.flujo>=0?"+":"")+fmt(cierreMesAnt.flujo),c:cierreMesAnt.flujo>=0?"#00d4aa":"#ff4757"},
+              {l:"Tasa de ahorro",v:cierreMesAnt.tasa.toFixed(1)+"%",c:cierreMesAnt.tasa>=20?"#00d4aa":cierreMesAnt.tasa>=10?"#f39c12":"#ff4757"},
+            ].map(k=>(
+              <div key={k.l} style={{padding:"10px 16px",borderRight:"1px solid rgba(255,255,255,.04)"}}>
+                <p style={{fontSize:9,color:"#555",textTransform:"uppercase",letterSpacing:.5,margin:"0 0 3px"}}>{k.l}</p>
+                <p style={{fontSize:15,fontWeight:800,color:k.c,margin:0,fontVariantNumeric:"tabular-nums"}}>{k.v}</p>
+              </div>
+            ))}
+          </div>
+          {cierreMesAnt.topCats.length>0&&(
+            <div style={{padding:"8px 16px 10px",borderTop:"1px solid rgba(255,255,255,.04)",display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+              <span style={{fontSize:10,color:"#555"}}>Top gastos:</span>
+              {cierreMesAnt.topCats.map(([cat,amt])=>(
+                <span key={cat} style={{fontSize:10,background:"rgba(255,255,255,.05)",borderRadius:20,padding:"2px 9px",color:"#888"}}>
+                  {cat} <strong style={{color:"#ff4757"}}>{fmt(amt)}</strong>
+                </span>
+              ))}
+            </div>
+          )}
+        </Card>
+      )}
+
+      {/* ── CARTERA DE PRÉSTAMOS + INVERSIONES PRIVADAS HOY */}
+      {(carteraHoy || invPrivadas) && (
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))",gap:12}}>
+
+          {/* Cartera de préstamos */}
+          {carteraHoy && (
+            <Card onClick={()=>navigate("loans")} style={{padding:0,overflow:"hidden",borderColor:"rgba(0,120,255,.2)",background:"rgba(0,120,255,.02)",cursor:"pointer"}}
+              onMouseEnter={e=>e.currentTarget.style.borderColor="rgba(0,120,255,.4)"}
+              onMouseLeave={e=>e.currentTarget.style.borderColor="rgba(0,120,255,.2)"}>
+              <div style={{padding:"11px 16px 9px",borderBottom:"1px solid rgba(0,120,255,.1)",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                  <span style={{fontSize:15}}>💸</span>
+                  <p style={{fontSize:13,fontWeight:800,color:"#3b82f6",margin:0}}>Cartera de préstamos</p>
+                </div>
+                <span style={{fontSize:10,color:"#555"}}>{carteraHoy.detalle.length} préstamo{carteraHoy.detalle.length!==1?"s":""}</span>
+              </div>
+              <div style={{padding:"10px 16px"}}>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
+                  <div>
+                    <p style={{fontSize:9,color:"#555",textTransform:"uppercase",letterSpacing:.4,margin:"0 0 2px"}}>Capital por cobrar</p>
+                    <p style={{fontSize:16,fontWeight:800,color:"#3b82f6",margin:0,fontVariantNumeric:"tabular-nums"}}>{fmt(carteraHoy.totalCap)}</p>
+                  </div>
+                  <div>
+                    <p style={{fontSize:9,color:"#555",textTransform:"uppercase",letterSpacing:.4,margin:"0 0 2px"}}>Interés acumulado hoy</p>
+                    <p style={{fontSize:16,fontWeight:800,color:"#f39c12",margin:0,fontVariantNumeric:"tabular-nums"}}>+{fmt(carteraHoy.totalInt)}</p>
+                  </div>
+                </div>
+                <div style={{padding:"6px 10px",background:"rgba(0,120,255,.06)",borderRadius:8,border:"1px solid rgba(0,120,255,.12)",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <span style={{fontSize:11,color:"#888"}}>Generando por día</span>
+                  <span style={{fontSize:13,fontWeight:700,color:"#00d4aa",fontVariantNumeric:"tabular-nums"}}>+{fmt(carteraHoy.intDiario)}/día</span>
+                </div>
+                <div style={{marginTop:8,display:"flex",flexDirection:"column",gap:4}}>
+                  {carteraHoy.detalle.slice(0,3).map(l=>(
+                    <div key={l.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:11}}>
+                      <span style={{color:"#666",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:120}}>{l.name}</span>
+                      <span style={{color:"#f39c12",fontWeight:600,fontVariantNumeric:"tabular-nums",flexShrink:0}}>+{fmt(l.intAcum)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </Card>
+          )}
+
+          {/* Inversiones privadas */}
+          {invPrivadas && (
+            <Card onClick={()=>navigate("investments")} style={{padding:0,overflow:"hidden",borderColor:"rgba(168,85,247,.2)",background:"rgba(168,85,247,.02)",cursor:"pointer"}}
+              onMouseEnter={e=>e.currentTarget.style.borderColor="rgba(168,85,247,.4)"}
+              onMouseLeave={e=>e.currentTarget.style.borderColor="rgba(168,85,247,.2)"}>
+              <div style={{padding:"11px 16px 9px",borderBottom:"1px solid rgba(168,85,247,.1)",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                  <span style={{fontSize:15}}>🏗️</span>
+                  <p style={{fontSize:13,fontWeight:800,color:"#a855f7",margin:0}}>Inversiones privadas</p>
+                </div>
+                <span style={{fontSize:10,color:"#555"}}>{invPrivadas.length} fondo{invPrivadas.length!==1?"s":""}</span>
+              </div>
+              <div style={{padding:"10px 16px"}}>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
+                  <div>
+                    <p style={{fontSize:9,color:"#555",textTransform:"uppercase",letterSpacing:.4,margin:"0 0 2px"}}>Valor proyectado total</p>
+                    <p style={{fontSize:16,fontWeight:800,color:"#a855f7",margin:0,fontVariantNumeric:"tabular-nums"}}>{fmt(invPrivadas.reduce((s,i)=>s+i.valorMXN,0))}</p>
+                  </div>
+                  <div>
+                    <p style={{fontSize:9,color:"#555",textTransform:"uppercase",letterSpacing:.4,margin:"0 0 2px"}}>Rendimiento acumulado</p>
+                    <p style={{fontSize:16,fontWeight:800,color:"#00d4aa",margin:0,fontVariantNumeric:"tabular-nums"}}>+{fmt(invPrivadas.reduce((s,i)=>s+(i.currency==="USD"?i.rendAcum*TC:i.rendAcum),0))}</p>
+                  </div>
+                </div>
+                <div style={{padding:"6px 10px",background:"rgba(168,85,247,.06)",borderRadius:8,border:"1px solid rgba(168,85,247,.12)",display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                  <span style={{fontSize:11,color:"#888"}}>Generando por día est.</span>
+                  <span style={{fontSize:13,fontWeight:700,color:"#00d4aa",fontVariantNumeric:"tabular-nums"}}>+{fmt(invPrivadas.reduce((s,i)=>s+(i.currency==="USD"?i.rendDiario*TC:i.rendDiario),0))}/día</span>
+                </div>
+                <div style={{display:"flex",flexDirection:"column",gap:4}}>
+                  {invPrivadas.map(i=>(
+                    <div key={i.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:11}}>
+                      <div style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:140}}>
+                        <span style={{color:"#666"}}>{i.name}</span>
+                        <span style={{color:"#555",marginLeft:4}}>{i.tasaAnual}%</span>
+                      </div>
+                      <span style={{color:"#a855f7",fontWeight:600,fontVariantNumeric:"tabular-nums",flexShrink:0}}>{fmt(i.valorMXN)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </Card>
+          )}
+        </div>
       )}
 
       {/* ── KPIs PRINCIPALES */}
