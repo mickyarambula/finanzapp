@@ -190,6 +190,7 @@ const ICONS = {
   recurring:"M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46A7.93 7.93 0 0 0 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74A7.93 7.93 0 0 0 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z",
   presupuesto:"M11.8 10.9c-2.27-.59-3-1.2-3-2.15 0-1.09 1.01-1.85 2.7-1.85 1.78 0 2.44.85 2.5 2.1h2.21c-.07-1.72-1.12-3.3-3.21-3.81V3h-3v2.16c-1.94.42-3.5 1.68-3.5 3.61 0 2.31 1.91 3.46 4.7 4.13 2.5.6 3 1.48 3 2.41 0 .69-.49 1.79-2.7 1.79-2.06 0-2.87-.92-2.98-2.1h-2.2c.12 2.19 1.76 3.42 3.68 3.83V21h3v-2.15c1.95-.37 3.5-1.5 3.5-3.55 0-2.84-2.43-3.81-4.7-4.4z",
   importar:"M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z",
+  conciliacion:"M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z",
   health:"M12 21.593c-5.63-5.539-11-10.297-11-14.402 0-3.791 3.068-5.191 5.281-5.191 1.312 0 4.151.501 5.719 4.457 1.59-3.968 4.464-4.447 5.726-4.447 2.54 0 5.274 1.621 5.274 5.181 0 4.069-5.136 8.625-11 14.402z",
   mortgage:"M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z",
   minus:"M19 13H5v-2h14v2z",
@@ -519,6 +520,7 @@ const NAV_GROUPS = [
     label: "Herramientas",
     items: [
       { id:"asistente",    label:"Asistente IA",   icon:"asistente" },
+      { id:"conciliacion", label:"Conciliación",   icon:"conciliacion" },
       { id:"importar",     label:"Importar CSV",   icon:"importar" },
       { id:"settings",     label:"Configuración",  icon:"settings" },
     ]
@@ -12446,6 +12448,356 @@ const Presupuestos = () => {
   );
 };
 
+// ─── CONCILIACIÓN BANCARIA ────────────────────────────────────────────────────
+const Conciliacion = () => {
+  const { user, toast } = useCtx();
+  const [accounts, setAccounts] = useData(user.id, "accounts");
+  const [transactions, setTransactions] = useData(user.id, "transactions");
+  const [transfers] = useData(user.id, "transfers");
+  const [loans] = useData(user.id, "loans");
+  const [askConfirm, confirmModal] = useConfirm();
+
+  const [cuentaId, setCuentaId] = useState("");
+  const [saldoReal, setSaldoReal] = useState("");
+  const [conciliadas, setConciliadas] = useState({}); // txId → bool
+  const [historial, setHistorial] = useState(
+    () => JSON.parse(localStorage.getItem(`fp_conciliaciones_${user.id}`) || "[]")
+  );
+
+  const cuentasValidas = accounts.filter(a => a.type !== "credit");
+  const cuenta = accounts.find(a => a.id === cuentaId) || null;
+  const saldoApp = cuenta ? parseFloat(cuenta.balance || 0) : 0;
+  const saldoRealNum = parseFloat(saldoReal) || 0;
+  const diferencia = saldoRealNum - saldoApp;
+
+  // Movimientos de la cuenta: txs + transferencias
+  const txsCuenta = transactions
+    .filter(t => t.accountId === cuentaId)
+    .sort((a, b) => b.date > a.date ? 1 : -1);
+
+  const transfersCuenta = (transfers || []).filter(t => t.fromId === cuentaId || t.toId === cuentaId)
+    .map(t => {
+      const esSalida = t.fromId === cuentaId;
+      return {
+        id: t.id,
+        date: t.date,
+        description: t.description || (esSalida ? `Transferencia → ${t.toName}` : `Transferencia ← ${t.fromName}`),
+        delta: esSalida ? -parseFloat(t.amount || 0) : parseFloat(t.toAmount || t.amount || 0),
+        tipo: "transfer",
+      };
+    });
+
+  const todosMovimientos = [
+    ...txsCuenta.map(t => ({
+      id: t.id,
+      date: t.date,
+      description: t.description || t.category || "Sin descripción",
+      delta: t.type === "income" ? parseFloat(t.amount || 0) : -parseFloat(t.amount || 0),
+      category: t.category,
+      tipo: "tx",
+    })),
+    ...transfersCuenta,
+  ].sort((a, b) => b.date > a.date ? 1 : -1).slice(0, 60);
+
+  // Saldo corriente hacia atrás desde saldo actual
+  let runBal = saldoApp;
+  const movConSaldo = todosMovimientos.map(m => {
+    const bal = runBal;
+    runBal -= m.delta;
+    return { ...m, saldoTras: bal };
+  });
+
+  // Guardar conciliación
+  const guardarConciliacion = async () => {
+    if (!cuenta || !saldoReal) { toast("Selecciona cuenta e ingresa saldo real", "error"); return; }
+    if (Math.abs(diferencia) < 0.01) {
+      toast("¡Los saldos coinciden! No hay diferencia.", "success");
+      return;
+    }
+    const ok = await askConfirm(
+      `¿Registrar ajuste de ${diferencia > 0 ? "+" : ""}${fmt(diferencia)} en ${cuenta.name}?
+
+Esto creará una transacción de ajuste y corregirá el saldo.`
+    );
+    if (!ok) return;
+
+    // Crear transacción de ajuste
+    const txAjuste = {
+      id: genId(),
+      date: today(),
+      type: diferencia > 0 ? "income" : "expense",
+      amount: Math.abs(diferencia),
+      description: `Ajuste conciliación — ${cuenta.name}`,
+      category: "Ajuste cuentas",
+      accountId: cuentaId,
+      currency: cuenta.currency || "MXN",
+      notes: `Conciliación manual. Saldo app: ${fmt(saldoApp)} → Saldo banco: ${fmt(saldoRealNum)}`,
+    };
+    setTransactions(prev => [txAjuste, ...prev]);
+    setAccounts(prev => prev.map(a =>
+      a.id === cuentaId ? { ...a, balance: saldoRealNum } : a
+    ));
+
+    // Guardar en historial local
+    const entrada = {
+      id: genId(),
+      fecha: today(),
+      cuentaId,
+      cuentaNombre: cuenta.name,
+      saldoApp: saldoApp,
+      saldoReal: saldoRealNum,
+      diferencia,
+      txAjusteId: txAjuste.id,
+    };
+    const nuevo = [entrada, ...historial].slice(0, 50);
+    setHistorial(nuevo);
+    localStorage.setItem(`fp_conciliaciones_${user.id}`, JSON.stringify(nuevo));
+    setSaldoReal("");
+    toast(`Ajuste de ${fmt(Math.abs(diferencia))} registrado en ${cuenta.name} ✓`, "success");
+  };
+
+  const eliminarHistorial = id => {
+    const nuevo = historial.filter(h => h.id !== id);
+    setHistorial(nuevo);
+    localStorage.setItem(`fp_conciliaciones_${user.id}`, JSON.stringify(nuevo));
+  };
+
+  return (
+    <div style={{ animation: "fadeUp .25s ease" }}>
+      {confirmModal}
+      {/* Header */}
+      <div style={{ marginBottom: 20 }}>
+        <h2 style={{ fontSize: 22, fontWeight: 800, color: "#f0f0f0", margin: "0 0 4px", fontFamily: "'Syne',sans-serif" }}>
+          Conciliación Bancaria
+        </h2>
+        <p style={{ fontSize: 13, color: "#555", margin: 0 }}>
+          Compara el saldo de la app con tu estado de cuenta real y corrige diferencias
+        </p>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
+        {/* Panel izquierdo: selección y comparación */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <Card style={{ padding: "16px" }}>
+            <p style={{ fontSize: 13, fontWeight: 700, color: "#e0e0e0", margin: "0 0 14px" }}>
+              1. Selecciona la cuenta a conciliar
+            </p>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {cuentasValidas.map(a => (
+                <button key={a.id}
+                  onClick={() => { setCuentaId(a.id); setSaldoReal(""); setConciliadas({}); }}
+                  style={{
+                    display: "flex", justifyContent: "space-between", alignItems: "center",
+                    padding: "10px 14px", borderRadius: 9, border: `1px solid ${cuentaId === a.id ? "rgba(0,212,170,.4)" : "rgba(255,255,255,.07)"}`,
+                    background: cuentaId === a.id ? "rgba(0,212,170,.08)" : "rgba(255,255,255,.02)",
+                    cursor: "pointer", transition: "all .15s",
+                  }}>
+                  <div style={{ textAlign: "left" }}>
+                    <p style={{ fontSize: 13, fontWeight: 600, color: "#e0e0e0", margin: 0 }}>{a.name}</p>
+                    <p style={{ fontSize: 10, color: "#555", margin: 0 }}>{a.bank || a.type} · {a.currency}</p>
+                  </div>
+                  <p style={{ fontSize: 14, fontWeight: 800, color: "#00d4aa", margin: 0 }}>
+                    {fmt(a.balance, a.currency)}
+                  </p>
+                </button>
+              ))}
+            </div>
+          </Card>
+
+          {cuenta && (
+            <Card style={{ padding: "16px" }}>
+              <p style={{ fontSize: 13, fontWeight: 700, color: "#e0e0e0", margin: "0 0 14px" }}>
+                2. Ingresa el saldo real del banco
+              </p>
+              <div style={{ position: "relative", marginBottom: 12 }}>
+                <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: "#555", fontSize: 14, fontWeight: 700 }}>$</span>
+                <input
+                  type="number"
+                  value={saldoReal}
+                  onChange={e => setSaldoReal(e.target.value)}
+                  placeholder="0.00"
+                  style={{
+                    width: "100%", padding: "12px 12px 12px 28px",
+                    background: "rgba(255,255,255,.05)", border: "1px solid rgba(255,255,255,.1)",
+                    borderRadius: 9, color: "#f0f0f0", fontSize: 18, fontWeight: 700,
+                    outline: "none", boxSizing: "border-box",
+                  }}
+                  onFocus={e => e.target.style.borderColor = "#00d4aa"}
+                  onBlur={e => e.target.style.borderColor = "rgba(255,255,255,.1)"}
+                />
+              </div>
+
+              {/* Comparación */}
+              {saldoReal !== "" && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                    <div style={{ padding: "10px 12px", borderRadius: 8, background: "rgba(255,255,255,.03)", border: "1px solid rgba(255,255,255,.06)" }}>
+                      <p style={{ fontSize: 9, color: "#555", textTransform: "uppercase", letterSpacing: .5, margin: "0 0 3px" }}>Saldo en app</p>
+                      <p style={{ fontSize: 16, fontWeight: 800, color: "#888", margin: 0, fontVariantNumeric: "tabular-nums" }}>{fmt(saldoApp)}</p>
+                    </div>
+                    <div style={{ padding: "10px 12px", borderRadius: 8, background: "rgba(255,255,255,.03)", border: "1px solid rgba(255,255,255,.06)" }}>
+                      <p style={{ fontSize: 9, color: "#555", textTransform: "uppercase", letterSpacing: .5, margin: "0 0 3px" }}>Saldo banco</p>
+                      <p style={{ fontSize: 16, fontWeight: 800, color: "#f0f0f0", margin: 0, fontVariantNumeric: "tabular-nums" }}>{fmt(saldoRealNum)}</p>
+                    </div>
+                  </div>
+
+                  {/* Diferencia */}
+                  <div style={{
+                    padding: "12px 14px", borderRadius: 10,
+                    background: Math.abs(diferencia) < 0.01 ? "rgba(0,212,170,.08)" : diferencia > 0 ? "rgba(0,212,170,.06)" : "rgba(255,71,87,.06)",
+                    border: `1px solid ${Math.abs(diferencia) < 0.01 ? "rgba(0,212,170,.3)" : diferencia > 0 ? "rgba(0,212,170,.2)" : "rgba(255,71,87,.2)"}`,
+                    display: "flex", justifyContent: "space-between", alignItems: "center",
+                  }}>
+                    <div>
+                      <p style={{ fontSize: 11, color: "#777", margin: "0 0 2px" }}>Diferencia</p>
+                      <p style={{ fontSize: 10, color: "#555", margin: 0 }}>
+                        {Math.abs(diferencia) < 0.01
+                          ? "✓ Los saldos coinciden perfectamente"
+                          : diferencia > 0
+                            ? "El banco tiene más — falta registrar ingresos o sobran gastos"
+                            : "La app tiene más — falta registrar gastos o sobran ingresos"}
+                      </p>
+                    </div>
+                    <p style={{
+                      fontSize: 20, fontWeight: 800, margin: 0, fontVariantNumeric: "tabular-nums",
+                      color: Math.abs(diferencia) < 0.01 ? "#00d4aa" : diferencia > 0 ? "#00d4aa" : "#ff4757"
+                    }}>
+                      {diferencia > 0 ? "+" : ""}{fmt(diferencia)}
+                    </p>
+                  </div>
+
+                  {Math.abs(diferencia) >= 0.01 && (
+                    <button onClick={guardarConciliacion}
+                      style={{
+                        width: "100%", padding: "11px", borderRadius: 9, border: "none",
+                        background: "linear-gradient(135deg,#00d4aa,#00a884)",
+                        color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer",
+                        display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+                      }}>
+                      <Ic n="conciliacion" size={16} color="#fff" />
+                      Registrar ajuste y corregir saldo
+                    </button>
+                  )}
+                  {Math.abs(diferencia) < 0.01 && (
+                    <div style={{ textAlign: "center", padding: "8px 0" }}>
+                      <span style={{ fontSize: 24 }}>✅</span>
+                      <p style={{ fontSize: 13, color: "#00d4aa", fontWeight: 700, margin: "4px 0 0" }}>¡Cuenta conciliada!</p>
+                    </div>
+                  )}
+                </div>
+              )}
+            </Card>
+          )}
+        </div>
+
+        {/* Panel derecho: movimientos de la cuenta */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          {cuenta ? (
+            <Card style={{ padding: 0, overflow: "hidden", flex: 1 }}>
+              <div style={{ padding: "12px 16px 10px", borderBottom: "1px solid rgba(255,255,255,.05)" }}>
+                <p style={{ fontSize: 13, fontWeight: 700, color: "#e0e0e0", margin: "0 0 2px" }}>
+                  Estado de cuenta — {cuenta.name}
+                </p>
+                <p style={{ fontSize: 10, color: "#555", margin: 0 }}>
+                  Últimos {movConSaldo.length} movimientos · Saldo actual en app: {fmt(saldoApp)}
+                </p>
+              </div>
+              <div style={{ maxHeight: 520, overflowY: "auto" }}>
+                {movConSaldo.length === 0 ? (
+                  <div style={{ padding: 24, textAlign: "center", color: "#444", fontSize: 13 }}>
+                    Sin movimientos registrados en esta cuenta
+                  </div>
+                ) : movConSaldo.map((m, i) => (
+                  <div key={m.id} style={{
+                    display: "flex", alignItems: "center", gap: 10, padding: "9px 16px",
+                    borderBottom: "1px solid rgba(255,255,255,.03)",
+                    background: i % 2 === 0 ? "transparent" : "rgba(255,255,255,.01)",
+                  }}>
+                    {/* Ícono tipo */}
+                    <div style={{
+                      width: 28, height: 28, borderRadius: 7, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
+                      background: m.tipo === "transfer" ? "rgba(59,130,246,.12)" : m.delta >= 0 ? "rgba(0,212,170,.1)" : "rgba(255,71,87,.1)",
+                    }}>
+                      <Ic n={m.tipo === "transfer" ? "transfers" : m.delta >= 0 ? "plus" : "minus"}
+                        size={13} color={m.tipo === "transfer" ? "#3b82f6" : m.delta >= 0 ? "#00d4aa" : "#ff4757"} />
+                    </div>
+                    {/* Descripción */}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <p style={{ fontSize: 12, fontWeight: 600, color: "#ddd", margin: "0 0 1px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {m.description}
+                      </p>
+                      <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                        <span style={{ fontSize: 10, color: "#444" }}>{fmtDate(m.date)}</span>
+                        {m.category && <Badge label={m.category} color={m.delta >= 0 ? "#00d4aa" : "#ff4757"} />}
+                      </div>
+                    </div>
+                    {/* Monto + saldo tras */}
+                    <div style={{ textAlign: "right", flexShrink: 0 }}>
+                      <p style={{ fontSize: 12, fontWeight: 700, color: m.delta >= 0 ? "#00d4aa" : "#ff4757", margin: "0 0 1px", fontVariantNumeric: "tabular-nums" }}>
+                        {m.delta >= 0 ? "+" : ""}{fmt(Math.abs(m.delta))}
+                      </p>
+                      <p style={{ fontSize: 10, color: "#444", margin: 0, fontVariantNumeric: "tabular-nums" }}>
+                        {fmt(m.saldoTras)}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          ) : (
+            <Card style={{ padding: 40, textAlign: "center" }}>
+              <p style={{ fontSize: 32, margin: "0 0 10px" }}>🏦</p>
+              <p style={{ fontSize: 14, fontWeight: 700, color: "#e0e0e0", margin: "0 0 6px" }}>Selecciona una cuenta</p>
+              <p style={{ fontSize: 12, color: "#555", margin: 0, lineHeight: 1.6, maxWidth: 260, marginLeft: "auto", marginRight: "auto" }}>
+                Elige una cuenta de la izquierda para ver su estado de cuenta e ingresar el saldo real del banco
+              </p>
+            </Card>
+          )}
+        </div>
+      </div>
+
+      {/* Historial de conciliaciones */}
+      {historial.length > 0 && (
+        <Card style={{ padding: 0, overflow: "hidden" }}>
+          <div style={{ padding: "12px 16px 10px", borderBottom: "1px solid rgba(255,255,255,.05)" }}>
+            <p style={{ fontSize: 13, fontWeight: 700, color: "#e0e0e0", margin: 0 }}>Historial de conciliaciones</p>
+          </div>
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+              <thead>
+                <tr style={{ background: "rgba(255,255,255,.02)" }}>
+                  {["Fecha", "Cuenta", "Saldo app", "Saldo banco", "Diferencia", ""].map(h => (
+                    <th key={h} style={{ padding: "8px 16px", textAlign: h === "" ? "center" : "left", fontSize: 9, fontWeight: 700, color: "#555", textTransform: "uppercase", letterSpacing: .4, borderBottom: "1px solid rgba(255,255,255,.05)" }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {historial.map((h, i) => (
+                  <tr key={h.id} style={{ borderBottom: "1px solid rgba(255,255,255,.03)", background: i % 2 === 0 ? "transparent" : "rgba(255,255,255,.01)" }}>
+                    <td style={{ padding: "8px 16px", color: "#888" }}>{fmtDate(h.fecha)}</td>
+                    <td style={{ padding: "8px 16px", color: "#ccc", fontWeight: 600 }}>{h.cuentaNombre}</td>
+                    <td style={{ padding: "8px 16px", color: "#888", fontVariantNumeric: "tabular-nums" }}>{fmt(h.saldoApp)}</td>
+                    <td style={{ padding: "8px 16px", color: "#f0f0f0", fontVariantNumeric: "tabular-nums" }}>{fmt(h.saldoReal)}</td>
+                    <td style={{ padding: "8px 16px", fontWeight: 700, fontVariantNumeric: "tabular-nums", color: Math.abs(h.diferencia) < 0.01 ? "#00d4aa" : h.diferencia > 0 ? "#00d4aa" : "#ff4757" }}>
+                      {h.diferencia > 0 ? "+" : ""}{fmt(h.diferencia)}
+                    </td>
+                    <td style={{ padding: "8px 16px", textAlign: "center" }}>
+                      <button onClick={() => eliminarHistorial(h.id)}
+                        style={{ background: "none", border: "none", cursor: "pointer", color: "#444", fontSize: 12, padding: "2px 6px", borderRadius: 4 }}
+                        onMouseEnter={e => e.currentTarget.style.color = "#ff4757"}
+                        onMouseLeave={e => e.currentTarget.style.color = "#444"}>✕</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
+    </div>
+  );
+};
+
 // ─── IMPORTAR CSV ─────────────────────────────────────────────────────────────
 const ImportarCSV = () => {
   const { user, toast } = useCtx();
@@ -14128,6 +14480,7 @@ export default function App() {
       case "mortgage":     return <Mortgage/>;
       case "goals":        return <Goals/>;
       case "presupuestos": return <Presupuestos/>;
+      case "conciliacion": return <Conciliacion/>;
       case "importar":     return <ImportarCSV/>;
       case "calendar":     return <CalendarioFinanciero/>;
       case "documents":    return <Documents/>;
