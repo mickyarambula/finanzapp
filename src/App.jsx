@@ -2383,13 +2383,33 @@ const Dashboard = () => {
 
   // 13. Hipoteca — alertas inteligentes con verificación de saldo
   mortgages.forEach(m=>{
-    // Calcular próximo vencimiento usando diaCorte
     const pagados = (m.pagosRealizados||[]).length;
-    const inicio = new Date((m.fechaInicio||today())+"T12:00:00");
-    const proxPago = new Date(inicio);
-    proxPago.setMonth(proxPago.getMonth()+pagados+1);
-    proxPago.setDate(parseInt(m.diaCorte)||1);
+    // Si tiene fechaAcreditacion y 0 pagos → calcular primer pago real (día 3 del mes siguiente al siguiente)
+    const esPrimerPago = pagados === 0;
+    const proxPago = (() => {
+      if (esPrimerPago && m.fechaAcreditacion) {
+        // Primer pago: día diaCorte del mes siguiente al de acreditación + 1 mes
+        const acred = new Date(m.fechaAcreditacion+"T12:00:00");
+        const d = new Date(acred);
+        d.setMonth(d.getMonth()+2); // mes siguiente al siguiente
+        d.setDate(parseInt(m.diaCorte)||1);
+        return d;
+      }
+      const inicio = new Date((m.fechaInicio||today())+"T12:00:00");
+      const d = new Date(inicio);
+      d.setMonth(d.getMonth()+pagados+1);
+      d.setDate(parseInt(m.diaCorte)||1);
+      return d;
+    })();
     const diasAlPago = Math.round((proxPago-now)/86400000);
+    // Interés acumulado desde acreditación hasta primer pago (solo aplica al primer pago)
+    const interesAcumuladoPrimerPago = (() => {
+      if (!esPrimerPago || !m.fechaAcreditacion) return 0;
+      const acred = new Date(m.fechaAcreditacion+"T12:00:00");
+      const diasAcum = Math.max(0, Math.floor((proxPago-acred)/86400000));
+      const tasaDiaria = (parseFloat(m.tasaAnual)||0)/100/365;
+      return parseFloat(m.monto||0) * tasaDiaria * diasAcum;
+    })();
 
     // Cuota total (capital+interés+seguros)
     const cuotaBase = parseFloat(m.cuotaReal)||0;
@@ -2401,31 +2421,39 @@ const Dashboard = () => {
     const saldoCuenta = cuentaAsoc ? parseFloat(cuentaAsoc.balance||0) : null;
     const fondosSuficientes = saldoCuenta === null || saldoCuenta >= cuotaTotal;
 
+    const cuotaPrimerPago = esPrimerPago && interesAcumuladoPrimerPago > 0
+      ? cuotaTotal + interesAcumuladoPrimerPago
+      : cuotaTotal;
+    const cuotaDisplay = cuotaPrimerPago;
+    const notaPrimerPago = esPrimerPago && interesAcumuladoPrimerPago > 0
+      ? ` · Incluye ~${fmt(interesAcumuladoPrimerPago)} interés acumulado desde acreditación`
+      : "";
+
     if (diasAlPago < 0) {
       alertas.push({nivel:"error",icono:"mortgage",
         msg:`⚠️ Pago hipoteca vencido — ${m.nombre||"Hipoteca"}`,
-        detalle:`Venció hace ${Math.abs(diasAlPago)} día${Math.abs(diasAlPago)!==1?"s":""}. Cuota: ${fmt(cuotaTotal)}`,
+        detalle:`Venció hace ${Math.abs(diasAlPago)} día${Math.abs(diasAlPago)!==1?"s":""}. Cuota: ${fmt(cuotaDisplay)}`,
         modulo:"mortgage"});
     } else if (diasAlPago <= 3) {
       alertas.push({nivel:"error",icono:"mortgage",
-        msg:`🏠 Pago hipoteca en ${diasAlPago} día${diasAlPago!==1?"s":""}${!fondosSuficientes?" — ¡FONDOS INSUFICIENTES!":""}`,
-        detalle:`${m.nombre||"Hipoteca"} · ${fmt(cuotaTotal)} el ${proxPago.toLocaleDateString("es-MX",{day:"numeric",month:"short"})}${saldoCuenta!==null?` · Saldo cuenta: ${fmt(saldoCuenta)}`:""}`,
+        msg:`🏠 ${esPrimerPago?"PRIMER":"Pago"} pago hipoteca en ${diasAlPago} día${diasAlPago!==1?"s":""}${!fondosSuficientes?" — ¡FONDOS INSUFICIENTES!":""}`,
+        detalle:`${m.nombre||"Hipoteca"} · ~${fmt(cuotaDisplay)} el ${proxPago.toLocaleDateString("es-MX",{day:"numeric",month:"short"})}${notaPrimerPago}${saldoCuenta!==null?` · Saldo: ${fmt(saldoCuenta)}`:""}`,
         modulo:"mortgage"});
     } else if (diasAlPago <= 7) {
       alertas.push({nivel:!fondosSuficientes?"error":"warning",icono:"mortgage",
-        msg:`🏠 Pago hipoteca en ${diasAlPago} días${!fondosSuficientes?" — fondos insuficientes":""}`,
-        detalle:`${m.nombre||"Hipoteca"} · ${fmt(cuotaTotal)} el ${proxPago.toLocaleDateString("es-MX",{day:"numeric",month:"short"})}${saldoCuenta!==null?` · Saldo: ${fmt(saldoCuenta)}`:""}`,
+        msg:`🏠 ${esPrimerPago?"Primer":"Próximo"} pago hipoteca en ${diasAlPago} días${!fondosSuficientes?" — fondos insuficientes":""}`,
+        detalle:`${m.nombre||"Hipoteca"} · ~${fmt(cuotaDisplay)} el ${proxPago.toLocaleDateString("es-MX",{day:"numeric",month:"short"})}${notaPrimerPago}`,
         modulo:"mortgage"});
-    } else if (diasAlPago <= 15) {
+    } else if (diasAlPago <= 30) {
       if (!fondosSuficientes) {
         alertas.push({nivel:"warning",icono:"mortgage",
-          msg:`🏠 Fondos insuficientes para hipoteca (en ${diasAlPago} días)`,
-          detalle:`Necesitas ${fmt(cuotaTotal)} · tienes ${fmt(saldoCuenta)} en ${cuentaAsoc?.name||"cuenta asociada"} · faltan ${fmt(cuotaTotal-saldoCuenta)}`,
+          msg:`🏠 Fondos insuficientes para ${esPrimerPago?"primer pago":"hipoteca"} (en ${diasAlPago} días)`,
+          detalle:`Necesitas ~${fmt(cuotaDisplay)} · tienes ${fmt(saldoCuenta)} · faltan ${fmt(cuotaDisplay-saldoCuenta)}${notaPrimerPago}`,
           modulo:"mortgage"});
       } else {
-        alertas.push({nivel:"warning",icono:"mortgage",
-          msg:`🏠 Próximo pago hipoteca — ${diasAlPago} días`,
-          detalle:`${m.nombre||"Hipoteca"} · ${fmt(cuotaTotal)} el ${proxPago.toLocaleDateString("es-MX",{day:"numeric",month:"short"})}${cuentaAsoc?` · ${cuentaAsoc.name}: ${fmt(saldoCuenta)}`:""}`,
+        alertas.push({nivel:esPrimerPago?"warning":"info",icono:"mortgage",
+          msg:`🏠 ${esPrimerPago?"Primer pago hipoteca":"Próximo pago hipoteca"} — ${diasAlPago} días`,
+          detalle:`${m.nombre||"Hipoteca"} · ~${fmt(cuotaDisplay)} el ${proxPago.toLocaleDateString("es-MX",{day:"numeric",month:"short"})}${notaPrimerPago}${cuentaAsoc?` · ${cuentaAsoc.name}: ${fmt(saldoCuenta)}`:""}`,
           modulo:"mortgage"});
       }
     }
@@ -9356,9 +9384,57 @@ const Mortgage = () => {
             <div style={{display:"flex",justifyContent:"flex-end",marginBottom:10}}>
               <Btn onClick={()=>abrirPagoModal(m)}><Ic n="plus" size={15}/>Registrar mensualidad</Btn>
             </div>
-            {(m.pagosRealizados||[]).length===0 ? (
-              <Card><p style={{textAlign:"center",color:"#444",fontSize:13,padding:"20px 0"}}>Sin mensualidades registradas.</p></Card>
-            ) : (
+            {(m.pagosRealizados||[]).length===0 ? (() => {
+              const acred = m.fechaAcreditacion ? new Date(m.fechaAcreditacion+"T12:00:00") : null;
+              const proxPago = (() => {
+                if (acred) {
+                  const d = new Date(acred);
+                  d.setMonth(d.getMonth()+2);
+                  d.setDate(parseInt(m.diaCorte)||1);
+                  return d;
+                }
+                return null;
+              })();
+              const diasAlPago = proxPago ? Math.round((proxPago-new Date())/86400000) : null;
+              const diasAcum = proxPago && acred ? Math.max(0,Math.floor((proxPago-acred)/86400000)) : 0;
+              const tasaDiaria = (parseFloat(m.tasaAnual)||0)/100/365;
+              const interesAcum = parseFloat(m.monto||0)*tasaDiaria*diasAcum;
+              const cuotaBase = parseFloat(m.cuotaReal)||0;
+              const seguros = (parseFloat(m.seguroVida)||0)+(parseFloat(m.seguroDanos)||0)+(parseFloat(m.adminCredito)||0);
+              const cuotaEst = cuotaBase + seguros + interesAcum;
+              return (
+                <Card style={{borderColor:"rgba(0,212,170,.2)",background:"rgba(0,212,170,.03)"}}>
+                  <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
+                    <div style={{width:36,height:36,borderRadius:10,background:"rgba(0,212,170,.1)",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                      <Ic n="mortgage" size={20} color="#00d4aa"/>
+                    </div>
+                    <div>
+                      <p style={{fontSize:13,fontWeight:700,color:"#00d4aa",margin:0}}>Primer pago pendiente</p>
+                      {proxPago&&<p style={{fontSize:11,color:"#555",margin:0}}>
+                        {diasAlPago > 0 ? `En ${diasAlPago} días — ` : diasAlPago === 0 ? "Hoy — " : `Venció hace ${Math.abs(diasAlPago)}d — `}
+                        {proxPago.toLocaleDateString("es-MX",{day:"numeric",month:"long",year:"numeric"})}
+                      </p>}
+                    </div>
+                  </div>
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:10,marginBottom:12}}>
+                    {[
+                      {l:"Cuota mensual est.",v:fmt(cuotaBase+seguros,cur2),c:"#e0e0e0"},
+                      {l:"Interés acumulado",v:fmt(interesAcum,cur2),c:"#f39c12",tip:`${diasAcum} días desde acreditación`},
+                      {l:"Total primer recibo est.",v:fmt(cuotaEst,cur2),c:"#ff6b6b",big:true},
+                    ].map(k=>(
+                      <div key={k.l} style={{padding:"9px 12px",background:"rgba(255,255,255,.03)",borderRadius:9,border:"1px solid rgba(255,255,255,.06)"}}>
+                        <p style={{fontSize:9,color:"#555",textTransform:"uppercase",letterSpacing:.4,margin:"0 0 3px"}}>{k.l}</p>
+                        <p style={{fontSize:k.big?17:14,fontWeight:800,color:k.c,margin:0,fontVariantNumeric:"tabular-nums"}}>{k.v}</p>
+                        {k.tip&&<p style={{fontSize:9,color:"#444",margin:"2px 0 0"}}>{k.tip}</p>}
+                      </div>
+                    ))}
+                  </div>
+                  <div style={{padding:"8px 12px",background:"rgba(243,156,18,.06)",border:"1px solid rgba(243,156,18,.15)",borderRadius:8,fontSize:11,color:"#f39c12",lineHeight:1.5}}>
+                    ⚠️ El primer recibo incluye el interés acumulado desde la acreditación ({m.fechaAcreditacion ? fmtDate(m.fechaAcreditacion) : "fecha de inicio"}) hasta el día de pago — por eso es más alto que los siguientes.
+                  </div>
+                </Card>
+              );
+            })() : (
               <Card>
                 <div style={{overflowX:"auto"}}>
                   <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
