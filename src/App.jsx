@@ -2862,47 +2862,6 @@ const Dashboard = () => {
         </div>
       )}
 
-      {/* ── CONCENTRACIÓN DE RIESGO */}
-      {patrimonioNeto > 0 && (() => {
-        const bloques = [
-          { label:"Liquidez",      valor:liquidezTotal,                          color:"#00d4aa", icono:"🏦" },
-          { label:"Inversiones",   valor:invTotal,                               color:"#a855f7", icono:"📈" },
-          { label:"Por cobrar",    valor:porCobrar,                              color:"#3b82f6", icono:"💸" },
-          { label:"Activos físicos",valor:totalActivos,                          color:"#f39c12", icono:"🏠" },
-        ].filter(b=>b.valor>0).map(b=>({...b, pct:b.valor/Math.max(patrimonioNeto,1)*100}));
-        const maxConcentracion = bloques.reduce((m,b)=>b.pct>m.pct?b:m, {pct:0});
-        const hayRiesgo = maxConcentracion.pct > 40;
-        return (
-          <Card style={{padding:"12px 16px",borderColor:hayRiesgo?"rgba(243,156,18,.25)":"rgba(255,255,255,.07)"}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:6}}>
-              <p style={{fontSize:12,fontWeight:700,color:"#e0e0e0",margin:0}}>Distribución del patrimonio</p>
-              {hayRiesgo && (
-                <span style={{fontSize:10,color:"#f39c12",background:"rgba(243,156,18,.1)",border:"1px solid rgba(243,156,18,.25)",borderRadius:20,padding:"2px 10px",fontWeight:600}}>
-                  ⚠️ {maxConcentracion.label} concentra el {maxConcentracion.pct.toFixed(0)}%
-                </span>
-              )}
-            </div>
-            {/* Barra apilada */}
-            <div style={{height:10,borderRadius:6,overflow:"hidden",display:"flex",marginBottom:10,gap:1}}>
-              {bloques.map(b=>(
-                <div key={b.label} style={{height:"100%",width:`${b.pct}%`,background:b.color,transition:"width .4s",minWidth:b.pct>1?2:0}}/>
-              ))}
-            </div>
-            {/* Leyenda */}
-            <div style={{display:"flex",flexWrap:"wrap",gap:"6px 16px"}}>
-              {bloques.map(b=>(
-                <div key={b.label} style={{display:"flex",alignItems:"center",gap:5}}>
-                  <div style={{width:8,height:8,borderRadius:2,background:b.color,flexShrink:0}}/>
-                  <span style={{fontSize:10,color:"#777"}}>{b.icono} {b.label}</span>
-                  <span style={{fontSize:10,fontWeight:700,color:b.color,fontVariantNumeric:"tabular-nums"}}>{b.pct.toFixed(0)}%</span>
-                  <span style={{fontSize:10,color:"#444",fontVariantNumeric:"tabular-nums"}}>{fmt(b.valor)}</span>
-                </div>
-              ))}
-            </div>
-          </Card>
-        );
-      })()}
-
       {/* ── KPIs PRINCIPALES */}
       <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(180px,1fr))",gap:10}}>
         {/* Patrimonio Neto */}
@@ -13769,6 +13728,41 @@ const Asistente = () => {
     const ingrMes = txMes.filter(tx=>tx.type==="income").reduce((s,tx)=>s+parseFloat(tx.amount||0),0);
     const gastMes = txMes.filter(tx=>tx.type==="expense").reduce((s,tx)=>s+parseFloat(tx.amount||0),0);
     const hoyAsistente = today();
+    // Calcular strings fuera del template literal para evitar errores de compilación
+    const ctxCuentas = accounts.map(a=>`- [${a.id}] ${a.name} [${a.type}] ${a.currency}: ${fmt(parseFloat(a.balance||0),a.currency)}`).join("\n") || "Sin cuentas";
+    const ctxCuentasIds = accounts.map(a=>`ID:${a.id} | ${a.name} | ${a.currency}`).join("\n") || "Sin cuentas";
+    const ctxPrestamos = loans.map(l=>{
+      const dr=(parseFloat(l.rate)||0)/100/(l.rateType==="annual"?365:30);
+      let bal=parseFloat(l.principal||0), last=new Date(l.startDate+"T12:00:00");
+      for(const p of [...(l.payments||[])].sort((a,b)=>new Date(a.date)-new Date(b.date))){
+        const days=Math.max(0,Math.floor((new Date(p.date+"T12:00:00")-last)/86400000));
+        bal=Math.max(0,bal-(p.amount-Math.min(p.amount,bal*dr*days))); last=new Date(p.date+"T12:00:00");
+      }
+      const dNow=Math.max(0,Math.floor((new Date()-last)/86400000));
+      const intAcum=bal*dr*dNow;
+      const intDiario=bal*dr;
+      const tramos=(l.tramos||[]).map(t=>t.rate+"% desde "+t.desde).join(", ");
+      return `- [${l.id}] ${l.name} [${l.type==="received"?"DEBO":"ME DEBEN"}]: capital ${fmt(bal,l.currency)} + interés acum hoy ${fmt(intAcum,l.currency)} (${fmt(intDiario,l.currency)}/día) @ ${l.rate}% ${l.rateType==="annual"?"anual":"mensual"}${tramos?" | tramos: "+tramos:""}`;
+    }).join("\n") || "Sin préstamos";
+    const ctxInversiones = investments.filter(i=>i.estado!=="liquidada").map(i=>{
+      const ap=(i.aportaciones||[]).reduce((s,a)=>s+parseFloat(a.amount||0),0);
+      const tasa=parseFloat(i.tasaAnual)||0;
+      let val=parseFloat(i.currentValue)||0;
+      if(!val&&tasa>0&&ap>0){const dias=Math.max(0,Math.floor((new Date()-new Date((i.startDate||hoyAsistente)+"T12:00:00"))/86400000));val=ap+(ap*tasa/100/365*dias);}
+      else if(!val) val=ap;
+      const valMXN=i.currency==="USD"?val*TC:val;
+      return `- [${i.id}] ${i.name}: capital ${fmt(ap,i.currency)} → valor proyectado ${fmt(valMXN)} MXN${tasa?" @ "+tasa+"% anual":""}`;
+    }).join("\n") || "Sin inversiones activas";
+    const ctxHipotecas = (mortgages||[]).map(m=>{
+      const P=parseFloat(m.monto)||0,n=(parseFloat(m.plazoAnios)||0)*12,r=(parseFloat(m.tasaAnual)||0)/100/12;
+      const cuota=P&&n&&r?(m.tipo==="fijo"?(P*r*Math.pow(1+r,n))/(Math.pow(1+r,n)-1):P/n):0;
+      const pagados=(m.pagosRealizados||[]).length;
+      const proxInfo=pagados===0&&m.fechaAcreditacion?"| Primer pago: día "+m.diaCorte+" del mes siguiente al de acreditación":"";
+      return `- [${m.id}] ${m.nombre||m.banco}: $${P.toLocaleString()} @ ${m.tasaAnual}% anual, ${m.plazoAnios} años, cuota ~${fmt(cuota)}/mes, ${pagados} pagos ${proxInfo}`;
+    }).join("\n") || "Sin hipoteca";
+    const ctxMetas = goals.map(g=>`- ${g.name||g.nombre} | ${fmt(parseFloat(g.current||g.saved||0))} / ${fmt(parseFloat(g.target||0))}`).join("\n") || "Sin metas";
+    const ctxPresupuestos = presupuestos.filter(p=>p.activo!==false).map(p=>`- ${p.nombre} | Límite: ${fmt(parseFloat(p.montoLimite||0))}`).join("\n") || "Sin presupuestos";
+
     return `Eres un experto en finanzas personales integrado en Finanzapp, la app de ${user.name}.
 Tienes acceso en tiempo real a todos sus datos. Responde siempre en español, claro y directo.
 FECHA DE HOY: ${hoyAsistente} — USA SIEMPRE ESTA FECHA para transacciones sin fecha explícita.
@@ -13783,7 +13777,7 @@ Si hay múltiples movimientos (como en un estado de cuenta), inclúyelos todos e
 Si no puedes determinar algún campo, usa null.
 
 Cuentas disponibles:
-${accounts.map(a=>`ID:${a.id} | ${a.name} | ${a.currency}`).join("\n")||"Sin cuentas"}
+${ctxCuentasIds}
 
 === RESUMEN FINANCIERO ===
 Fecha: ${now.toLocaleDateString("es-MX",{weekday:"long",year:"numeric",month:"long",day:"numeric"})} | TC: ${TC}
@@ -13792,50 +13786,22 @@ Patrimonio neto: ${fmt(liquidez+invTotal-deudaTarjetas)}
 Flujo ${now.toLocaleDateString("es-MX",{month:"long"})}: Ingresos ${fmt(ingrMes)} | Gastos ${fmt(gastMes)}
 
 CUENTAS:
-${accounts.map(a=>`- [${a.id}] ${a.name} [${a.type}] ${a.currency}: ${fmt(parseFloat(a.balance||0),a.currency)}`).join("\n")}
+${ctxCuentas}
 
-PRÉSTAMOS (${loans.length} activos):
-${loans.map(l=>{
-  const dr=(parseFloat(l.rate)||0)/100/(l.rateType==="annual"?365:30);
-  let bal=parseFloat(l.principal||0),last=new Date(l.startDate+"T12:00:00");
-  for(const p of [...(l.payments||[])].sort((a,b)=>new Date(a.date)-new Date(b.date))){
-    const days=Math.max(0,Math.floor((new Date(p.date+"T12:00:00")-last)/86400000));
-    bal=Math.max(0,bal-(p.amount-Math.min(p.amount,bal*dr*days)));last=new Date(p.date+"T12:00:00");
-  }
-  const dNow=Math.max(0,Math.floor((new Date()-last)/86400000));
-  const intAcum=bal*dr*dNow;
-  const tramos=(l.tramos||[]).map(t=>`${t.rate}% desde ${t.desde}`).join(", ");
-  return \`- [${l.id}] ${l.name} [${l.type==="received"?"DEBO":"ME DEBEN"}]: capital ${fmt(bal,l.currency)} + interés acum hoy ${fmt(intAcum,l.currency)} @ ${l.rate}%${tramos?" (tramos: "+tramos+")":""}\`;
-}).join("\n")||"Sin préstamos"}
+PRÉSTAMOS (${loans.length}):
+${ctxPrestamos}
 
-INVERSIONES (${investments.filter(i=>i.estado!=="liquidada").length} activas):
-${investments.filter(i=>i.estado!=="liquidada").map(i=>{
-  const ap=(i.aportaciones||[]).reduce((s,a)=>s+parseFloat(a.amount||0),0);
-  const tasa=parseFloat(i.tasaAnual)||0;
-  let val=parseFloat(i.currentValue)||0;
-  if(!val && tasa>0 && ap>0){
-    const dias=Math.max(0,Math.floor((new Date()-new Date((i.startDate||today())+"T12:00:00"))/86400000));
-    val=ap+(ap*tasa/100/365*dias);
-  } else if(!val) val=ap;
-  const valMXN=i.currency==="USD"?val*TC:val;
-  return \`- [${i.id}] ${i.name} [${i.type}]: capital ${fmt(ap,i.currency)} → valor proyectado ${fmt(valMXN)} MXN${tasa?` @ ${tasa}% anual`:""}\`;
-}).join("\n")||"Sin inversiones"}
+INVERSIONES:
+${ctxInversiones}
 
-HIPOTECA:
-${(mortgages||[]).map(m=>{
-  const P=parseFloat(m.monto)||0,n=(parseFloat(m.plazoAnios)||0)*12,r=(parseFloat(m.tasaAnual)||0)/100/12;
-  const cuota=P&&n&&r?(m.tipo==="fijo"?(P*r*Math.pow(1+r,n))/(Math.pow(1+r,n)-1):P/n):0;
-  const pagados=(m.pagosRealizados||[]).length;
-  const esPrimero=pagados===0;
-  const proxFecha=m.fechaAcreditacion?`Primer pago: día ${m.diaCorte} de ${new Date(m.fechaAcreditacion).toLocaleDateString("es-MX",{month:"long",year:"numeric"})} siguiente`:"";
-  return \`- [${m.id}] ${m.nombre||m.banco}: $${P.toLocaleString()} @ ${m.tasaAnual}% anual, ${m.plazoAnios} años, cuota ~${fmt(cuota)} + seguros. Pagos: ${pagados}. ${esPrimero?proxFecha:""}\`;
-}).join("\n")||"Sin hipoteca"}
+HIPOTECAS:
+${ctxHipotecas}
 
 METAS:
-${goals.map(g=>`- ${g.name} | ${fmt(parseFloat(g.current||0))} / ${fmt(parseFloat(g.target||0))}`).join("\n")||"Sin metas"}
+${ctxMetas}
 
 PRESUPUESTOS ACTIVOS:
-${presupuestos.filter(p=>p.activo!==false).map(p=>`- ${p.nombre} | Límite: ${fmt(parseFloat(p.montoLimite||0))}`).join("\n")||"Sin presupuestos"}`;
+${ctxPresupuestos}`;
   };
 
   // ── Leer archivo como base64
@@ -14284,9 +14250,7 @@ Sé directo, positivo y usa 1 emoji relevante. No repitas los números exactos s
     };
     const loansInfo = loans.map(l=>{
       const st=calcLoanState(l);
-      const tramos=(l.tramos||[]).map(t=>`${t.rate}% desde ${t.desde}`).join(", ");
-      const intDiario=st.bal*(parseFloat(l.rate)||0)/100/(l.rateType==="annual"?365:30);
-      return `[${l.id}] ${l.name} [${l.type==="received"?"DEBO":"ME DEBEN"}]: capital ${fmt(st.bal,l.currency)} + interés acum. ${fmt(st.interest,l.currency)} (${fmt(intDiario,l.currency)}/día) @ ${l.rate}% ${l.rateType==="annual"?"anual":"mensual"}${tramos?" | tramos: "+tramos:""}`;
+      return `${l.name} [${l.type==="received"?"DEBO":"ME DEBEN"}]: capital ${fmt(st.bal,l.currency)} + interés acum. ${fmt(st.interest,l.currency)} = total ${fmt(st.total,l.currency)} @ ${l.rate}% ${l.rateType==="annual"?"anual":"mensual"}`;
     });
 
     // Hipotecas con saldo
@@ -14326,7 +14290,16 @@ Sé directo, positivo y usa 1 emoji relevante. No repitas los números exactos s
         },0);
 
     const loansActivos = loans.filter(l=>!calcLoanState(l).total<=0);
-    return `Eres el asistente financiero personal de ${user.name} en Finanzapp. Responde siempre en español, conciso y directo.
+    const ctxInvFlot = investments.filter(i=>i.estado!=="liquidada").map(i=>{
+      const ap=(i.aportaciones||[]).reduce((s,a)=>s+parseFloat(a.amount||0),0);
+      const tasa=parseFloat(i.tasaAnual)||0;
+      let val=parseFloat(i.currentValue)||0;
+      if(!val&&tasa>0&&ap>0){const dias=Math.max(0,Math.floor((new Date()-new Date((i.startDate||hoyStr)+"T12:00:00"))/86400000));val=ap+(ap*tasa/100/365*dias);}
+      else if(!val) val=ap;
+      const valMXN=i.currency==="USD"?val*TC:val;
+      return "[" + i.id + "] " + i.name + ": capital " + fmt(ap,i.currency) + " → ~" + fmt(valMXN) + " MXN" + (tasa?" ("+tasa+"% anual)":"");
+    }).join("\n") || "Ninguna";
+    return \`Eres el asistente financiero personal de \${user.name} en Finanzapp. Responde siempre en español, conciso y directo.
 FECHA HOY: ${hoyStr}
 Puedes registrar CUALQUIERA de estas operaciones usando el JSON correspondiente al FINAL de tu respuesta:
 
@@ -14368,15 +14341,7 @@ HIPOTECAS (${(mortgages||[]).length}):
 ${mortgagesInfo.length>0?mortgagesInfo.join("\n"):"Ninguna"}
 
 INVERSIONES activas (${investments.filter(i=>i.estado!=="liquidada").length}):
-${investments.filter(i=>i.estado!=="liquidada").map(i=>{
-  const ap=(i.aportaciones||[]).reduce((s,a)=>s+parseFloat(a.amount||0),0);
-  const tasa=parseFloat(i.tasaAnual)||0;
-  let val=parseFloat(i.currentValue)||0;
-  if(!val&&tasa>0&&ap>0){const dias=Math.max(0,Math.floor((new Date()-new Date((i.startDate||hoyStr)+"T12:00:00"))/86400000));val=ap+(ap*tasa/100/365*dias);}
-  else if(!val) val=ap;
-  const valMXN=i.currency==="USD"?val*TC:val;
-  return `[${i.id}] ${i.name}: capital ${fmt(ap,i.currency)} → ~${fmt(valMXN)} MXN${tasa?` (${tasa}% anual)`:""}`;
-}).join("\n")||"Ninguna"}
+${ctxInvFlot}
 
 METAS (${goals.filter(g=>g.estado!=="completada").length}):
 ${metasInfo.length>0?metasInfo.join("\n"):"Ninguna"}
