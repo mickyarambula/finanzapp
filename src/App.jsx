@@ -14299,7 +14299,7 @@ Sé directo, positivo y usa 1 emoji relevante. No repitas los números exactos s
       const valMXN=i.currency==="USD"?val*TC:val;
       return "[" + i.id + "] " + i.name + ": capital " + fmt(ap,i.currency) + " → ~" + fmt(valMXN) + " MXN" + (tasa?" ("+tasa+"% anual)":"");
     }).join("\n") || "Ninguna";
-    return \`Eres el asistente financiero personal de \${user.name} en Finanzapp. Responde siempre en español, conciso y directo.
+    return `Eres el asistente financiero personal de ${user.name} en Finanzapp. Responde siempre en español, conciso y directo.
 FECHA HOY: ${hoyStr}
 Puedes registrar CUALQUIERA de estas operaciones usando el JSON correspondiente al FINAL de tu respuesta:
 
