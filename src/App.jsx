@@ -6146,17 +6146,20 @@ const Investments = () => {
 
         // Tabla compacta para cripto
         const TablaCripto = ({items}) => {
-          const totalUSD = items.reduce((s,i)=>s+calcInv(i).valorActual,0);
+          // Separar por moneda y calcular totales correctos
+          const totalMXN = items.filter(i=>i.currency==="MXN").reduce((s,i)=>s+calcInv(i).valorActual,0);
+          const totalUSD = items.filter(i=>i.currency==="USD").reduce((s,i)=>s+calcInv(i).valorActual,0);
+          const totalEnMXN = totalMXN + totalUSD*TC; // todo convertido a MXN
+          const hayMixto = totalMXN > 0 && totalUSD > 0;
           return (
             <Card style={{padding:0,overflow:"hidden"}}>
               <div style={{overflowX:"auto"}}>
                 <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
                   <thead>
                     <tr style={{borderBottom:"1px solid rgba(255,255,255,.06)"}}>
-                      {["Moneda","Plataforma","Tokens","Precio","Valor USD","P&L",""].map(h=>(
+                      {["Moneda","Plataforma","Tokens","Precio","Valor","P&L",""].map(h=>(
                         <th key={h} style={{padding:"8px 14px",textAlign:"right",fontSize:9,fontWeight:700,
-                          color:"#555",textTransform:"uppercase",letterSpacing:.4,
-                          "&:first-child":{textAlign:"left"}}}
+                          color:"#555",textTransform:"uppercase",letterSpacing:.4}}
                           align={h===""||h==="Moneda"||h==="Plataforma"?"left":"right"}>{h}</th>
                       ))}
                     </tr>
@@ -6165,6 +6168,9 @@ const Investments = () => {
                     {items.map((inv,i)=>{
                       const st=calcInv(inv);
                       const rendColor=st.rendimiento>=0?"#00d4aa":"#ff4757";
+                      const esMXN = inv.currency==="MXN";
+                      const precioPrefix = esMXN?"$":"$";
+                      const precioSuffix = esMXN?" MXN":" USD";
                       return (
                         <tr key={inv.id} style={{borderBottom:"1px solid rgba(255,255,255,.03)",
                           background:i%2===0?"transparent":"rgba(255,255,255,.01)",cursor:"pointer"}}
@@ -6178,7 +6184,13 @@ const Investments = () => {
                               </div>
                               <div>
                                 <p style={{fontSize:12,fontWeight:700,color:"#e0e0e0",margin:0}}>{inv.name}</p>
-                                <p style={{fontSize:10,color:"#555",margin:0}}>{inv.ticker}</p>
+                                <div style={{display:"flex",alignItems:"center",gap:4}}>
+                                  <p style={{fontSize:10,color:"#555",margin:0}}>{inv.ticker}</p>
+                                  {/* Badge de moneda — importante para cripto en MXN */}
+                                  <span style={{fontSize:8,fontWeight:700,color:esMXN?"#00d4aa":"#3b82f6",
+                                    background:esMXN?"rgba(0,212,170,.1)":"rgba(59,130,246,.1)",
+                                    borderRadius:4,padding:"1px 4px"}}>{inv.currency}</span>
+                                </div>
                               </div>
                             </div>
                           </td>
@@ -6187,10 +6199,13 @@ const Investments = () => {
                             {parseFloat(inv.titulos||0).toLocaleString("en",{maximumFractionDigits:4})}
                           </td>
                           <td style={{padding:"9px 14px",textAlign:"right",color:"#888",fontVariantNumeric:"tabular-nums",fontSize:11}}>
-                            ${parseFloat(inv.precioActual||0).toLocaleString("en",{maximumFractionDigits:6})}
+                            {parseFloat(inv.precioActual||0).toLocaleString("en",{maximumFractionDigits:6})}
+                            <span style={{fontSize:9,color:"#555",marginLeft:2}}>{inv.currency}</span>
                           </td>
                           <td style={{padding:"9px 14px",textAlign:"right",fontWeight:700,color:"#f7931a",fontVariantNumeric:"tabular-nums"}}>
                             {fmt(st.valorActual,inv.currency)}
+                            {/* Si es MXN, mostrar equivalente en USD para comparar */}
+                            {esMXN&&TC>0&&<span style={{display:"block",fontSize:9,color:"#555",fontWeight:400}}>≈ {fmt(st.valorActual/TC,"USD")}</span>}
                           </td>
                           <td style={{padding:"9px 14px",textAlign:"right",fontWeight:600,color:rendColor,fontVariantNumeric:"tabular-nums",fontSize:11}}>
                             {st.rendimiento>=0?"+":""}{fmt(st.rendimiento,inv.currency)}
@@ -6206,8 +6221,14 @@ const Investments = () => {
                   <tfoot>
                     <tr style={{borderTop:"1px solid rgba(255,255,255,.08)",background:"rgba(255,255,255,.02)"}}>
                       <td colSpan={4} style={{padding:"8px 14px",fontSize:10,color:"#555",fontWeight:700}}>TOTAL CRIPTO</td>
-                      <td style={{padding:"8px 14px",textAlign:"right",fontWeight:800,color:"#f7931a",fontVariantNumeric:"tabular-nums"}}>
-                        ${totalUSD.toLocaleString("en",{maximumFractionDigits:2})} USD
+                      <td style={{padding:"8px 14px",textAlign:"right",fontVariantNumeric:"tabular-nums"}}>
+                        <p style={{fontSize:13,fontWeight:800,color:"#f7931a",margin:0}}>{fmt(totalEnMXN,"MXN")}</p>
+                        {hayMixto&&(
+                          <p style={{fontSize:9,color:"#555",margin:"2px 0 0"}}>
+                            {fmt(totalMXN,"MXN")} + {fmt(totalUSD,"USD")} × TC
+                          </p>
+                        )}
+                        {!hayMixto&&totalUSD>0&&<p style={{fontSize:9,color:"#555",margin:"2px 0 0"}}>{fmt(totalUSD,"USD")}</p>}
                       </td>
                       <td colSpan={2}/>
                     </tr>
@@ -6248,8 +6269,8 @@ const Investments = () => {
             {cripto.length>0&&(
               <div>
                 <SeccionHeader emoji="🪙" titulo="Criptomonedas"
-                  total={cripto.reduce((s,i)=>s+calcInv(i).valorActual,0)}
-                  moneda="USD" color="#f7931a" open={true} onToggle={()=>{}} count={cripto.length}/>
+                  total={cripto.reduce((s,i)=>{const st=calcInv(i);return s+(i.currency==="USD"?st.valorActual*TC:st.valorActual);},0)}
+                  color="#f7931a" open={true} onToggle={()=>{}} count={cripto.length}/>
                 <TablaCripto items={cripto}/>
               </div>
             )}
@@ -6270,7 +6291,7 @@ const Investments = () => {
             {liquidadas.length>0&&(
               <div>
                   <SeccionHeader emoji="✅" titulo="Liquidadas"
-                    total={liquidadas.reduce((s,i)=>s+calcInv(i).valorActual,0)}
+                    total={liquidadas.reduce((s,i)=>{const st=calcInv(i);return s+(i.currency==="USD"?st.valorActual*TC:st.valorActual);},0)}
                     color="#64748b" open={openLiq} onToggle={()=>setOpenLiq(p=>!p)} count={liquidadas.length}/>
                   {openLiq&&(
                     <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))",gap:12}}>
