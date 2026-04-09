@@ -141,7 +141,14 @@ const useTcAuto = (userId, setConfig) => {
       .then(data => {
         const tc = data?.rates?.MXN;
         if (tc && tc > 10 && tc < 30) {
-          setConfig(c => ({ ...c, tipoCambio: tc.toFixed(2), tcAuto: true, tcFecha: new Date().toISOString() }));
+          const tcNuevo = tc.toFixed(2);
+          setConfig(c => {
+            const hist = c.historialTC || [];
+            const hoy = new Date().toISOString().split('T')[0];
+            const yaHoy = hist.some(h => h.fecha === hoy);
+            const histActualizado = yaHoy ? hist : [...hist.slice(-89), { fecha: hoy, tc: parseFloat(tcNuevo) }];
+            return { ...c, tipoCambio: tcNuevo, tcAuto: true, tcFecha: new Date().toISOString(), historialTC: histActualizado };
+          });
           localStorage.setItem(KEY, String(ahora));
         }
       })
@@ -191,6 +198,7 @@ const ICONS = {
   presupuesto:"M11.8 10.9c-2.27-.59-3-1.2-3-2.15 0-1.09 1.01-1.85 2.7-1.85 1.78 0 2.44.85 2.5 2.1h2.21c-.07-1.72-1.12-3.3-3.21-3.81V3h-3v2.16c-1.94.42-3.5 1.68-3.5 3.61 0 2.31 1.91 3.46 4.7 4.13 2.5.6 3 1.48 3 2.41 0 .69-.49 1.79-2.7 1.79-2.06 0-2.87-.92-2.98-2.1h-2.2c.12 2.19 1.76 3.42 3.68 3.83V21h3v-2.15c1.95-.37 3.5-1.5 3.5-3.55 0-2.84-2.43-3.81-4.7-4.4z",
   importar:"M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z",
   conciliacion:"M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z",
+  reporte:"M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm-1 7V3.5L18.5 9H13zM8 16h8v2H8v-2zm0-4h8v2H8v-2zm0-4h5v2H8V8z",
   health:"M12 21.593c-5.63-5.539-11-10.297-11-14.402 0-3.791 3.068-5.191 5.281-5.191 1.312 0 4.151.501 5.719 4.457 1.59-3.968 4.464-4.447 5.726-4.447 2.54 0 5.274 1.621 5.274 5.181 0 4.069-5.136 8.625-11 14.402z",
   mortgage:"M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z",
   minus:"M19 13H5v-2h14v2z",
@@ -513,6 +521,7 @@ const NAV_GROUPS = [
       { id:"patrimonio",   label:"Patrimonio",     icon:"patrimonio" },
       { id:"presupuestos", label:"Presupuestos",   icon:"presupuesto" },
       { id:"calendar",     label:"Calendario",     icon:"calendar" },
+      { id:"reporte",      label:"Reporte Mensual", icon:"reporte" },
       { id:"documents",    label:"Documentos",     icon:"documents" },
     ]
   },
@@ -3020,6 +3029,79 @@ const Dashboard = () => {
           ))}
         </div>
       </Card>
+
+      {/* ── TRACKER TIPO DE CAMBIO */}
+      {config.historialTC?.length > 1 && (() => {
+        const hist = [...(config.historialTC||[])].sort((a,b)=>a.fecha>b.fecha?1:-1);
+        const tcActual = parseFloat(config.tipoCambio)||17.5;
+        const tcInicial = hist[0]?.tc || tcActual;
+        const tcHace30 = hist.slice(-30)[0]?.tc || tcInicial;
+        const varTotal = ((tcActual - tcInicial) / tcInicial * 100);
+        const var30d = ((tcActual - tcHace30) / tcHace30 * 100);
+        // Impacto en activos USD del usuario
+        const activosUSD = accounts.filter(a=>a.currency==="USD"&&a.type!=="credit")
+          .reduce((s,a)=>s+parseFloat(a.balance||0),0);
+        const invUSD = investments.filter(i=>i.currency==="USD"&&i.estado!=="liquidada")
+          .reduce((s,i)=>{
+            const ap=(i.aportaciones||[]).reduce((ss,a)=>ss+parseFloat(a.amount||0),0);
+            const tasa=parseFloat(i.tasaAnual)||0;
+            let val=parseFloat(i.currentValue)||0;
+            if(!val&&tasa>0&&ap>0){const dias=Math.max(0,Math.floor((new Date()-new Date((i.startDate||today())+"T12:00:00"))/86400000));val=ap+(ap*tasa/100/365*dias);}
+            else if(!val) val=ap;
+            return s+val;
+          },0);
+        const totalUSD = activosUSD + invUSD;
+        const gananciaTC = totalUSD * (tcActual - tcInicial);
+        const ganancia30d = totalUSD * (tcActual - tcHace30);
+        const maxTC = Math.max(...hist.map(h=>h.tc));
+        const minTC = Math.min(...hist.map(h=>h.tc));
+        const rango = maxTC - minTC || 1;
+        const W = 400, H = 50;
+        return (
+          <Card style={{padding:"12px 16px",borderColor:varTotal>=0?"rgba(0,212,170,.2)":"rgba(255,71,87,.2)"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:8,marginBottom:10}}>
+              <div>
+                <p style={{fontSize:12,fontWeight:700,color:"#e0e0e0",margin:"0 0 2px"}}>💱 Tipo de cambio USD/MXN</p>
+                <p style={{fontSize:10,color:"#555",margin:0}}>{hist.length} registros · desde {fmtDate(hist[0]?.fecha)}</p>
+              </div>
+              <div style={{display:"flex",gap:16,flexWrap:"wrap"}}>
+                <div style={{textAlign:"right"}}>
+                  <p style={{fontSize:9,color:"#555",margin:"0 0 1px",textTransform:"uppercase"}}>Actual</p>
+                  <p style={{fontSize:18,fontWeight:800,color:"#f0f0f0",margin:0,fontVariantNumeric:"tabular-nums"}}>${tcActual.toFixed(2)}</p>
+                </div>
+                {totalUSD>0&&(
+                  <div style={{textAlign:"right"}}>
+                    <p style={{fontSize:9,color:"#555",margin:"0 0 1px",textTransform:"uppercase"}}>Ganancia cambiaria</p>
+                    <p style={{fontSize:14,fontWeight:700,color:gananciaTC>=0?"#00d4aa":"#ff4757",margin:0,fontVariantNumeric:"tabular-nums"}}>
+                      {gananciaTC>=0?"+":""}{fmt(gananciaTC)} MXN
+                    </p>
+                    <p style={{fontSize:9,color:"#555",margin:0}}>{(totalUSD).toLocaleString("en")} USD × Δ${(tcActual-tcInicial).toFixed(2)}</p>
+                  </div>
+                )}
+              </div>
+            </div>
+            {/* Mini gráfica de línea */}
+            <svg viewBox={`0 0 ${W} ${H+10}`} style={{width:"100%",overflow:"visible"}} preserveAspectRatio="none">
+              <polyline
+                points={hist.map((h,i)=>`${(i/(hist.length-1))*W},${H-((h.tc-minTC)/rango)*H}`).join(" ")}
+                fill="none" stroke={varTotal>=0?"#00d4aa":"#ff4757"} strokeWidth="1.5" strokeLinejoin="round"/>
+              {/* Punto actual */}
+              {hist.length>0&&(
+                <circle cx={W} cy={H-((tcActual-minTC)/rango)*H} r="3"
+                  fill={varTotal>=0?"#00d4aa":"#ff4757"}/>
+              )}
+            </svg>
+            <div style={{display:"flex",justifyContent:"space-between",marginTop:4}}>
+              <span style={{fontSize:9,color:"#444"}}>Mín ${minTC.toFixed(2)}</span>
+              <div style={{display:"flex",gap:12}}>
+                <span style={{fontSize:9,color:var30d>=0?"#00d4aa":"#ff4757"}}>30d: {var30d>=0?"+":""}{var30d.toFixed(2)}%</span>
+                <span style={{fontSize:9,color:varTotal>=0?"#00d4aa":"#ff4757"}}>Total: {varTotal>=0?"+":""}{varTotal.toFixed(2)}%</span>
+              </div>
+              <span style={{fontSize:9,color:"#444"}}>Máx ${maxTC.toFixed(2)}</span>
+            </div>
+          </Card>
+        );
+      })()}
 
       <LineChartPatrimonio snapshots={snapshots} onVerTodo={()=>navigate("patrimonio")}/>
 
@@ -8289,7 +8371,18 @@ const Settings = () => {
           )}
           <div style={{display:"flex",gap:10,alignItems:"flex-end",flexWrap:"wrap"}}>
             <div style={{flex:1,minWidth:160}}>
-              <Inp label="1 USD = ? MXN (o déjalo automático)" type="number" value={config.tipoCambio||""} onChange={e=>setConfig(c=>({...c,tipoCambio:e.target.value,tcAuto:false}))} placeholder="Ej. 17.50"/>
+              <Inp label="1 USD = ? MXN (o déjalo automático)" type="number" value={config.tipoCambio||""} onChange={e=>{
+                const tcNuevo = e.target.value;
+                setConfig(c => {
+                  const hist = c.historialTC || [];
+                  const hoy = new Date().toISOString().split('T')[0];
+                  const yaHoy = hist.some(h => h.fecha === hoy);
+                  const histActualizado = yaHoy
+                    ? hist.map(h => h.fecha === hoy ? { ...h, tc: parseFloat(tcNuevo)||h.tc } : h)
+                    : [...hist.slice(-89), { fecha: hoy, tc: parseFloat(tcNuevo)||0 }];
+                  return { ...c, tipoCambio: tcNuevo, tcAuto: false, historialTC: histActualizado };
+                });
+              }} placeholder="Ej. 17.50"/>
             </div>
             <Btn onClick={()=>{
               fetch("https://open.er-api.com/v6/latest/USD")
@@ -12796,6 +12889,273 @@ const Presupuestos = () => {
   );
 };
 
+
+// ─── REPORTE MENSUAL ──────────────────────────────────────────────────────────
+const ReporteMensual = () => {
+  const { user } = useCtx();
+  const TC = getTc(user.id);
+  const [accounts]     = useData(user.id, "accounts");
+  const [transactions] = useData(user.id, "transactions");
+  const [loans]        = useData(user.id, "loans");
+  const [investments]  = useData(user.id, "investments");
+  const [mortgages]    = useData(user.id, "mortgages");
+  const [recurrents]   = useData(user.id, "recurrents");
+  const [presupuestos] = useData(user.id, "presupuestos");
+  const [assets]       = useData(user.id, "assets", []);
+  const [config]       = useData(user.id, "config", {});
+
+  const now = new Date();
+  const meses = [];
+  for (let i = 0; i < 12; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    meses.push({ label: d.toLocaleDateString("es-MX",{month:"long",year:"numeric"}), key: `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`, d });
+  }
+  const [mesSelec, setMesSelec] = React.useState(meses[1]); // mes anterior por defecto
+
+  const calcLoanBal = loan => {
+    const dr=(parseFloat(loan.rate)||0)/100/(loan.rateType==="annual"?365:30);
+    let bal=parseFloat(loan.principal||0),last=new Date(loan.startDate+"T12:00:00");
+    for(const p of [...(loan.payments||[])].sort((a,b)=>new Date(a.date)-new Date(b.date))){
+      const days=Math.max(0,Math.floor((new Date(p.date+"T12:00:00")-last)/86400000));
+      bal=Math.max(0,bal-(p.amount-Math.min(p.amount,bal*dr*days)));last=new Date(p.date+"T12:00:00");
+    }
+    return bal;
+  };
+
+  const calcInvVal = inv => {
+    const ap=(inv.aportaciones||[]).reduce((s,a)=>s+parseFloat(a.amount||0),0);
+    const tasa=parseFloat(inv.tasaAnual)||0;
+    let val=parseFloat(inv.currentValue)||0;
+    if(!val&&tasa>0&&ap>0){const dias=Math.max(0,Math.floor((new Date()-new Date((inv.startDate||today())+"T12:00:00"))/86400000));val=ap+(ap*tasa/100/365*dias);}
+    else if(!val) val=ap;
+    const t=parseFloat(inv.titulos)||0,p=parseFloat(inv.precioActual)||0;
+    if(t>0&&p>0) val=t*p;
+    return inv.currency==="USD"?val*TC:val;
+  };
+
+  const mk = mesSelec.key;
+  const txsMes = transactions.filter(t=>t.date?.startsWith(mk));
+  const ingresos = txsMes.filter(t=>t.type==="income").reduce((s,t)=>s+parseFloat(t.amount||0),0);
+  const gastos   = txsMes.filter(t=>t.type==="expense").reduce((s,t)=>s+parseFloat(t.amount||0),0);
+  const flujo    = ingresos - gastos;
+  const tasaAhorro = ingresos>0?(flujo/ingresos*100):0;
+
+  // Gastos por categoría
+  const catGastos = {};
+  txsMes.filter(t=>t.type==="expense").forEach(t=>{
+    catGastos[t.category||"Sin categoría"] = (catGastos[t.category||"Sin categoría"]||0)+parseFloat(t.amount||0);
+  });
+  const topCats = Object.entries(catGastos).sort((a,b)=>b[1]-a[1]);
+
+  // Patrimonial
+  const liquidez = accounts.filter(a=>a.type!=="credit").reduce((s,a)=>s+(a.currency==="USD"?parseFloat(a.balance||0)*TC:parseFloat(a.balance||0)),0);
+  const invTotal = investments.filter(i=>i.estado!=="liquidada").reduce((s,i)=>s+calcInvVal(i),0);
+  const porCobrar = loans.filter(l=>l.type==="given").reduce((s,l)=>s+calcLoanBal(l),0);
+  const totalActivos = (assets||[]).reduce((s,a)=>s+(parseFloat(a.valorActual||0)*(a.moneda==="USD"?TC:1)),0);
+  const deudaTarjetas = accounts.filter(a=>a.type==="credit").reduce((s,a)=>s+Math.abs(Math.min(parseFloat(a.balance||0),0)),0);
+  const deudaPrestamos = loans.filter(l=>l.type==="received").reduce((s,l)=>s+calcLoanBal(l),0);
+  const deudaHipotecas = (mortgages||[]).reduce((s,m)=>{
+    const P=parseFloat(m.monto)||0,n=(parseFloat(m.plazoAnios)||0)*12,r=(parseFloat(m.tasaAnual)||0)/100/12;
+    if(!P||!n||!r) return s+P;
+    const cuota=m.tipo==="fijo"?(P*r*Math.pow(1+r,n))/(Math.pow(1+r,n)-1):P/n;
+    let saldo=P; for(let i=0;i<(m.pagosRealizados||[]).length;i++){const int=saldo*r;saldo=Math.max(saldo-(m.tipo==="fijo"?cuota-int:P/n),0);}
+    return s+saldo;
+  },0);
+  const patrimonio = liquidez + invTotal + porCobrar + totalActivos - deudaTarjetas - deudaPrestamos - deudaHipotecas;
+
+  // Préstamos activos con interés del mes
+  const prestamosInfo = loans.filter(l=>l.type==="given").map(l=>{
+    const bal = calcLoanBal(l);
+    const dr=(parseFloat(l.rate)||0)/100/(l.rateType==="annual"?365:30);
+    const intMes = bal * dr * 30;
+    return { ...l, bal, intMes };
+  });
+  const totalIntMes = prestamosInfo.reduce((s,l)=>s+l.intMes,0);
+
+  // Presupuestos del mes
+  const presInfo = presupuestos.filter(p=>p.activo!==false).map(p=>{
+    const gastado = txsMes.filter(t=>t.type==="expense"&&t.category===p.categoria).reduce((s,t)=>s+parseFloat(t.amount||0),0);
+    const limite = parseFloat(p.montoLimite)||0;
+    const pct = limite>0?(gastado/limite*100):0;
+    return { ...p, gastado, limite, pct };
+  });
+
+  const imprimir = () => {
+    const win = window.open("","_blank","width=900,height=700");
+    const contenido = document.getElementById("reporte-contenido")?.innerHTML || "";
+    win.document.write(`<!DOCTYPE html><html><head>
+      <meta charset="UTF-8"><title>Reporte ${mesSelec.label} — ${user.name}</title>
+      <style>
+        * { margin:0; padding:0; box-sizing:border-box; }
+        body { font-family: Arial, sans-serif; font-size: 11px; color: #1a1a1a; background: #fff; padding: 20px; }
+        h1 { font-size: 20px; font-weight: 800; color: #1a1a1a; margin-bottom: 4px; }
+        h2 { font-size: 13px; font-weight: 700; color: #333; margin: 16px 0 8px; border-bottom: 1px solid #ddd; padding-bottom: 4px; text-transform: uppercase; letter-spacing: .5px; }
+        .header { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom: 20px; padding-bottom: 12px; border-bottom: 2px solid #1a1a1a; }
+        .grid { display: grid; gap: 8px; margin-bottom: 12px; }
+        .grid-2 { grid-template-columns: 1fr 1fr; }
+        .grid-3 { grid-template-columns: 1fr 1fr 1fr; }
+        .grid-4 { grid-template-columns: 1fr 1fr 1fr 1fr; }
+        .kpi { background: #f8f8f8; border: 1px solid #e0e0e0; border-radius: 6px; padding: 10px 12px; }
+        .kpi-label { font-size: 9px; color: #888; text-transform: uppercase; letter-spacing: .4px; margin-bottom: 3px; }
+        .kpi-val { font-size: 16px; font-weight: 800; }
+        .kpi-sub { font-size: 9px; color: #888; margin-top: 2px; }
+        .green { color: #059669; } .red { color: #dc2626; } .blue { color: #2563eb; } .purple { color: #7c3aed; }
+        table { width: 100%; border-collapse: collapse; margin-bottom: 10px; }
+        th { text-align: left; padding: 5px 8px; font-size: 9px; color: #888; text-transform: uppercase; border-bottom: 1px solid #e0e0e0; }
+        td { padding: 5px 8px; font-size: 10px; border-bottom: 1px solid #f0f0f0; }
+        .bar-container { background: #eee; border-radius: 3px; height: 5px; width: 100%; }
+        .bar-fill { height: 100%; border-radius: 3px; }
+        .footer { margin-top: 20px; padding-top: 10px; border-top: 1px solid #e0e0e0; font-size: 9px; color: #aaa; text-align: center; }
+        @media print { body { padding: 10px; } .no-print { display: none; } }
+      </style>
+    </head><body>${contenido}<div class="footer">Finanzapp · Reporte generado el ${new Date().toLocaleDateString("es-MX",{day:"numeric",month:"long",year:"numeric"})} · TC: $${parseFloat(config.tipoCambio||17.5).toFixed(2)} MXN/USD</div></body></html>`);
+    win.document.close();
+    setTimeout(()=>win.print(), 500);
+  };
+
+  const fmtR = (v, color) => `<span style="color:${color||"#1a1a1a"};font-weight:700">${v}</span>`;
+
+  return (
+    <div style={{animation:"fadeUp .25s ease"}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:16,flexWrap:"wrap",gap:10}}>
+        <div>
+          <h2 style={{fontSize:22,fontFamily:"'Syne',sans-serif",fontWeight:800,color:"#f0f0f0",margin:"0 0 4px"}}>Reporte Mensual</h2>
+          <p style={{fontSize:13,color:"#555",margin:0}}>Resumen ejecutivo listo para imprimir o compartir</p>
+        </div>
+        <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+          <select value={mesSelec.key} onChange={e=>setMesSelec(meses.find(m=>m.key===e.target.value))}
+            style={{padding:"8px 12px",background:"rgba(255,255,255,.06)",border:"1px solid rgba(255,255,255,.1)",borderRadius:9,color:"#f0f0f0",fontSize:13,cursor:"pointer"}}>
+            {meses.map(m=><option key={m.key} value={m.key} style={{background:"#1a1a2e"}}>{m.label}</option>)}
+          </select>
+          <Btn onClick={imprimir}><Ic n="reporte" size={15}/>Imprimir / Guardar PDF</Btn>
+        </div>
+      </div>
+
+      {/* Vista previa del reporte */}
+      <Card style={{padding:0,overflow:"hidden"}}>
+        <div id="reporte-contenido" style={{padding:24,background:"#fff",color:"#1a1a1a",fontFamily:"Arial,sans-serif",fontSize:12}}>
+
+          {/* Header */}
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:20,paddingBottom:12,borderBottom:"2px solid #1a1a1a"}}>
+            <div>
+              <p style={{fontSize:22,fontWeight:800,color:"#1a1a1a",margin:"0 0 2px"}}>Reporte Financiero</p>
+              <p style={{fontSize:14,color:"#555",margin:"0 0 1px",textTransform:"capitalize"}}>{mesSelec.label}</p>
+              <p style={{fontSize:11,color:"#888",margin:0}}>{user.name}</p>
+            </div>
+            <div style={{textAlign:"right"}}>
+              <p style={{fontSize:11,color:"#888",margin:"0 0 2px"}}>Generado el {new Date().toLocaleDateString("es-MX",{day:"numeric",month:"long",year:"numeric"})}</p>
+              <p style={{fontSize:11,color:"#888",margin:"0 0 2px"}}>TC: ${parseFloat(config.tipoCambio||17.5).toFixed(2)} MXN/USD</p>
+              <p style={{fontSize:20,fontWeight:800,color:"#059669",margin:0}}>{fmt(patrimonio)}</p>
+              <p style={{fontSize:9,color:"#888",margin:0}}>Patrimonio neto</p>
+            </div>
+          </div>
+
+          {/* Flujo del mes */}
+          <p style={{fontSize:11,fontWeight:700,color:"#333",margin:"0 0 8px",textTransform:"uppercase",letterSpacing:.5,borderBottom:"1px solid #ddd",paddingBottom:4}}>Flujo del mes</p>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8,marginBottom:16}}>
+            {[
+              {l:"Ingresos",v:fmt(ingresos),c:"#059669"},
+              {l:"Gastos",v:fmt(gastos),c:"#dc2626"},
+              {l:"Flujo neto",v:(flujo>=0?"+":"")+fmt(flujo),c:flujo>=0?"#059669":"#dc2626"},
+              {l:"Tasa de ahorro",v:tasaAhorro.toFixed(1)+"%",c:tasaAhorro>=20?"#059669":tasaAhorro>=10?"#d97706":"#dc2626"},
+            ].map(k=>(
+              <div key={k.l} style={{background:"#f8f8f8",border:"1px solid #e0e0e0",borderRadius:6,padding:"10px 12px"}}>
+                <p style={{fontSize:9,color:"#888",textTransform:"uppercase",letterSpacing:.4,margin:"0 0 3px"}}>{k.l}</p>
+                <p style={{fontSize:16,fontWeight:800,color:k.c,margin:0}}>{k.v}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* Gastos por categoría */}
+          {topCats.length>0&&(<>
+            <p style={{fontSize:11,fontWeight:700,color:"#333",margin:"0 0 8px",textTransform:"uppercase",letterSpacing:.5,borderBottom:"1px solid #ddd",paddingBottom:4}}>Gastos por categoría</p>
+            <table style={{width:"100%",borderCollapse:"collapse",marginBottom:16}}>
+              <thead><tr>
+                {["Categoría","Monto","% del total","Vs. presupuesto"].map(h=><th key={h} style={{textAlign:"left",padding:"4px 8px",fontSize:9,color:"#888",textTransform:"uppercase",borderBottom:"1px solid #e0e0e0"}}>{h}</th>)}
+              </tr></thead>
+              <tbody>
+                {topCats.slice(0,10).map(([cat,amt])=>{
+                  const pres = presInfo.find(p=>p.categoria===cat);
+                  const pct = gastos>0?(amt/gastos*100):0;
+                  return (
+                    <tr key={cat} style={{borderBottom:"1px solid #f0f0f0"}}>
+                      <td style={{padding:"5px 8px",fontSize:10,color:"#1a1a1a"}}>{cat}</td>
+                      <td style={{padding:"5px 8px",fontSize:10,fontWeight:600,color:"#dc2626"}}>{fmt(amt)}</td>
+                      <td style={{padding:"5px 8px",fontSize:10,color:"#555"}}>{pct.toFixed(1)}%</td>
+                      <td style={{padding:"5px 8px",fontSize:10}}>
+                        {pres ? (
+                          <span style={{color:pres.pct>100?"#dc2626":pres.pct>80?"#d97706":"#059669",fontWeight:600}}>
+                            {fmt(pres.gastado)} / {fmt(pres.limite)} ({pres.pct.toFixed(0)}%)
+                          </span>
+                        ) : <span style={{color:"#ccc"}}>Sin presupuesto</span>}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </>)}
+
+          {/* Cartera de préstamos */}
+          {prestamosInfo.length>0&&(<>
+            <p style={{fontSize:11,fontWeight:700,color:"#333",margin:"0 0 8px",textTransform:"uppercase",letterSpacing:.5,borderBottom:"1px solid #ddd",paddingBottom:4}}>Cartera de préstamos otorgados</p>
+            <table style={{width:"100%",borderCollapse:"collapse",marginBottom:16}}>
+              <thead><tr>
+                {["Deudor","Capital pendiente","Tasa","Interés est. mes","Pagos"].map(h=><th key={h} style={{textAlign:"left",padding:"4px 8px",fontSize:9,color:"#888",textTransform:"uppercase",borderBottom:"1px solid #e0e0e0"}}>{h}</th>)}
+              </tr></thead>
+              <tbody>
+                {prestamosInfo.map(l=>(
+                  <tr key={l.id} style={{borderBottom:"1px solid #f0f0f0"}}>
+                    <td style={{padding:"5px 8px",fontSize:10,fontWeight:600}}>{l.name}</td>
+                    <td style={{padding:"5px 8px",fontSize:10,color:"#2563eb"}}>{fmt(l.bal,l.currency)}</td>
+                    <td style={{padding:"5px 8px",fontSize:10}}>{l.rate}% {l.rateType==="annual"?"anual":"mensual"}</td>
+                    <td style={{padding:"5px 8px",fontSize:10,color:"#059669",fontWeight:600}}>+{fmt(l.intMes,l.currency)}</td>
+                    <td style={{padding:"5px 8px",fontSize:10,color:"#888"}}>{(l.payments||[]).length}</td>
+                  </tr>
+                ))}
+                <tr style={{background:"#f8f8f8",fontWeight:700}}>
+                  <td style={{padding:"6px 8px",fontSize:10}}>TOTAL</td>
+                  <td style={{padding:"6px 8px",fontSize:10,color:"#2563eb"}}>{fmt(prestamosInfo.reduce((s,l)=>s+l.bal,0))}</td>
+                  <td></td>
+                  <td style={{padding:"6px 8px",fontSize:10,color:"#059669"}}>+{fmt(totalIntMes)}</td>
+                  <td></td>
+                </tr>
+              </tbody>
+            </table>
+          </>)}
+
+          {/* Inversiones */}
+          <p style={{fontSize:11,fontWeight:700,color:"#333",margin:"0 0 8px",textTransform:"uppercase",letterSpacing:.5,borderBottom:"1px solid #ddd",paddingBottom:4}}>Portafolio de inversiones</p>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:16}}>
+            {[
+              {l:"Valor total MXN",v:fmt(invTotal),c:"#7c3aed"},
+              {l:"Capital invertido",v:fmt(investments.filter(i=>i.estado!=="liquidada").reduce((s,i)=>{const ap=(i.aportaciones||[]).reduce((ss,a)=>ss+parseFloat(a.amount||0),0);return s+(i.currency==="USD"?ap*TC:ap);},0)),c:"#2563eb"},
+              {l:"TC actual",v:"$"+parseFloat(config.tipoCambio||17.5).toFixed(2)+" MXN/USD",c:"#d97706"},
+            ].map(k=>(
+              <div key={k.l} style={{background:"#f8f8f8",border:"1px solid #e0e0e0",borderRadius:6,padding:"10px 12px"}}>
+                <p style={{fontSize:9,color:"#888",textTransform:"uppercase",letterSpacing:.4,margin:"0 0 3px"}}>{k.l}</p>
+                <p style={{fontSize:14,fontWeight:800,color:k.c,margin:0}}>{k.v}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* Cuentas */}
+          <p style={{fontSize:11,fontWeight:700,color:"#333",margin:"0 0 8px",textTransform:"uppercase",letterSpacing:.5,borderBottom:"1px solid #ddd",paddingBottom:4}}>Cuentas</p>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:6,marginBottom:16}}>
+            {accounts.map(a=>(
+              <div key={a.id} style={{display:"flex",justifyContent:"space-between",padding:"6px 10px",background:"#f8f8f8",borderRadius:5,border:"1px solid #e0e0e0"}}>
+                <span style={{fontSize:10,color:"#333"}}>{a.name}</span>
+                <span style={{fontSize:10,fontWeight:700,color:parseFloat(a.balance)>=0?"#059669":"#dc2626"}}>{fmt(parseFloat(a.balance||0),a.currency)}</span>
+              </div>
+            ))}
+          </div>
+
+        </div>
+      </Card>
+    </div>
+  );
+};
+
 // ─── CONCILIACIÓN BANCARIA ────────────────────────────────────────────────────
 const Conciliacion = () => {
   const { user, toast } = useCtx();
@@ -14979,6 +15339,7 @@ export default function App() {
       case "mortgage":     return <Mortgage/>;
       case "goals":        return <Goals/>;
       case "presupuestos": return <Presupuestos/>;
+      case "reporte":      return <ReporteMensual/>;
       case "conciliacion": return <Conciliacion/>;
       case "importar":     return <ImportarCSV/>;
       case "calendar":     return <CalendarioFinanciero/>;
