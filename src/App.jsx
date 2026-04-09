@@ -2211,10 +2211,9 @@ const Dashboard = () => {
 
   // ── recurrentes pendientes del mes (proyección)
   const calcNextRec = (r) => {
-    const last = r.ultimoRegistro
-      ? new Date(r.ultimoRegistro+"T12:00:00")
-      : new Date((r.fechaInicio||today())+"T12:00:00");
-    const next = new Date(last);
+    const inicioStr = r.ultimoRegistro || (r.fechaInicio && r.fechaInicio.length>=8 ? r.fechaInicio : today());
+    const last = new Date(inicioStr+"T12:00:00");
+    const next = new Date(isNaN(last)?new Date():last);
     if(r.frecuencia==="mensual") next.setMonth(next.getMonth()+1);
     else if(r.frecuencia==="quincenal") next.setDate(next.getDate()+15);
     else if(r.frecuencia==="semanal") next.setDate(next.getDate()+7);
@@ -2545,8 +2544,9 @@ const Dashboard = () => {
 
   // ── recurrentes pendientes
   const calcNextDate = r => {
-    const last=r.ultimoRegistro?new Date(r.ultimoRegistro+"T12:00:00"):new Date(r.fechaInicio+"T12:00:00");
-    const next=new Date(last);
+    const inicioStr = r.ultimoRegistro || (r.fechaInicio && r.fechaInicio.length>=8 ? r.fechaInicio : today());
+    const last=new Date(inicioStr+"T12:00:00");
+    const next=new Date(isNaN(last)?new Date():last);
     if(r.frecuencia==="mensual") next.setMonth(next.getMonth()+1);
     else if(r.frecuencia==="quincenal") next.setDate(next.getDate()+15);
     else if(r.frecuencia==="semanal") next.setDate(next.getDate()+7);
@@ -10463,10 +10463,9 @@ const Recurring = () => {
 
   // ── próxima fecha de ejecución
   const calcNext = (r) => {
-    const last = r.ultimoRegistro
-      ? new Date(r.ultimoRegistro+"T12:00:00")
-      : new Date(r.fechaInicio+"T12:00:00");
-    const next = new Date(last);
+    const inicioStr = r.ultimoRegistro || (r.fechaInicio && r.fechaInicio.length>=8 ? r.fechaInicio : today());
+    const last = new Date(inicioStr+"T12:00:00");
+    const next = new Date(isNaN(last)?new Date():last);
     if (r.frecuencia==="mensual")    next.setMonth(next.getMonth()+1);
     else if (r.frecuencia==="quincenal") next.setDate(next.getDate()+15);
     else if (r.frecuencia==="semanal")   next.setDate(next.getDate()+7);
@@ -10518,6 +10517,7 @@ const Recurring = () => {
 
   const guardar = () => {
     if (!form.nombre||!form.monto) { toast("Nombre y monto son obligatorios","error"); return; }
+    if (!form.fechaInicio || form.fechaInicio.length < 8) { toast("La fecha de inicio es obligatoria","error"); return; }
     if (form.id) {
       setRecurrents(p=>p.map(r=>r.id===form.id?{...form}:r));
       toast("Recurrente actualizado");
