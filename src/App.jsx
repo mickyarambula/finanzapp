@@ -5199,6 +5199,7 @@ const Investments = () => {
   const [view, setView]       = useState("list");
   const [selected, setSelected] = useState(null);
   const [openInv, setOpenInv] = useState(false);
+  const [openLiq, setOpenLiq] = useState(false);
   const [openAport, setOpenAport] = useState(false);
   const [openCobro, setOpenCobro] = useState(false);
   const [editing, setEditing] = useState(null);
@@ -6061,120 +6062,246 @@ const Investments = () => {
           </div>
           <Btn onClick={openNew} style={{ marginTop:0 }}><Ic n="plus" size={16}/>Registrar primera inversión</Btn>
         </div>
-      ) : (
-        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(290px,1fr))", gap:12 }}>
-          {investments.map(inv=>{
-            const st = calcInv(inv);
-            const color = typeColors[inv.type]||"#888";
-            const rendColor = st.rendimiento>=0?"#00d4aa":"#ff4757";
-            const esLiquidada = inv.estado==="liquidada";
-            return (
-              <Card key={inv.id} onClick={()=>{setSelected(inv);setView("detail");setDetTab("aportaciones");}}
-                style={{cursor:"pointer",transition:"border-color .15s",
-                  borderColor:esLiquidada?"rgba(100,116,139,.3)":st.rendimiento>=0?"rgba(0,212,170,.15)":"rgba(255,71,87,.1)",
-                  opacity:esLiquidada?0.8:1}}
-                onMouseEnter={e=>e.currentTarget.style.borderColor=esLiquidada?"rgba(100,116,139,.5)":color}
-                onMouseLeave={e=>e.currentTarget.style.borderColor=esLiquidada?"rgba(100,116,139,.3)":st.rendimiento>=0?"rgba(0,212,170,.15)":"rgba(255,71,87,.1)"}>
+      ) : (() => {
+        // ── Agrupar por tipo
+        const fondos    = investments.filter(i=>["fund_real_estate","fund_general"].includes(i.type)&&i.estado!=="liquidada");
+        const acciones  = investments.filter(i=>i.type==="stocks_etf"&&i.estado!=="liquidada");
+        const cripto    = investments.filter(i=>i.type==="crypto"&&i.estado!=="liquidada");
+        const otras     = investments.filter(i=>["bonds","other"].includes(i.type)&&i.estado!=="liquidada");
+        const liquidadas= investments.filter(i=>i.estado==="liquidada");
 
-                {/* ── Header: nombre + acciones */}
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
-                  <div style={{display:"flex",alignItems:"center",gap:9,minWidth:0}}>
-                    <div style={{width:34,height:34,borderRadius:9,background:`${color}18`,border:`1px solid ${color}33`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-                      <Ic n="investments" size={16} color={color}/>
-                    </div>
-                    <div style={{minWidth:0}}>
-                      <div style={{display:"flex",alignItems:"center",gap:6,margin:"0 0 1px"}}>
-                        <p style={{fontSize:13,fontWeight:700,color:esLiquidada?"#94a3b8":"#f0f0f0",margin:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{inv.name}</p>
-                        {esLiquidada&&<span style={{fontSize:9,fontWeight:700,color:"#64748b",background:"rgba(100,116,139,.15)",border:"1px solid rgba(100,116,139,.3)",borderRadius:10,padding:"1px 6px",flexShrink:0}}>LIQUIDADA</span>}
-                      </div>
-                      <div style={{display:"flex",gap:5,flexWrap:"wrap",alignItems:"center"}}>
-                        <span style={{fontSize:10,color:"#555"}}>{typeLabels[inv.type]}</span>
-                        {inv.platform&&<span style={{fontSize:10,color:"#444"}}>· {inv.platform}</span>}
-                        {inv.ticker&&<span style={{fontSize:10,color:color,fontWeight:600}}>{inv.ticker}</span>}
-                      </div>
-                    </div>
-                  </div>
-                  <Actions onEdit={e=>openEdit(inv,e)} onDelete={e=>delInv(inv,e)}/>
-                </div>
+        const SeccionHeader = ({emoji, titulo, total, moneda="MXN", open, onToggle, count, color="#00d4aa"}) => (
+          <div onClick={onToggle} style={{display:"flex",justifyContent:"space-between",alignItems:"center",
+            padding:"10px 14px",borderRadius:10,background:"rgba(255,255,255,.03)",
+            border:"1px solid rgba(255,255,255,.07)",cursor:"pointer",marginBottom:open?10:0,
+            transition:"all .15s"}}
+            onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,.05)"}
+            onMouseLeave={e=>e.currentTarget.style.background="rgba(255,255,255,.03)"}>
+            <div style={{display:"flex",alignItems:"center",gap:10}}>
+              <span style={{fontSize:18}}>{emoji}</span>
+              <div>
+                <p style={{fontSize:13,fontWeight:700,color:"#e0e0e0",margin:0}}>{titulo}</p>
+                <p style={{fontSize:10,color:"#555",margin:0}}>{count} posición{count!==1?"es":""}</p>
+              </div>
+            </div>
+            <div style={{display:"flex",alignItems:"center",gap:12}}>
+              <p style={{fontSize:15,fontWeight:800,color,margin:0,fontVariantNumeric:"tabular-nums"}}>{fmt(total,moneda)}</p>
+              <span style={{fontSize:12,color:"#555",transform:open?"rotate(180deg)":"none",transition:"transform .2s"}}>▾</span>
+            </div>
+          </div>
+        );
 
-                {/* ── Valor actual grande + rendimiento % */}
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-end",marginBottom:8}}>
-                  <div>
-                    <p style={{fontSize:10,color:"#555",margin:"0 0 2px",textTransform:"uppercase",letterSpacing:.4}}>Valor actual</p>
-                    <p style={{fontSize:20,fontWeight:800,color,margin:0,lineHeight:1}}>{fmt(st.valorActual,inv.currency)}</p>
+        // Card grande para fondos privados y acciones
+        const CardGrande = ({inv}) => {
+          const st=calcInv(inv);
+          const color=typeColors[inv.type]||"#888";
+          const rendColor=st.rendimiento>=0?"#00d4aa":"#ff4757";
+          const base=st.costoTitulos>0?st.costoTitulos:st.totalInvertido;
+          return (
+            <Card onClick={()=>{setSelected(inv);setView("detail");setDetTab("aportaciones");}}
+              style={{cursor:"pointer",borderColor:st.rendimiento>=0?"rgba(0,212,170,.15)":"rgba(255,71,87,.1)",
+                transition:"border-color .15s"}}
+              onMouseEnter={e=>e.currentTarget.style.borderColor=color}
+              onMouseLeave={e=>e.currentTarget.style.borderColor=st.rendimiento>=0?"rgba(0,212,170,.15)":"rgba(255,71,87,.1)"}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12}}>
+                <div style={{display:"flex",alignItems:"center",gap:10,minWidth:0}}>
+                  <div style={{width:38,height:38,borderRadius:10,background:`${color}18`,border:`1px solid ${color}33`,
+                    display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                    <Ic n="investments" size={18} color={color}/>
                   </div>
-                  <div style={{textAlign:"right"}}>
-                    <div style={{display:"inline-flex",alignItems:"center",gap:4,padding:"3px 10px",borderRadius:20,
-                      background:st.rendimiento>=0?"rgba(0,212,170,.12)":"rgba(255,71,87,.12)",
-                      border:`1px solid ${st.rendimiento>=0?"rgba(0,212,170,.25)":"rgba(255,71,87,.25)"}`}}>
-                      <span style={{fontSize:13,fontWeight:800,color:rendColor}}>
-                        {st.rendPct>=0?"+":""}{st.rendPct.toFixed(2)}%
-                      </span>
-                    </div>
-                    <p style={{fontSize:10,color:rendColor,margin:"3px 0 0",fontWeight:600,textAlign:"right"}}>
-                      {st.rendimiento>=0?"+":""}{fmt(st.rendimiento,inv.currency)}
-                    </p>
+                  <div style={{minWidth:0}}>
+                    <p style={{fontSize:14,fontWeight:700,color:"#f0f0f0",margin:"0 0 2px",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{inv.name}</p>
+                    <p style={{fontSize:11,color:"#555",margin:0}}>{inv.platform||""}{inv.tasaAnual?` · ${inv.tasaAnual}% anual`:""}</p>
                   </div>
                 </div>
+                <Actions onEdit={e=>openEdit(inv,e)} onDelete={e=>delInv(inv,e)}/>
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10}}>
+                <div>
+                  <p style={{fontSize:9,color:"#555",textTransform:"uppercase",letterSpacing:.4,margin:"0 0 2px"}}>Valor proyectado</p>
+                  <p style={{fontSize:16,fontWeight:800,color,margin:0,fontVariantNumeric:"tabular-nums"}}>{fmt(st.valorActual,inv.currency)}</p>
+                </div>
+                <div>
+                  <p style={{fontSize:9,color:"#555",textTransform:"uppercase",letterSpacing:.4,margin:"0 0 2px"}}>Capital invertido</p>
+                  <p style={{fontSize:13,fontWeight:700,color:"#888",margin:0,fontVariantNumeric:"tabular-nums"}}>{fmt(base,inv.currency)}</p>
+                </div>
+                <div>
+                  <p style={{fontSize:9,color:"#555",textTransform:"uppercase",letterSpacing:.4,margin:"0 0 2px"}}>Rendimiento</p>
+                  <p style={{fontSize:13,fontWeight:700,color:rendColor,margin:0,fontVariantNumeric:"tabular-nums"}}>
+                    {st.rendimiento>=0?"+":""}{fmt(st.rendimiento,inv.currency)}
+                    <span style={{fontSize:10,marginLeft:4}}>({st.rendPct>=0?"+":""}{st.rendPct.toFixed(1)}%)</span>
+                  </p>
+                </div>
+              </div>
+              {inv.titulos>0&&inv.precioActual>0&&(
+                <div style={{marginTop:10,padding:"6px 10px",background:"rgba(255,255,255,.03)",borderRadius:7,
+                  display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <span style={{fontSize:11,color:"#555"}}>{inv.titulos} títulos × {fmt(parseFloat(inv.precioActual),inv.currency)}</span>
+                  <span style={{fontSize:10,color:"#444"}}>{st.diasActiva}d activa</span>
+                </div>
+              )}
+            </Card>
+          );
+        };
 
-                {/* ── Barra de progreso rendimiento */}
-                {(()=>{
-                  const capital = st.costoTitulos>0?st.costoTitulos:inv.montoUSD&&inv.tcCompra?parseFloat(inv.montoUSD)*parseFloat(inv.tcCompra):st.totalInvertido;
-                  const pctBar = capital>0 ? Math.min(Math.abs(st.rendPct),50)/50*100 : 0;
-                  return (
-                    <div style={{marginBottom:10}}>
-                      <div style={{height:4,borderRadius:2,background:"rgba(255,255,255,.05)",overflow:"hidden"}}>
-                        <div style={{height:"100%",width:`${pctBar}%`,background:`linear-gradient(90deg,${rendColor},${rendColor}88)`,borderRadius:2,transition:"width .4s"}}/>
-                      </div>
-                      <div style={{display:"flex",justifyContent:"space-between",marginTop:4}}>
-                        <span style={{fontSize:10,color:"#444"}}>Capital: {fmt(capital,inv.currency)}</span>
-                        <span style={{fontSize:10,color:"#444"}}>{st.diasActiva} días activa</span>
-                      </div>
-                    </div>
-                  );
-                })()}
+        // Tabla compacta para cripto
+        const TablaCripto = ({items}) => {
+          const totalUSD = items.reduce((s,i)=>s+calcInv(i).valorActual,0);
+          return (
+            <Card style={{padding:0,overflow:"hidden"}}>
+              <div style={{overflowX:"auto"}}>
+                <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                  <thead>
+                    <tr style={{borderBottom:"1px solid rgba(255,255,255,.06)"}}>
+                      {["Moneda","Plataforma","Tokens","Precio","Valor USD","P&L",""].map(h=>(
+                        <th key={h} style={{padding:"8px 14px",textAlign:"right",fontSize:9,fontWeight:700,
+                          color:"#555",textTransform:"uppercase",letterSpacing:.4,
+                          "&:first-child":{textAlign:"left"}}}
+                          align={h===""||h==="Moneda"||h==="Plataforma"?"left":"right"}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {items.map((inv,i)=>{
+                      const st=calcInv(inv);
+                      const rendColor=st.rendimiento>=0?"#00d4aa":"#ff4757";
+                      return (
+                        <tr key={inv.id} style={{borderBottom:"1px solid rgba(255,255,255,.03)",
+                          background:i%2===0?"transparent":"rgba(255,255,255,.01)",cursor:"pointer"}}
+                          onClick={()=>{setSelected(inv);setView("detail");setDetTab("aportaciones");}}>
+                          <td style={{padding:"9px 14px"}}>
+                            <div style={{display:"flex",alignItems:"center",gap:8}}>
+                              <div style={{width:26,height:26,borderRadius:7,background:"rgba(247,147,26,.12)",
+                                border:"1px solid rgba(247,147,26,.2)",display:"flex",alignItems:"center",
+                                justifyContent:"center",fontSize:11,fontWeight:800,color:"#f7931a",flexShrink:0}}>
+                                {inv.ticker?.slice(0,3)||"?"}
+                              </div>
+                              <div>
+                                <p style={{fontSize:12,fontWeight:700,color:"#e0e0e0",margin:0}}>{inv.name}</p>
+                                <p style={{fontSize:10,color:"#555",margin:0}}>{inv.ticker}</p>
+                              </div>
+                            </div>
+                          </td>
+                          <td style={{padding:"9px 14px",color:"#666",fontSize:11}}>{inv.platform||"—"}</td>
+                          <td style={{padding:"9px 14px",textAlign:"right",color:"#888",fontVariantNumeric:"tabular-nums",fontSize:11}}>
+                            {parseFloat(inv.titulos||0).toLocaleString("en",{maximumFractionDigits:4})}
+                          </td>
+                          <td style={{padding:"9px 14px",textAlign:"right",color:"#888",fontVariantNumeric:"tabular-nums",fontSize:11}}>
+                            ${parseFloat(inv.precioActual||0).toLocaleString("en",{maximumFractionDigits:6})}
+                          </td>
+                          <td style={{padding:"9px 14px",textAlign:"right",fontWeight:700,color:"#f7931a",fontVariantNumeric:"tabular-nums"}}>
+                            {fmt(st.valorActual,inv.currency)}
+                          </td>
+                          <td style={{padding:"9px 14px",textAlign:"right",fontWeight:600,color:rendColor,fontVariantNumeric:"tabular-nums",fontSize:11}}>
+                            {st.rendimiento>=0?"+":""}{fmt(st.rendimiento,inv.currency)}
+                            <span style={{display:"block",fontSize:9,opacity:.7}}>{st.rendPct>=0?"+":""}{st.rendPct.toFixed(1)}%</span>
+                          </td>
+                          <td style={{padding:"9px 10px"}} onClick={e=>e.stopPropagation()}>
+                            <Actions onEdit={e=>openEdit(inv,e)} onDelete={e=>delInv(inv,e)}/>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                  <tfoot>
+                    <tr style={{borderTop:"1px solid rgba(255,255,255,.08)",background:"rgba(255,255,255,.02)"}}>
+                      <td colSpan={4} style={{padding:"8px 14px",fontSize:10,color:"#555",fontWeight:700}}>TOTAL CRIPTO</td>
+                      <td style={{padding:"8px 14px",textAlign:"right",fontWeight:800,color:"#f7931a",fontVariantNumeric:"tabular-nums"}}>
+                        ${totalUSD.toLocaleString("en",{maximumFractionDigits:2})} USD
+                      </td>
+                      <td colSpan={2}/>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </Card>
+          );
+        };
 
-                {/* ── Proyección anual estimada */}
-                {parseFloat(inv.tasaAnual)>0&&(()=>{
-                  const base = st.costoTitulos>0?st.costoTitulos:st.totalInvertido;
-                  const rendAnualEst = base * (parseFloat(inv.tasaAnual)/100);
-                  const rendMensualEst = rendAnualEst/12;
-                  const diasActivos = Math.max(0, Math.round((new Date()-new Date(inv.startDate))/86400000));
-                  const rendAFecha = base * (parseFloat(inv.tasaAnual)/100) / 365 * diasActivos;
-                  return (
-                    <div style={{marginBottom:8,padding:"7px 10px",borderRadius:7,background:"rgba(243,156,18,.07)",border:"1px solid rgba(243,156,18,.2)"}}>
-                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:3}}>
-                        <span style={{fontSize:10,color:"#f39c12",fontWeight:600}}>⚡ Proyectado est. ({inv.tasaAnual}% anual)</span>
-                        <span style={{fontSize:11,color:"#f39c12",fontWeight:700}}>+{fmt(rendAnualEst,inv.currency)}/año</span>
-                      </div>
-                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                        <span style={{fontSize:10,color:"#888"}}>A la fecha ({diasActivos}d): <strong style={{color:"#f39c12"}}>+{fmt(rendAFecha,inv.currency)}</strong></span>
-                        <span style={{fontSize:10,color:"#666"}}>≈ +{fmt(rendMensualEst,inv.currency)}/mes</span>
-                      </div>
+        return (
+          <div style={{display:"flex",flexDirection:"column",gap:20}}>
+            {/* ── FONDOS PRIVADOS */}
+            {fondos.length>0&&(
+              <div>
+                <SeccionHeader emoji="🏢" titulo="Fondos privados"
+                  total={fondos.reduce((s,i)=>{const st=calcInv(i);return s+(i.currency==="USD"?st.valorActual*TC:st.valorActual);},0)}
+                  color="#f39c12" open={true} onToggle={()=>{}} count={fondos.length}/>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))",gap:12}}>
+                  {fondos.map(inv=><CardGrande key={inv.id} inv={inv}/>)}
+                </div>
+              </div>
+            )}
+
+            {/* ── ACCIONES */}
+            {acciones.length>0&&(
+              <div>
+                <SeccionHeader emoji="📈" titulo="Acciones / ETFs"
+                  total={acciones.reduce((s,i)=>{const st=calcInv(i);return s+(i.currency==="USD"?st.valorActual*TC:st.valorActual);},0)}
+                  color="#00d4aa" open={true} onToggle={()=>{}} count={acciones.length}/>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))",gap:12}}>
+                  {acciones.map(inv=><CardGrande key={inv.id} inv={inv}/>)}
+                </div>
+              </div>
+            )}
+
+            {/* ── CRIPTO — tabla compacta */}
+            {cripto.length>0&&(
+              <div>
+                <SeccionHeader emoji="🪙" titulo="Criptomonedas"
+                  total={cripto.reduce((s,i)=>s+calcInv(i).valorActual,0)}
+                  moneda="USD" color="#f7931a" open={true} onToggle={()=>{}} count={cripto.length}/>
+                <TablaCripto items={cripto}/>
+              </div>
+            )}
+
+            {/* ── OTRAS */}
+            {otras.length>0&&(
+              <div>
+                <SeccionHeader emoji="💼" titulo="Otros instrumentos"
+                  total={otras.reduce((s,i)=>{const st=calcInv(i);return s+(i.currency==="USD"?st.valorActual*TC:st.valorActual);},0)}
+                  color="#9b59b6" open={true} onToggle={()=>{}} count={otras.length}/>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))",gap:12}}>
+                  {otras.map(inv=><CardGrande key={inv.id} inv={inv}/>)}
+                </div>
+              </div>
+            )}
+
+            {/* ── LIQUIDADAS — colapsadas */}
+            {liquidadas.length>0&&(
+              <div>
+                  <SeccionHeader emoji="✅" titulo="Liquidadas"
+                    total={liquidadas.reduce((s,i)=>s+calcInv(i).valorActual,0)}
+                    color="#64748b" open={openLiq} onToggle={()=>setOpenLiq(p=>!p)} count={liquidadas.length}/>
+                  {openLiq&&(
+                    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))",gap:12}}>
+                      {liquidadas.map(inv=>{
+                        const st=calcInv(inv);
+                        return (
+                          <Card key={inv.id} onClick={()=>{setSelected(inv);setView("detail");setDetTab("aportaciones");}}
+                            style={{cursor:"pointer",opacity:.7,borderColor:"rgba(100,116,139,.25)"}}>
+                            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                              <div>
+                                <p style={{fontSize:13,fontWeight:700,color:"#94a3b8",margin:"0 0 2px"}}>{inv.name}</p>
+                                <p style={{fontSize:10,color:"#555",margin:0}}>{inv.platform||""} · LIQUIDADA</p>
+                              </div>
+                              <div style={{textAlign:"right"}}>
+                                <p style={{fontSize:13,fontWeight:700,color:"#64748b",margin:0}}>{fmt(st.totalCobrado||0,inv.currency)}</p>
+                                <p style={{fontSize:10,color:"#555",margin:0}}>cobrado total</p>
+                              </div>
+                            </div>
+                            <div style={{marginTop:8}} onClick={e=>e.stopPropagation()}>
+                              <Actions onEdit={e=>openEdit(inv,e)} onDelete={e=>delInv(inv,e)}/>
+                            </div>
+                          </Card>
+                        );
+                      })}
                     </div>
-                  );
-                })()}
-                {/* ── Footer: vencimiento o estado */}
-                {inv.endDate ? (
-                  <div style={{display:"flex",alignItems:"center",gap:5,padding:"5px 9px",borderRadius:7,
-                    background:st.diasAlVenc!==null&&st.diasAlVenc<0?"rgba(255,71,87,.1)":st.diasAlVenc!==null&&st.diasAlVenc<=30?"rgba(243,156,18,.1)":"rgba(255,255,255,.03)",
-                    border:`1px solid ${st.diasAlVenc!==null&&st.diasAlVenc<0?"rgba(255,71,87,.2)":st.diasAlVenc!==null&&st.diasAlVenc<=30?"rgba(243,156,18,.2)":"rgba(255,255,255,.06)"}`}}>
-                    <span style={{fontSize:11,color:st.diasAlVenc!==null&&st.diasAlVenc<0?"#ff4757":st.diasAlVenc!==null&&st.diasAlVenc<=30?"#f39c12":"#555"}}>
-                      {st.diasAlVenc!==null&&st.diasAlVenc<0?`⚠️ Venció hace ${Math.abs(st.diasAlVenc)}d`:st.diasAlVenc===0?"⚠️ Vence hoy":`📆 Vence ${fmtDate(inv.endDate)}`}
-                    </span>
-                    {st.diasAlVenc!==null&&st.diasAlVenc>0&&<span style={{fontSize:10,color:"#444",marginLeft:"auto"}}>en {st.diasAlVenc}d</span>}
-                  </div>
-                ) : (
-                  <div style={{display:"flex",alignItems:"center",gap:5}}>
-                    <span style={{width:6,height:6,borderRadius:"50%",background:"#00d4aa",display:"inline-block",boxShadow:"0 0 6px #00d4aa"}}/>
-                    <span style={{fontSize:10,color:"#444"}}>Activa · sin fecha de vencimiento</span>
-                  </div>
-                )}
-              </Card>
-            );
-          })}
-        </div>
-      )}
+                  )}
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {openInv && (
         <Modal title={editing?"Editar Inversión":"Nueva Inversión"} onClose={closeInv} width={540}>
