@@ -2565,8 +2565,8 @@ const Dashboard = () => {
     const newTx={id:genId(),date:today(),amount:monto,type:r.tipo,description:r.nombre,category:r.categoria||"",accountId:r.cuentaId,currency:accounts.find(a=>a.id===r.cuentaId)?.currency||"MXN",notes:"Recurrente automático"};
     setTransactions(p=>[newTx,...p]);
     if(r.cuentaId) setAccounts(p=>p.map(a=>a.id===r.cuentaId?{...a,balance:parseFloat(a.balance||0)+(r.tipo==="income"?monto:-monto)}:a));
-    const key=`fp_${user.id}_recurrents`;
-    try{const curr=JSON.parse(localStorage.getItem(key)||"[]");localStorage.setItem(key,JSON.stringify(curr.map(x=>x.id===r.id?{...x,ultimoRegistro:today()}:x)));window.location.reload();}catch{}
+    setRecurrents(p=>p.map(x=>x.id===r.id?{...x,ultimoRegistro:today()}:x));
+    toast(`"${r.nombre}" registrado ✓`);
   };
 
   // ── metas con proyección
