@@ -1145,82 +1145,89 @@ const NotifPanel = ({ notif, onNavigate }) => {
 };
 
 // ─── ALERTAS PANEL ────────────────────────────────────────────────────────────
-const AlertasPanel = ({ alertas, onNavigate, userId }) => {
+const AlertasPanel = ({ alertas, onNavigate }) => {
   const NIVEL_COLOR = {error:"#ff4757",warning:"#f39c12",info:"#3b82f6"};
   const NIVEL_BG    = {error:"rgba(255,71,87,.08)",warning:"rgba(243,156,18,.07)",info:"rgba(59,130,246,.07)"};
-  const NIVEL_LABEL = {error:"Crítica",warning:"Aviso",info:"Info"};
 
-  // Colapsado por defecto — solo errores críticos lo fuerzan abierto
-  const errores  = alertas.filter(a=>a.nivel==="error");
-  const warnings = alertas.filter(a=>a.nivel==="warning"||a.nivel==="info");
-  const [collapsed, setCollapsed] = React.useState(errores.length===0); // abierto solo si hay errores
+  const errores = alertas.filter(a=>a.nivel==="error");
 
-  // Descartar avisos no críticos hasta mañana
-  const DISMISS_KEY = `fp_alertas_dismiss_${new Date().toISOString().split("T")[0]}`;
-  const [dismissed, setDismissed] = React.useState(() => {
-    try { return JSON.parse(localStorage.getItem(DISMISS_KEY)||"[]"); } catch { return []; }
+  // Leídas persisten en localStorage — errores críticos NUNCA se ocultan
+  const LEIDAS_KEY = "fp_alertas_leidas";
+  const [leidas, setLeidas] = React.useState(() => {
+    try { return JSON.parse(localStorage.getItem(LEIDAS_KEY)||"[]"); } catch { return []; }
   });
-  const dismissWarnings = (e) => {
+  const marcarLeida = (e, a) => {
     e.stopPropagation();
-    const ids = warnings.map(a=>a.id||a.msg);
-    localStorage.setItem(DISMISS_KEY, JSON.stringify(ids));
-    setDismissed(ids);
+    const key = a.id||a.msg;
+    const nuevas = [...leidas, key];
+    localStorage.setItem(LEIDAS_KEY, JSON.stringify(nuevas));
+    setLeidas(nuevas);
   };
-  const alertasVisibles = alertas.filter(a=>
-    a.nivel==="error" || !dismissed.includes(a.id||a.msg)
-  );
-  const warningsVisibles = alertasVisibles.filter(a=>a.nivel!=="error");
 
-  if (alertasVisibles.length===0) return null;
+  const visibles = alertas.filter(a => a.nivel==="error" || !leidas.includes(a.id||a.msg));
+  const noLeidas = visibles.filter(a=>a.nivel!=="error");
+  const [collapsed, setCollapsed] = React.useState(errores.length===0);
+
+  if (visibles.length===0) return null;
 
   return (
     <div style={{borderRadius:12,border:`1px solid ${errores.length>0?"rgba(255,71,87,.2)":"rgba(255,255,255,.07)"}`,overflow:"hidden",background:errores.length>0?"rgba(255,71,87,.03)":"rgba(255,255,255,.02)"}}>
-      {/* header — siempre visible */}
-      <div onClick={()=>setCollapsed(c=>!c)} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",cursor:"pointer",borderBottom:collapsed?"none":"1px solid rgba(255,255,255,.05)"}}>
+      <div onClick={()=>setCollapsed(c=>!c)}
+        style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",cursor:"pointer",
+          borderBottom:collapsed?"none":"1px solid rgba(255,255,255,.05)"}}>
         <Ic n="warn" size={14} color={errores.length>0?"#ff4757":"#f39c12"}/>
-        <div style={{flex:1,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
-          <span style={{fontSize:12,fontWeight:700,color:errores.length>0?"#ff4757":"#f39c12"}}>
-            {errores.length>0?`${errores.length} alerta${errores.length>1?"s":""} crítica${errores.length>1?"s":""} · `:""}{warningsVisibles.length>0?`${warningsVisibles.length} aviso${warningsVisibles.length>1?"s":""}`:""}</span>
-          {collapsed&&errores.length>0&&errores.slice(0,1).map((a,i)=>(
-            <span key={i} style={{fontSize:11,color:"#888"}}>{a.msg}</span>
-          ))}
+        <div style={{flex:1,display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+          {errores.length>0&&<span style={{fontSize:12,fontWeight:700,color:"#ff4757"}}>{errores.length} crítica{errores.length>1?"s":""}</span>}
+          {noLeidas.length>0&&<span style={{fontSize:12,fontWeight:700,color:"#f39c12"}}>{errores.length>0?"·":""} {noLeidas.length} aviso{noLeidas.length>1?"s":""}</span>}
+          {collapsed&&errores.length>0&&<span style={{fontSize:11,color:"#666",marginLeft:4}}>{errores[0].msg}</span>}
         </div>
-        <div style={{display:"flex",gap:6,alignItems:"center"}}>
-          {warningsVisibles.length>0&&!collapsed&&(
-            <button onClick={dismissWarnings}
-              style={{fontSize:10,color:"#555",background:"rgba(255,255,255,.05)",border:"1px solid rgba(255,255,255,.08)",borderRadius:6,padding:"3px 8px",cursor:"pointer",whiteSpace:"nowrap"}}
-              onMouseEnter={e=>e.currentTarget.style.color="#888"}
-              onMouseLeave={e=>e.currentTarget.style.color="#555"}>
-              ✓ Ocultar avisos hoy
-            </button>
-          )}
-          <span style={{fontSize:10,color:"#444"}}>{collapsed?"▾":"▴"}</span>
-        </div>
+        <span style={{fontSize:10,color:"#444"}}>{collapsed?"▾":"▴"}</span>
       </div>
-      {/* lista — colapsable */}
       {!collapsed&&(
         <div style={{display:"flex",flexDirection:"column",gap:1,padding:"6px 8px"}}>
-          {alertasVisibles.map((a,i)=>(
-            <div key={i} onClick={()=>onNavigate&&onNavigate(a.modulo)}
-              style={{display:"flex",alignItems:"flex-start",gap:10,padding:"8px 10px",background:NIVEL_BG[a.nivel],borderRadius:8,cursor:a.modulo?"pointer":"default",transition:"background .15s"}}
-              onMouseEnter={e=>{if(a.modulo)e.currentTarget.style.background=`${NIVEL_COLOR[a.nivel]}15`;}}
-              onMouseLeave={e=>{e.currentTarget.style.background=NIVEL_BG[a.nivel];}}>
+          {visibles.map((a,i)=>(
+            <div key={i} style={{display:"flex",alignItems:"flex-start",gap:10,padding:"8px 10px",
+              background:NIVEL_BG[a.nivel],borderRadius:8,transition:"background .15s"}}
+              onMouseEnter={e=>e.currentTarget.style.background=`${NIVEL_COLOR[a.nivel]}15`}
+              onMouseLeave={e=>e.currentTarget.style.background=NIVEL_BG[a.nivel]}>
               <div style={{width:6,height:6,borderRadius:"50%",background:NIVEL_COLOR[a.nivel],flexShrink:0,marginTop:5}}/>
-              <div style={{flex:1,minWidth:0}}>
+              <div style={{flex:1,minWidth:0,cursor:a.modulo?"pointer":"default"}}
+                onClick={()=>a.modulo&&onNavigate&&onNavigate(a.modulo)}>
                 <p style={{fontSize:12,fontWeight:700,color:NIVEL_COLOR[a.nivel],margin:"0 0 2px"}}>{a.msg}</p>
                 {a.detalle&&<p style={{fontSize:11,color:"#555",margin:0}}>{a.detalle}</p>}
               </div>
-              <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
-                <span style={{fontSize:9,fontWeight:700,color:NIVEL_COLOR[a.nivel],background:`${NIVEL_COLOR[a.nivel]}18`,borderRadius:4,padding:"2px 6px",textTransform:"uppercase",letterSpacing:.5}}>{NIVEL_LABEL[a.nivel]}</span>
-                {a.modulo&&<Ic n="chevron" size={11} color="#444"/>}
-              </div>
+              {a.nivel!=="error"&&(
+                <button onClick={e=>marcarLeida(e,a)} title="Marcar como leída"
+                  style={{fontSize:11,color:"#444",background:"none",border:"1px solid rgba(255,255,255,.08)",
+                    borderRadius:6,padding:"2px 8px",cursor:"pointer",flexShrink:0,whiteSpace:"nowrap"}}
+                  onMouseEnter={e=>{e.currentTarget.style.color="#00d4aa";e.currentTarget.style.borderColor="rgba(0,212,170,.3)";}}
+                  onMouseLeave={e=>{e.currentTarget.style.color="#444";e.currentTarget.style.borderColor="rgba(255,255,255,.08)";}}>
+                  ✓ leído
+                </button>
+              )}
             </div>
           ))}
+          {noLeidas.length>1&&(
+            <button onClick={e=>{
+              e.stopPropagation();
+              const keys=noLeidas.map(a=>a.id||a.msg);
+              const nuevas=[...leidas,...keys];
+              localStorage.setItem(LEIDAS_KEY,JSON.stringify(nuevas));
+              setLeidas(nuevas);
+            }} style={{margin:"4px 2px 2px",padding:"6px 0",background:"rgba(255,255,255,.03)",
+              border:"1px solid rgba(255,255,255,.07)",borderRadius:8,cursor:"pointer",
+              fontSize:11,color:"#555",width:"100%"}}
+              onMouseEnter={e=>e.currentTarget.style.color="#888"}
+              onMouseLeave={e=>e.currentTarget.style.color="#555"}>
+              ✓ Marcar todos los avisos como leídos
+            </button>
+          )}
         </div>
       )}
     </div>
   );
 };
+
 
 const GlobalSearch = ({ onNavigate }) => {
   const { user, navigate } = useCtx();
@@ -12743,7 +12750,21 @@ const Presupuestos = () => {
                   <span style={{fontSize:11,color:"#7c3aed",marginLeft:8}}>+{fmt(calcLimiteEfectivo(presGlobal)-parseFloat(presGlobal.montoLimite),"MXN")} acumulado</span>}
               </p>
             </div>
-            <Badge label={pctGlobal>100?"Excedido":pctGlobal>80?"En alerta":"Dentro del límite"} color={pctGlobal>100?"#ff4757":pctGlobal>80?"#f39c12":"#00d4aa"}/>
+            <div style={{display:"flex",alignItems:"center",gap:8}}>
+              <Badge label={pctGlobal>100?"Excedido":pctGlobal>80?"En alerta":"Dentro del límite"} color={pctGlobal>100?"#ff4757":pctGlobal>80?"#f39c12":"#00d4aa"}/>
+              <button onClick={()=>{setForm({...presGlobal});setShowForm(true);}}
+                style={{fontSize:11,fontWeight:600,color:"#888",background:"rgba(255,255,255,.05)",border:"1px solid rgba(255,255,255,.08)",borderRadius:7,padding:"4px 10px",cursor:"pointer"}}
+                onMouseEnter={e=>{e.currentTarget.style.color="#00d4aa";e.currentTarget.style.borderColor="rgba(0,212,170,.3)";}}
+                onMouseLeave={e=>{e.currentTarget.style.color="#888";e.currentTarget.style.borderColor="rgba(255,255,255,.08)";}}>
+                ✏️ Editar límite
+              </button>
+              <button onClick={()=>eliminar(presGlobal.id)}
+                style={{fontSize:11,color:"#ff4757",background:"rgba(255,71,87,.08)",border:"1px solid rgba(255,71,87,.15)",borderRadius:7,padding:"4px 8px",cursor:"pointer"}}
+                onMouseEnter={e=>e.currentTarget.style.background="rgba(255,71,87,.18)"}
+                onMouseLeave={e=>e.currentTarget.style.background="rgba(255,71,87,.08)"}>
+                <Ic n="trash" size={13}/>
+              </button>
+            </div>
           </div>
           <div style={{height:8,borderRadius:4,background:"rgba(255,255,255,.06)",overflow:"hidden"}}>
             <div style={{height:"100%",width:`${Math.min(pctGlobal,100)}%`,background:pctGlobal>100?"#ff4757":pctGlobal>80?"#f39c12":"#00d4aa",borderRadius:4,transition:"width .5s"}}/>
