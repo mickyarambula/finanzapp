@@ -3031,7 +3031,7 @@ const Dashboard = () => {
       </Card>
 
       {/* ── TRACKER TIPO DE CAMBIO */}
-      {config.historialTC?.length > 1 && (() => {
+      {(config.historialTC?.length||0) >= 2 && (() => {
         const hist = [...(config.historialTC||[])].sort((a,b)=>a.fecha>b.fecha?1:-1);
         const tcActual = parseFloat(config.tipoCambio)||17.5;
         const tcInicial = hist[0]?.tc || tcActual;
@@ -3083,7 +3083,7 @@ const Dashboard = () => {
             {/* Mini gráfica de línea */}
             <svg viewBox={`0 0 ${W} ${H+10}`} style={{width:"100%",overflow:"visible"}} preserveAspectRatio="none">
               <polyline
-                points={hist.map((h,i)=>`${(i/(hist.length-1))*W},${H-((h.tc-minTC)/rango)*H}`).join(" ")}
+                points={hist.map((h,i)=>`${(i/Math.max(hist.length-1,1))*W},${H-((h.tc-minTC)/rango)*H}`).join(" ")}
                 fill="none" stroke={varTotal>=0?"#00d4aa":"#ff4757"} strokeWidth="1.5" strokeLinejoin="round"/>
               {/* Punto actual */}
               {hist.length>0&&(
@@ -12910,7 +12910,7 @@ const ReporteMensual = () => {
     const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
     meses.push({ label: d.toLocaleDateString("es-MX",{month:"long",year:"numeric"}), key: `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`, d });
   }
-  const [mesSelec, setMesSelec] = React.useState(meses[1]); // mes anterior por defecto
+  const [mesSelec, setMesSelec] = React.useState(meses[1] || meses[0] || null); // mes anterior por defecto
 
   const calcLoanBal = loan => {
     const dr=(parseFloat(loan.rate)||0)/100/(loan.rateType==="annual"?365:30);
@@ -12933,8 +12933,9 @@ const ReporteMensual = () => {
     return inv.currency==="USD"?val*TC:val;
   };
 
+  if (!mesSelec) return <div style={{padding:40,textAlign:"center",color:"#555"}}>Sin datos de meses disponibles</div>;
   const mk = mesSelec.key;
-  const txsMes = transactions.filter(t=>t.date?.startsWith(mk));
+  const txsMes = mk ? transactions.filter(t=>t.date?.startsWith(mk)) : [];
   const ingresos = txsMes.filter(t=>t.type==="income").reduce((s,t)=>s+parseFloat(t.amount||0),0);
   const gastos   = txsMes.filter(t=>t.type==="expense").reduce((s,t)=>s+parseFloat(t.amount||0),0);
   const flujo    = ingresos - gastos;
@@ -13023,9 +13024,9 @@ const ReporteMensual = () => {
           <p style={{fontSize:13,color:"#555",margin:0}}>Resumen ejecutivo listo para imprimir o compartir</p>
         </div>
         <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
-          <select value={mesSelec.key} onChange={e=>setMesSelec(meses.find(m=>m.key===e.target.value))}
+          <select value={mesSelec?.key||""} onChange={e=>setMesSelec(meses.find(m=>m.key===e.target.value)||meses[0]||null)}
             style={{padding:"8px 12px",background:"rgba(255,255,255,.06)",border:"1px solid rgba(255,255,255,.1)",borderRadius:9,color:"#f0f0f0",fontSize:13,cursor:"pointer"}}>
-            {meses.map(m=><option key={m.key} value={m.key} style={{background:"#1a1a2e"}}>{m.label}</option>)}
+            {(meses||[]).map(m=><option key={m.key} value={m.key} style={{background:"#1a1a2e"}}>{m.label}</option>)}
           </select>
           <Btn onClick={imprimir}><Ic n="reporte" size={15}/>Imprimir / Guardar PDF</Btn>
         </div>
@@ -13039,7 +13040,7 @@ const ReporteMensual = () => {
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:20,paddingBottom:12,borderBottom:"2px solid #1a1a1a"}}>
             <div>
               <p style={{fontSize:22,fontWeight:800,color:"#1a1a1a",margin:"0 0 2px"}}>Reporte Financiero</p>
-              <p style={{fontSize:14,color:"#555",margin:"0 0 1px",textTransform:"capitalize"}}>{mesSelec.label}</p>
+              <p style={{fontSize:14,color:"#555",margin:"0 0 1px",textTransform:"capitalize"}}>{mesSelec?.label||""}</p>
               <p style={{fontSize:11,color:"#888",margin:0}}>{user.name}</p>
             </div>
             <div style={{textAlign:"right"}}>
