@@ -1145,40 +1145,64 @@ const NotifPanel = ({ notif, onNavigate }) => {
 };
 
 // ─── ALERTAS PANEL ────────────────────────────────────────────────────────────
-const AlertasPanel = ({ alertas, onNavigate }) => {
-  const [collapsed, setCollapsed] = React.useState(false);
-  const errores  = alertas.filter(a=>a.nivel==="error");
-  const warnings = alertas.filter(a=>a.nivel==="warning");
+const AlertasPanel = ({ alertas, onNavigate, userId }) => {
   const NIVEL_COLOR = {error:"#ff4757",warning:"#f39c12",info:"#3b82f6"};
   const NIVEL_BG    = {error:"rgba(255,71,87,.08)",warning:"rgba(243,156,18,.07)",info:"rgba(59,130,246,.07)"};
   const NIVEL_LABEL = {error:"Crítica",warning:"Aviso",info:"Info"};
 
+  // Colapsado por defecto — solo errores críticos lo fuerzan abierto
+  const errores  = alertas.filter(a=>a.nivel==="error");
+  const warnings = alertas.filter(a=>a.nivel==="warning"||a.nivel==="info");
+  const [collapsed, setCollapsed] = React.useState(errores.length===0); // abierto solo si hay errores
+
+  // Descartar avisos no críticos hasta mañana
+  const DISMISS_KEY = `fp_alertas_dismiss_${new Date().toISOString().split("T")[0]}`;
+  const [dismissed, setDismissed] = React.useState(() => {
+    try { return JSON.parse(localStorage.getItem(DISMISS_KEY)||"[]"); } catch { return []; }
+  });
+  const dismissWarnings = (e) => {
+    e.stopPropagation();
+    const ids = warnings.map(a=>a.id||a.msg);
+    localStorage.setItem(DISMISS_KEY, JSON.stringify(ids));
+    setDismissed(ids);
+  };
+  const alertasVisibles = alertas.filter(a=>
+    a.nivel==="error" || !dismissed.includes(a.id||a.msg)
+  );
+  const warningsVisibles = alertasVisibles.filter(a=>a.nivel!=="error");
+
+  if (alertasVisibles.length===0) return null;
+
   return (
-    <div style={{borderRadius:12,border:"1px solid rgba(255,255,255,.07)",overflow:"hidden",background:"rgba(255,255,255,.02)"}}>
-      {/* header */}
-      <div onClick={()=>setCollapsed(c=>!c)} style={{display:"flex",alignItems:"center",gap:10,padding:"11px 16px",cursor:"pointer",borderBottom:collapsed?"none":"1px solid rgba(255,255,255,.05)"}}>
-        <div style={{display:"flex",alignItems:"center",gap:8,flex:1,flexWrap:"wrap"}}>
-          <Ic n="warn" size={15} color={errores.length>0?"#ff4757":"#f39c12"}/>
-          <span style={{fontSize:13,fontWeight:700,color:"#e0e0e0"}}>
-            {errores.length>0?`${errores.length} alerta${errores.length>1?"s":""} crítica${errores.length>1?"s":""}`:
-             `${warnings.length} aviso${warnings.length>1?"s":""}`}
-          </span>
-          {errores.length>0&&warnings.length>0&&(
-            <span style={{fontSize:11,color:"#555"}}>+{warnings.length} aviso{warnings.length>1?"s":""}</span>
-          )}
+    <div style={{borderRadius:12,border:`1px solid ${errores.length>0?"rgba(255,71,87,.2)":"rgba(255,255,255,.07)"}`,overflow:"hidden",background:errores.length>0?"rgba(255,71,87,.03)":"rgba(255,255,255,.02)"}}>
+      {/* header — siempre visible */}
+      <div onClick={()=>setCollapsed(c=>!c)} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",cursor:"pointer",borderBottom:collapsed?"none":"1px solid rgba(255,255,255,.05)"}}>
+        <Ic n="warn" size={14} color={errores.length>0?"#ff4757":"#f39c12"}/>
+        <div style={{flex:1,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+          <span style={{fontSize:12,fontWeight:700,color:errores.length>0?"#ff4757":"#f39c12"}}>
+            {errores.length>0?`${errores.length} alerta${errores.length>1?"s":""} crítica${errores.length>1?"s":""} · `:""}{warningsVisibles.length>0?`${warningsVisibles.length} aviso${warningsVisibles.length>1?"s":""}`:""}</span>
+          {collapsed&&errores.length>0&&errores.slice(0,1).map((a,i)=>(
+            <span key={i} style={{fontSize:11,color:"#888"}}>{a.msg}</span>
+          ))}
         </div>
         <div style={{display:"flex",gap:6,alignItems:"center"}}>
-          {errores.length>0&&<span style={{fontSize:10,fontWeight:700,color:"#ff4757",background:"rgba(255,71,87,.15)",border:"1px solid rgba(255,71,87,.25)",borderRadius:20,padding:"2px 8px"}}>{errores.length}</span>}
-          {warnings.length>0&&<span style={{fontSize:10,fontWeight:700,color:"#f39c12",background:"rgba(243,156,18,.12)",border:"1px solid rgba(243,156,18,.2)",borderRadius:20,padding:"2px 8px"}}>{warnings.length}</span>}
-          <Ic n={collapsed?"plus":"minus"} size={13} color="#555"/>
+          {warningsVisibles.length>0&&!collapsed&&(
+            <button onClick={dismissWarnings}
+              style={{fontSize:10,color:"#555",background:"rgba(255,255,255,.05)",border:"1px solid rgba(255,255,255,.08)",borderRadius:6,padding:"3px 8px",cursor:"pointer",whiteSpace:"nowrap"}}
+              onMouseEnter={e=>e.currentTarget.style.color="#888"}
+              onMouseLeave={e=>e.currentTarget.style.color="#555"}>
+              ✓ Ocultar avisos hoy
+            </button>
+          )}
+          <span style={{fontSize:10,color:"#444"}}>{collapsed?"▾":"▴"}</span>
         </div>
       </div>
-      {/* lista */}
+      {/* lista — colapsable */}
       {!collapsed&&(
         <div style={{display:"flex",flexDirection:"column",gap:1,padding:"6px 8px"}}>
-          {alertas.map((a,i)=>(
+          {alertasVisibles.map((a,i)=>(
             <div key={i} onClick={()=>onNavigate&&onNavigate(a.modulo)}
-              style={{display:"flex",alignItems:"flex-start",gap:10,padding:"9px 10px",background:NIVEL_BG[a.nivel],borderRadius:8,cursor:a.modulo?"pointer":"default",transition:"background .15s"}}
+              style={{display:"flex",alignItems:"flex-start",gap:10,padding:"8px 10px",background:NIVEL_BG[a.nivel],borderRadius:8,cursor:a.modulo?"pointer":"default",transition:"background .15s"}}
               onMouseEnter={e=>{if(a.modulo)e.currentTarget.style.background=`${NIVEL_COLOR[a.nivel]}15`;}}
               onMouseLeave={e=>{e.currentTarget.style.background=NIVEL_BG[a.nivel];}}>
               <div style={{width:6,height:6,borderRadius:"50%",background:NIVEL_COLOR[a.nivel],flexShrink:0,marginTop:5}}/>
@@ -12788,7 +12812,22 @@ const Presupuestos = () => {
                       <p style={{fontSize:15,fontWeight:700,color:barColor,margin:"0 0 1px"}}>{fmt(gastado,"MXN")}</p>
                       <p style={{fontSize:11,color:"#555",margin:0}}>de {fmt(limite,"MXN")}</p>
                     </div>
-                    <Actions onEdit={()=>{setForm({...p});setShowForm(true);}} onDelete={()=>eliminar(p.id)}/>
+                    <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                      <button onClick={()=>{setForm({...p});setShowForm(true);}}
+                        style={{fontSize:10,fontWeight:600,color:"#888",background:"rgba(255,255,255,.05)",
+                          border:"1px solid rgba(255,255,255,.08)",borderRadius:7,padding:"4px 9px",cursor:"pointer"}}
+                        onMouseEnter={e=>{e.currentTarget.style.color="#00d4aa";e.currentTarget.style.borderColor="rgba(0,212,170,.3)";}}
+                        onMouseLeave={e=>{e.currentTarget.style.color="#888";e.currentTarget.style.borderColor="rgba(255,255,255,.08)";}}>
+                        ✏️ Editar
+                      </button>
+                      <button onClick={()=>eliminar(p.id)}
+                        style={{fontSize:10,color:"#ff4757",background:"rgba(255,71,87,.08)",
+                          border:"1px solid rgba(255,71,87,.15)",borderRadius:7,padding:"4px 8px",cursor:"pointer"}}
+                        onMouseEnter={e=>e.currentTarget.style.background="rgba(255,71,87,.15)"}
+                        onMouseLeave={e=>e.currentTarget.style.background="rgba(255,71,87,.08)"}>
+                        <Ic n="trash" size={13}/>
+                      </button>
+                    </div>
                   </div>
                 </div>
                 {/* barra */}
