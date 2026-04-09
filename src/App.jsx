@@ -2553,7 +2553,12 @@ const Dashboard = () => {
     else if(r.frecuencia==="anual") next.setFullYear(next.getFullYear()+1);
     return next;
   };
-  const pendientes=(recurrents||[]).filter(r=>r.activo!==false&&calcNextDate(r)<=now);
+  const pendientes=(recurrents||[]).filter(r=>{
+    if(r.activo===false) return false;
+    const next=calcNextDate(r);
+    const hoyFin=new Date(); hoyFin.setHours(23,59,59,999);
+    return next<=hoyFin;
+  });
 
   const confirmarRecurrente = r => {
     const monto=parseFloat(r.monto)||0;
@@ -10627,7 +10632,12 @@ const Recurring = () => {
     return Math.round((next-hoy)/86400000);
   };
 
-  const esPendiente = (r) => r.activo!==false && calcNext(r) <= new Date();
+  const esPendiente = (r) => {
+    if (r.activo===false) return false;
+    const next = calcNext(r);
+    const hoyFin = new Date(); hoyFin.setHours(23,59,59,999); // fin del día actual
+    return next <= hoyFin;
+  };
 
   // ── confirmar y registrar transacción
   const confirmarConMonto = (r, montoFinal) => {
