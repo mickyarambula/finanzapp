@@ -184,6 +184,31 @@ export const Card = ({ children, style:sx, onClick }) => {
   >{children}</div>;
 };
 
+// ─── TOOLTIP DE AYUDA ─────────────────────────────────────────────────────────
+// NOTA: las 2 warnings "Duplicate key whiteSpace/transform" son preexistentes
+// (doc. como deuda técnica en HANDOFF.md). Se mueven tal cual — fix aparte.
+export const HelpTip = ({ text }) => {
+  const [show, setShow] = React.useState(false);
+  return (
+    <span style={{position:"relative",display:"inline-flex",alignItems:"center",marginLeft:5,verticalAlign:"middle"}}>
+      <span
+        onMouseEnter={()=>setShow(true)} onMouseLeave={()=>setShow(false)}
+        style={{display:"inline-flex",alignItems:"center",justifyContent:"center",width:15,height:15,borderRadius:"50%",background:"rgba(255,255,255,.08)",border:"1px solid rgba(255,255,255,.15)",color:"#666",fontSize:9,fontWeight:700,cursor:"help",userSelect:"none",lineHeight:1}}>
+        ?
+      </span>
+      {show&&(
+        <span style={{position:"absolute",bottom:"calc(100% + 6px)",left:"50%",transform:"translateX(-50%)",
+          background:"#1a2035",border:"1px solid rgba(255,255,255,.12)",borderRadius:8,padding:"7px 10px",
+          fontSize:11,color:"#ccc",lineHeight:1.45,whiteSpace:"nowrap",maxWidth:220,whiteSpace:"normal",
+          zIndex:999,boxShadow:"0 6px 20px rgba(0,0,0,.5)",pointerEvents:"none",textAlign:"left",minWidth:160}}>
+          {text}
+          <span style={{position:"absolute",bottom:-5,left:"50%",transform:"translateX(-50%)",width:8,height:8,background:"#1a2035",border:"1px solid rgba(255,255,255,.12)",borderBottom:"none",borderRight:"none",transform:"translateX(-50%) rotate(45deg)"}}/>
+        </span>
+      )}
+    </span>
+  );
+};
+
 // ─── BADGES Y ACCIONES ────────────────────────────────────────────────────────
 
 export const Badge = ({ label, color="#00d4aa" }) => (
