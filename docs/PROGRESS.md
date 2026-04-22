@@ -1,10 +1,15 @@
 # Finanzapp — Progress
 
-## Estado actual (21-abr-2026 noche, segunda tanda)
+## Estado actual (22-abr-2026 — post Push 1 tuberías + Push 2 Metas)
 - App funcionando en producción: finanzapp-iota.vercel.app
-- App.jsx: ~15,112 líneas (refactor shared.jsx aplicado, commit b9674c6)
-- shared.jsx: 11 elementos exportados (Card, Btn, Modal, Inp, Sel + Ctx, useCtx, themeTokens, useTheme, ICONS, Ic) — 171 líneas
-- utils.js: 4 funciones puras exportadas (fmt, fmtDate, today, genId)
+- App.jsx: ~14,485 líneas (commits cc22290 + 1d7c2af)
+- shared.jsx: 274 líneas — ahora es el único archivo que habla con Supabase
+  - UI: Card, Btn, Modal, Inp, Sel, Badge, Actions, ConfirmModal
+  - Contexto/tema/íconos: Ctx, useCtx, themeTokens, useTheme, ICONS, Ic
+  - Datos/infra: supa, store, uKey, useData, useConfirm, getTc
+- utils.js: 14 líneas, 4 funciones puras (fmt, fmtDate, today, genId)
+- **src/modules/** establecida como carpeta de módulos extraídos
+  - `modules/Metas.jsx` — 561 líneas, cero props, primer módulo real
 - Ícono nuevo: verde con gráfica ascendente ✓
 - PWA configurada (manifest.json, apple-touch-icon) ✓
 

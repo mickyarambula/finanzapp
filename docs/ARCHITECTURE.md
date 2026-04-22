@@ -8,17 +8,29 @@
 - **Local:** ~/Desktop/finanzapp2/
 - **URL producción:** finanzapp-iota.vercel.app
 
-## Estructura de archivos
+## Estructura de archivos (estado al 22-abr-2026, post Push 1+2)
 ```
 src/
-├── App.jsx          # Shell, Auth, Sidebar, Router (~2,241 líneas post-refactor / revertido a ~15k)
-├── utils.js         # Funciones compartidas: fmt, fmtDate, today, genId, calcLoanBal, calcNext
-├── shared.jsx       # Componentes UI: Card, Btn, Modal, Inp, Sel, useData, useCtx, etc.
-└── modules/         # Módulos extraídos (revertidos — ver DECISIONS)
+├── App.jsx          # Shell, Auth, Sidebar, Router + el resto de páginas pendientes de extraer (~14,485 líneas)
+├── utils.js         # Funciones puras (14 líneas): fmt, fmtDate, today, genId
+├── shared.jsx       # Tuberías compartidas (274 líneas) — ÚNICO archivo que habla con Supabase
+│                    #   UI: Card, Btn, Modal, Inp, Sel, Badge, Actions, ConfirmModal
+│                    #   Tema/contexto/íconos: Ctx, useCtx, themeTokens, useTheme, ICONS, Ic
+│                    #   Datos/infra: supa, store, uKey, useData, useConfirm, getTc
+└── modules/         # Módulos extraídos (refactor en curso, uno a la vez)
+    └── Metas.jsx    # ✅ ACTIVO en producción (22-abr) — 561 líneas, cero props
 ```
 
-> ⚠️ Estado actual: App.jsx es monolítico (~15k líneas) después del revert del 10-abr-2026.
-> El refactor de módulos está en commits de Git pero no en producción.
+> ✅ Estado actual: refactor en marcha, módulo por módulo, validando en producción entre cada uno.
+> Patrón confirmado: módulos importan solo de `react`, `../utils`, `../shared`. Cero props desde App.jsx.
+> Flecha de dependencias: App.jsx → modules/*.jsx → shared.jsx → librerías externas.
+
+## Reglas de los módulos en src/modules/
+1. **NO importar de App.jsx** — solo de `react`, `../utils`, `../shared`.
+2. **NO importar de otros módulos** — evita ciclos.
+3. **Cero props desde App.jsx** — todo lo que necesiten viene vía `useCtx()` (user, toast, navigate, theme) o vía `useData()` (datos de Supabase).
+4. Si un módulo necesita una función nueva compartida, **se agrega a `shared.jsx`** (no a App.jsx).
+5. **Default export** del componente (ej. `export default Metas;`).
 
 ## Base de datos — Supabase
 - **Project ID:** dapzdmjfgfjnfurhmwrx
