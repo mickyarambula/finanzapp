@@ -110,11 +110,13 @@ git push
 | Tag | Descripción | Fecha |
 |-----|-------------|-------|
 | v-estable-pre-refactor-abr21 | Fix iCloud + setRecurrents Dashboard + Git reconectado | 21-abr-2026 |
+| v-estable-post-utils | Estado bueno tras extraer utils.js (commit base 91404a1). Creado antes de tocar shared.jsx | 21-abr-2026 |
 
 ## Commits de referencia importantes
 | Commit | Descripción | Estado |
 |--------|-------------|--------|
-| 91404a1 | refactor: extract fmt, fmtDate, today, genId to utils.js | ✅ PRODUCCIÓN (21-abr noche) |
+| b9674c6 | refactor: extract Card, Btn, Modal, Inp, Sel + Ctx/theme/Ic to shared.jsx | ✅ PRODUCCIÓN (21-abr noche, 2da tanda) |
+| 91404a1 | refactor: extract fmt, fmtDate, today, genId to utils.js | ✅ PRODUCCIÓN (21-abr noche, 1ra tanda) |
 | 17a0862 | fix: setRecurrents accesible en Dashboard para confirmar recurrentes | ✅ incluido |
 | faada31 | chore: trigger redeploy en finanzapp | ✅ producción (antes de fix Dashboard) |
 | d7bd168 | fix: no validar saldo en tarjetas de crédito al confirmar recurrente | ✅ incluido |
