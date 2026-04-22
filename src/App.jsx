@@ -10674,7 +10674,7 @@ const Recurring = () => {
   const confirmarConMonto = (r, montoFinal) => {
     const monto = parseFloat(montoFinal)||0;
     const cta = accounts.find(a=>a.id===r.cuentaId);
-    if (r.tipo==="expense" && cta && parseFloat(cta.balance||0) < monto) {
+    if (r.tipo==="expense" && cta && cta.type!=="credit" && parseFloat(cta.balance||0) < monto) {
       toast(`Saldo insuficiente en ${cta.name}`,"error"); return;
     }
     const newTx = {
