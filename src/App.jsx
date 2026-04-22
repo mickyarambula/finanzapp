@@ -2152,7 +2152,7 @@ const Dashboard = () => {
   const [transactions, setTransactions] = useData(user.id, "transactions");
   const [loans]        = useData(user.id, "loans");
   const [investments]  = useData(user.id, "investments");
-  const [recurrents]   = useData(user.id, "recurrents");
+  const [recurrents, setRecurrents] = useData(user.id, "recurrents");
   const [goals]        = useData(user.id, "goals");
   const [presupuestos] = useData(user.id, "presupuestos");
   const [mortgages]    = useData(user.id, "mortgages");
