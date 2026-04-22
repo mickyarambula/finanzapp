@@ -209,6 +209,13 @@ export const HelpTip = ({ text }) => {
   );
 };
 
+// ─── ALERTA ───────────────────────────────────────────────────────────────────
+export const Alert = ({ children, color="#f39c12" }) => (
+  <div style={{ background:`${color}11`, border:`1px solid ${color}33`, borderRadius:9, padding:"10px 14px", marginBottom:14, fontSize:13, color, display:"flex", gap:8, alignItems:"flex-start" }}>
+    <Ic n="warn" size={15} color={color} /><span>{children}</span>
+  </div>
+);
+
 // ─── BADGES Y ACCIONES ────────────────────────────────────────────────────────
 
 export const Badge = ({ label, color="#00d4aa" }) => (
