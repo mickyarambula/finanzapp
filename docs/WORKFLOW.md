@@ -114,7 +114,9 @@ git push
 ## Commits de referencia importantes
 | Commit | Descripción | Estado |
 |--------|-------------|--------|
-| faada31 | chore: trigger redeploy en finanzapp | ✅ PRODUCCIÓN (antes de fix Dashboard) |
+| 91404a1 | refactor: extract fmt, fmtDate, today, genId to utils.js | ✅ PRODUCCIÓN (21-abr noche) |
+| 17a0862 | fix: setRecurrents accesible en Dashboard para confirmar recurrentes | ✅ incluido |
+| faada31 | chore: trigger redeploy en finanzapp | ✅ producción (antes de fix Dashboard) |
 | d7bd168 | fix: no validar saldo en tarjetas de crédito al confirmar recurrente | ✅ incluido |
 | 3de9f08 | fix: botones editar/eliminar en presupuesto global | referencia histórica |
 | 59c7b1b | refactor: módulos (revertido) | ❌ revertido — circular deps |

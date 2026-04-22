@@ -1,8 +1,9 @@
 # Finanzapp — Progress
 
-## Estado actual (21-abr-2026)
+## Estado actual (21-abr-2026 noche)
 - App funcionando en producción: finanzapp-iota.vercel.app
-- App.jsx: ~15,277 líneas (monolítico — refactor revertido)
+- App.jsx: ~15,268 líneas (refactor utils.js aplicado, commit 91404a1)
+- utils.js: 4 funciones puras exportadas (fmt, fmtDate, today, genId)
 - Ícono nuevo: verde con gráfica ascendente ✓
 - PWA configurada (manifest.json, apple-touch-icon) ✓
 
