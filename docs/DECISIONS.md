@@ -2,6 +2,19 @@
 
 ## Decisiones de arquitectura
 
+### 2026-04-22: Sprint de 4 módulos consecutivos — VALIDADO ✅
+- **Qué:** En una sola sesión se extrajeron Metas, Mortgage, Recurring y Loans a `src/modules/*.jsx`. Cada uno con tag de seguridad propio y validación 10-15 min en producción antes del siguiente.
+- **Patrón confirmado 4 veces sin excepciones:** módulo importa solo de `react`, `../utils`, `../shared`, recibe **CERO props** desde App.jsx, datos vienen vía `useData()` y `useCtx()`.
+- **App.jsx** bajó de 14,485 → 11,655 líneas (−2,830 en el día).
+- **Tuberías incidentales movidas a shared.jsx durante el sprint:** `HelpTip` (con Mortgage), `Alert` (con Loans). shared.jsx pasó de 274 → 306 líneas.
+- **Hallazgo arquitectónico clave:** Múltiples componentes pueden leer/escribir el mismo módulo de Supabase via `useData()` independientemente sin acoplamiento por props. Cada uno tiene su `[state, setState]` local, sincronizado vía la fuente de verdad (Supabase) + cache localStorage. Esto permite que Dashboard/Recurring/AsistenteFlotante todos confirmen recurrentes sin que la extracción de uno rompa al otro.
+- **Deuda técnica detectada (no consolidada en este sprint):**
+  - `calcLoanBal` duplicada 5 veces en App.jsx con nombres distintos
+  - `calcNext` duplicada 4 veces en App.jsx con nombres distintos
+  - `ProyeccionFlujo` definido en App.jsx pero nunca usado (código muerto)
+  - 2 warnings `Duplicate key whiteSpace/transform` en HelpTip (preexistentes)
+- **Por qué importa:** valida que el patrón establecido el 21-abr (utils.js + shared.jsx) escala. Quedan 2 módulos grandes pendientes (Investments, Dashboard, Transactions) — el camino está claro.
+
 ### 2026-04-10: Refactor de módulos — REVERTIDO
 - **Qué:** Extraer App.jsx monolítico en 18+ módulos en src/modules/
 - **Por qué se revirtió:** Dependencias circulares causaron pantalla blanca en producción (Vercel). Localmente funcionaba pero en producción fallaba.

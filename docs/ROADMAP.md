@@ -2,12 +2,28 @@
 
 ## Pendientes inmediatos (próxima sesión)
 
-### 1. Refactor de módulos — Tomar 2
-- Hacer módulo por módulo, NO todos de golpe
-- Verificar en navegador (npm run dev + abrir browser) antes de pasar al siguiente
-- Orden sugerido: utils.js → shared.jsx → Mortgage → Recurring → Loans → Dashboard → resto
-- Problema a evitar: dependencias circulares (módulos importando de App que importa módulos)
-- Solución: shared.jsx debe ser independiente, no importar de App ni de modules
+### 1. Refactor de módulos — Tomar 2 (en curso ✅)
+**Patrón validado:** módulo en `src/modules/*.jsx` importa solo de `react`, `../utils`, `../shared`, recibe cero props.
+
+Hecho hasta ahora:
+- ~~utils.js~~ ✅ (21-abr)
+- ~~shared.jsx primera oleada (Card/Btn/Modal/Inp/Sel + Ctx/tema/íconos)~~ ✅ (21-abr)
+- ~~shared.jsx tuberías (useData/useConfirm/supa/store/getTc/Badge/Actions)~~ ✅ (22-abr Push 1)
+- ~~Metas~~ ✅ (22-abr `1d7c2af`)
+- ~~Mortgage + HelpTip~~ ✅ (22-abr `abf98ff`)
+- ~~Recurring~~ ✅ (22-abr `7414dee`)
+- ~~Loans + Alert~~ ✅ (22-abr `0513864`)
+
+**Sigue (en orden recomendado):**
+- **Investments** — análisis ya completo, ver HANDOFF.md para plan ejecutivo. Riesgo medio-alto (1,313 líneas + PortafolioChart 126 líneas). Cero tuberías nuevas. Cero props.
+- **Dashboard** — riesgo ALTO. Es el componente más interconectado: KPIs, alertas, gráfica 6 meses, panel de pendientes recurrentes (con su duplicado de calcNext), panel de loans. Análisis exhaustivo nuevo recomendado antes.
+- **Transactions** — riesgo ALTO. Filtros, exportar Excel, categorías, tags. Probable que tenga sub-componentes propios.
+
+### 1.b Deuda técnica de duplicación (consolidar a utils.js — futura pasada)
+- `calcLoanBal` duplicada 5 veces con nombres distintos
+- `calcNext` duplicada 4 veces con nombres distintos
+- `ProyeccionFlujo` definido pero nunca usado — eliminar
+- Warnings `Duplicate key whiteSpace/transform` en HelpTip (shared.jsx)
 
 ### 2. Configuración Vercel — Production Overrides
 - Hay un warning: "Configuration Settings in the current Production deployment differ from current Project Settings"

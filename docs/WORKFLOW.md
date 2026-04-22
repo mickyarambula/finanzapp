@@ -113,11 +113,18 @@ git push
 | v-estable-post-utils | Estado bueno tras extraer utils.js (commit base 91404a1). Creado antes de tocar shared.jsx | 21-abr-2026 |
 | v-estable-post-shared | Estado bueno tras extraer shared.jsx primera oleada (commit base b9674c6). Creado antes de Push 1 del 22-abr | 21-abr-2026 |
 | v-estable-push1-tuberias | Estado bueno tras Push 1 tuberías (commit base cc22290). Creado antes de Push 2 (Metas) | 22-abr-2026 |
+| v-estable-post-metas | Estado bueno tras extraer Metas (commit base 1d7c2af). Creado antes de Mortgage | 22-abr-2026 |
+| v-estable-post-mortgage | Estado bueno tras extraer Mortgage + HelpTip (commit base abf98ff). Creado antes de Recurring | 22-abr-2026 |
+| v-estable-post-recurring | Estado bueno tras extraer Recurring (commit base 7414dee). Creado antes de Loans | 22-abr-2026 |
+| v-estable-post-loans | Estado bueno tras extraer Loans + Alert (commit base 0513864). Creado al cierre del 22-abr, antes de Investments | 22-abr-2026 |
 
 ## Commits de referencia importantes
 | Commit | Descripción | Estado |
 |--------|-------------|--------|
-| 1d7c2af | refactor: extract Metas module to src/modules/Metas.jsx | ✅ PRODUCCIÓN (22-abr Push 2) |
+| 0513864 | refactor: extract Loans module (con AmortizacionChart, CorteGlobalPanel, TramosPanel, CorteMensual) to src/modules/Loans.jsx (Alert moved to shared) | ✅ PRODUCCIÓN (22-abr módulo 4) |
+| 7414dee | refactor: extract Recurring module to src/modules/Recurring.jsx | ✅ PRODUCCIÓN (22-abr módulo 3) |
+| abf98ff | refactor: extract Mortgage + SimuladorLiquidacion to src/modules/Mortgage.jsx (HelpTip moved to shared) | ✅ PRODUCCIÓN (22-abr módulo 2) |
+| 1d7c2af | refactor: extract Metas module to src/modules/Metas.jsx | ✅ PRODUCCIÓN (22-abr módulo 1) |
 | cc22290 | refactor: move useData, useConfirm, supa, store, getTc, Badge, Actions to shared.jsx | ✅ PRODUCCIÓN (22-abr Push 1) |
 | b9674c6 | refactor: extract Card, Btn, Modal, Inp, Sel + Ctx/theme/Ic to shared.jsx | ✅ PRODUCCIÓN (21-abr noche, 2da tanda) |
 | 91404a1 | refactor: extract fmt, fmtDate, today, genId to utils.js | ✅ PRODUCCIÓN (21-abr noche, 1ra tanda) |

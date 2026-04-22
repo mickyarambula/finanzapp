@@ -1,15 +1,19 @@
 # Finanzapp — Progress
 
-## Estado actual (22-abr-2026 — post Push 1 tuberías + Push 2 Metas)
+## Estado actual (22-abr-2026 — sprint de 4 módulos consecutivos completado)
 - App funcionando en producción: finanzapp-iota.vercel.app
-- App.jsx: ~14,485 líneas (commits cc22290 + 1d7c2af)
-- shared.jsx: 274 líneas — ahora es el único archivo que habla con Supabase
-  - UI: Card, Btn, Modal, Inp, Sel, Badge, Actions, ConfirmModal
+- **App.jsx: 11,655 líneas** (de 15,278 originales — bajamos ~24%)
+- **shared.jsx: 306 líneas** — único archivo que habla con Supabase
+  - UI: Card, Btn, Modal, Inp, Sel, Badge, Actions, ConfirmModal, HelpTip, Alert
   - Contexto/tema/íconos: Ctx, useCtx, themeTokens, useTheme, ICONS, Ic
   - Datos/infra: supa, store, uKey, useData, useConfirm, getTc
 - utils.js: 14 líneas, 4 funciones puras (fmt, fmtDate, today, genId)
-- **src/modules/** establecida como carpeta de módulos extraídos
-  - `modules/Metas.jsx` — 561 líneas, cero props, primer módulo real
+- **5 módulos en `src/modules/`** (3,416 líneas extraídas):
+  - `Metas.jsx` — 561 líneas (commit `1d7c2af`)
+  - `Mortgage.jsx` — 1,251 líneas con `SimuladorLiquidacion` inline (commit `abf98ff`)
+  - `Recurring.jsx` — 391 líneas (commit `7414dee`)
+  - `Loans.jsx` — 1,213 líneas con `AmortizacionChart`, `CorteGlobalPanel`, `TramosPanel`, `CorteMensual` + `LoanCard` inline (commit `0513864`)
+- Patrón validado 4 veces: cada módulo importa solo de `react`, `../utils`, `../shared`, recibe cero props desde App.jsx
 - Ícono nuevo: verde con gráfica ascendente ✓
 - PWA configurada (manifest.json, apple-touch-icon) ✓
 
