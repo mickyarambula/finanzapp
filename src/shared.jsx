@@ -1,9 +1,23 @@
-// Componentes UI base + infraestructura de tema/contexto/íconos.
-// Extraídos de App.jsx el 21-abr-2026 (segundo paso del refactor).
+// Componentes UI base + infraestructura de tema/contexto/íconos + cliente Supabase + hooks de datos.
+// Extraídos de App.jsx el 21-abr-2026 (segundo paso) y 22-abr-2026 (tuberías para módulos).
 // REGLA: este archivo NO debe importar de App.jsx ni de modules/.
 // Si necesita algo nuevo, se le pasa como prop.
 
-import React, { createContext, useContext, useState } from "react";
+import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
+import { createClient } from "@supabase/supabase-js";
+
+// ─── CLIENTE SUPABASE ─────────────────────────────────────────────────────────
+const SUPA_URL = import.meta.env.VITE_SUPABASE_URL;
+const SUPA_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
+const _supaBase = (SUPA_URL && SUPA_KEY && !SUPA_URL.includes('XXXXX'))
+  ? createClient(SUPA_URL, SUPA_KEY)
+  : null;
+
+export const supa = _supaBase ? {
+  auth: _supaBase.auth,
+  async get(u,m){const { data: { session } } = await _supaBase.auth.getSession(); const token = session?.access_token || SUPA_KEY; const r=await fetch(SUPA_URL+'/rest/v1/user_data?user_id=eq.'+u+'&module=eq.'+m+'&select=data',{headers:{apikey:SUPA_KEY,Authorization:'Bearer '+token}});const d=await r.json();return d?.[0]?.data??null;},
+  async set(u,m,d){const { data: { session } } = await _supaBase.auth.getSession(); const token = session?.access_token || SUPA_KEY; await fetch(SUPA_URL+'/rest/v1/user_data',{method:'POST',headers:{apikey:SUPA_KEY,Authorization:'Bearer '+token,'Content-Type':'application/json',Prefer:'resolution=merge-duplicates'},body:JSON.stringify({user_id:u,module:m,data:d,updated_at:new Date().toISOString()})})}
+} : null;
 
 // ─── CONTEXTO ─────────────────────────────────────────────────────────────────
 export const Ctx = createContext(null);
@@ -168,4 +182,93 @@ export const Card = ({ children, style:sx, onClick }) => {
     onMouseEnter={onClick?e=>{e.currentTarget.style.background="rgba(255,255,255,.055)";e.currentTarget.style.borderColor="rgba(0,212,170,.25)";}:undefined}
     onMouseLeave={onClick?e=>{e.currentTarget.style.background="rgba(255,255,255,.03)";e.currentTarget.style.borderColor="rgba(255,255,255,.07)";}:undefined}
   >{children}</div>;
+};
+
+// ─── BADGES Y ACCIONES ────────────────────────────────────────────────────────
+
+export const Badge = ({ label, color="#00d4aa" }) => (
+  <span style={{ background:`${color}22`, color, padding:"2px 9px", borderRadius:20, fontSize:11, fontWeight:700 }}>{label}</span>
+);
+
+export const Actions = ({ onEdit, onDelete }) => (
+  <div style={{ display:"flex", gap:4, flexShrink:0 }} onClick={e => e.stopPropagation()}>
+    {onEdit && (
+      <button onClick={onEdit} style={{ background:"rgba(255,255,255,.06)", border:"none", cursor:"pointer", color:"#888", padding:"5px 8px", borderRadius:7, display:"flex", alignItems:"center" }}
+        onMouseEnter={e=>e.currentTarget.style.color="#00d4aa"} onMouseLeave={e=>e.currentTarget.style.color="#888"}>
+        <Ic n="edit" size={14} />
+      </button>
+    )}
+    <button onClick={onDelete} style={{ background:"rgba(255,71,87,.08)", border:"none", cursor:"pointer", color:"#ff4757", padding:"5px 8px", borderRadius:7, display:"flex", alignItems:"center" }}
+      onMouseEnter={e=>e.currentTarget.style.background="rgba(255,71,87,.2)"} onMouseLeave={e=>e.currentTarget.style.background="rgba(255,71,87,.08)"}>
+      <Ic n="trash" size={14} />
+    </button>
+  </div>
+);
+
+// ─── MODAL DE CONFIRMACIÓN ────────────────────────────────────────────────────
+
+export const ConfirmModal = ({ message, onConfirm, onCancel }) => (
+  <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.7)", zIndex:2000, display:"flex", alignItems:"center", justifyContent:"center", padding:16, backdropFilter:"blur(4px)" }}>
+    <div style={{ background:"#161b27", border:"1px solid rgba(255,255,255,.1)", borderRadius:14, padding:24, maxWidth:380, width:"100%", boxShadow:"0 24px 80px rgba(0,0,0,.6)" }}>
+      <div style={{ display:"flex", gap:12, marginBottom:20, alignItems:"flex-start" }}>
+        <div style={{ width:36, height:36, borderRadius:9, background:"rgba(255,71,87,.12)", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
+          <Ic n="warn" size={18} color="#ff4757"/>
+        </div>
+        <p style={{ fontSize:14, color:"#ccc", lineHeight:1.5, margin:0 }}>{message}</p>
+      </div>
+      <div style={{ display:"flex", gap:8, justifyContent:"flex-end" }}>
+        <Btn variant="secondary" onClick={onCancel}>Cancelar</Btn>
+        <Btn variant="danger" onClick={onConfirm}><Ic n="trash" size={14}/>Eliminar</Btn>
+      </div>
+    </div>
+  </div>
+);
+
+export const useConfirm = () => {
+  const [state, setState] = useState(null);
+  const askConfirm = (message) => new Promise(resolve => setState({ message, resolve }));
+  const confirmModal = state ? (
+    <ConfirmModal
+      message={state.message}
+      onConfirm={() => { state.resolve(true);  setState(null); }}
+      onCancel={()  => { state.resolve(false); setState(null); }}
+    />
+  ) : null;
+  return [askConfirm, confirmModal];
+};
+
+// ─── PERSISTENCIA Y DATOS ─────────────────────────────────────────────────────
+
+export const store = {
+  get: (k, fallback = null) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : fallback; } catch { return fallback; } },
+  set: (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
+  del: (k) => { try { localStorage.removeItem(k); } catch {} },
+};
+
+export const uKey = (uid, mod) => `fp_${uid}_${mod}`;
+
+// Tipo de cambio USD→MXN configurable desde Settings.
+export const getTc = (userId) => {
+  try {
+    const cfg = JSON.parse(localStorage.getItem(`fp_data_${userId}_config`) || "{}");
+    return parseFloat(cfg.tipoCambio) || 17.5;
+  } catch { return 17.5; }
+};
+
+// Hook central de datos: lee/escribe en Supabase con cache en localStorage.
+export const useData = (userId, key, fallback = []) => {
+  const [data, setData] = useState(() => store.get(uKey(userId, key), fallback));
+  useEffect(() => {
+    if (!supa || !userId) return;
+    supa.get(userId, key).then(val => { if (val !== null) { store.set(uKey(userId, key), val); setData(val); } }).catch(()=>{});
+  }, [userId, key]);
+  const save = useCallback((val) => {
+    setData(prev => {
+      const next = typeof val==="function" ? val(prev) : val;
+      store.set(uKey(userId, key), next);
+      if (supa && userId) supa.set(userId, key, next).catch(()=>{});
+      return next;
+    });
+  }, [userId, key]);
+  return [data, save];
 };

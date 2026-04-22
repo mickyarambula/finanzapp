@@ -1,19 +1,11 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { createClient } from "@supabase/supabase-js";
 import { fmt, fmtDate, today, genId } from "./utils";
-import { Ctx, useCtx, themeTokens, useTheme, ICONS, Ic, Card, Btn, Modal, Inp, Sel } from "./shared";
+import {
+  Ctx, useCtx, themeTokens, useTheme, ICONS, Ic, Card, Btn, Modal, Inp, Sel,
+  supa, store, uKey, getTc, Badge, Actions, ConfirmModal, useConfirm, useData
+} from "./shared";
 
-const SUPA_URL = import.meta.env.VITE_SUPABASE_URL;
-const SUPA_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
-const _supaBase = (SUPA_URL && SUPA_KEY && !SUPA_URL.includes('XXXXX'))
-  ? createClient(SUPA_URL, SUPA_KEY)
-  : null;
-
-const supa = _supaBase ? {
-  auth: _supaBase.auth,
-  async get(u,m){const { data: { session } } = await _supaBase.auth.getSession(); const token = session?.access_token || SUPA_KEY; const r=await fetch(SUPA_URL+'/rest/v1/user_data?user_id=eq.'+u+'&module=eq.'+m+'&select=data',{headers:{apikey:SUPA_KEY,Authorization:'Bearer '+token}});const d=await r.json();return d?.[0]?.data??null;},
-  async set(u,m,d){const { data: { session } } = await _supaBase.auth.getSession(); const token = session?.access_token || SUPA_KEY; await fetch(SUPA_URL+'/rest/v1/user_data',{method:'POST',headers:{apikey:SUPA_KEY,Authorization:'Bearer '+token,'Content-Type':'application/json',Prefer:'resolution=merge-duplicates'},body:JSON.stringify({user_id:u,module:m,data:d,updated_at:new Date().toISOString()})})}
-} : null;
+// supa, store, uKey, getTc, Badge, Actions, ConfirmModal, useConfirm, useData → movidos a ./shared.jsx
 
 // ─── ESTILOS GLOBALES ─────────────────────────────────────────────────────────
 const GlobalStyles = ({ dark=true }) => (
@@ -98,13 +90,7 @@ const GlobalStyles = ({ dark=true }) => (
 // Ctx, useCtx, themeTokens, useTheme → movidos a ./shared.jsx
 
 
-// ─── PERSISTENCIA ─────────────────────────────────────────────────────────────
-const store = {
-  get: (k, fallback = null) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : fallback; } catch { return fallback; } },
-  set: (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
-  del: (k) => { try { localStorage.removeItem(k); } catch {} },
-};
-const uKey = (uid, mod) => `fp_${uid}_${mod}`;
+// store, uKey → movidos a ./shared.jsx
 
 // ─── HASH ─────────────────────────────────────────────────────────────────────
 const hashPwd = async (pwd) => {
@@ -112,14 +98,7 @@ const hashPwd = async (pwd) => {
   return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,"0")).join("");
 };
 
-// ─── FORMATO ──────────────────────────────────────────────────────────────────
-// Helper: tipo de cambio USD→MXN configurable desde Settings
-const getTc = (userId) => {
-  try {
-    const cfg = JSON.parse(localStorage.getItem(`fp_data_${userId}_config`) || "{}");
-    return parseFloat(cfg.tipoCambio) || 17.5;
-  } catch { return 17.5; }
-};
+// getTc → movido a ./shared.jsx
 
 // ── Hook: actualiza TC desde API pública al iniciar sesión (máx 1 vez por hora)
 const useTcAuto = (userId, setConfig) => {
@@ -183,24 +162,7 @@ const HelpTip = ({ text }) => {
   );
 };
 
-const Badge = ({ label, color="#00d4aa" }) => (
-  <span style={{ background:`${color}22`, color, padding:"2px 9px", borderRadius:20, fontSize:11, fontWeight:700 }}>{label}</span>
-);
-
-const Actions = ({ onEdit, onDelete }) => (
-  <div style={{ display:"flex", gap:4, flexShrink:0 }} onClick={e => e.stopPropagation()}>
-    {onEdit && (
-      <button onClick={onEdit} style={{ background:"rgba(255,255,255,.06)", border:"none", cursor:"pointer", color:"#888", padding:"5px 8px", borderRadius:7, display:"flex", alignItems:"center" }}
-        onMouseEnter={e=>e.currentTarget.style.color="#00d4aa"} onMouseLeave={e=>e.currentTarget.style.color="#888"}>
-        <Ic n="edit" size={14} />
-      </button>
-    )}
-    <button onClick={onDelete} style={{ background:"rgba(255,71,87,.08)", border:"none", cursor:"pointer", color:"#ff4757", padding:"5px 8px", borderRadius:7, display:"flex", alignItems:"center" }}
-      onMouseEnter={e=>e.currentTarget.style.background="rgba(255,71,87,.2)"} onMouseLeave={e=>e.currentTarget.style.background="rgba(255,71,87,.08)"}>
-      <Ic n="trash" size={14} />
-    </button>
-  </div>
-);
+// Badge, Actions → movidos a ./shared.jsx
 
 const Alert = ({ children, color="#f39c12" }) => (
   <div style={{ background:`${color}11`, border:`1px solid ${color}33`, borderRadius:9, padding:"10px 14px", marginBottom:14, fontSize:13, color, display:"flex", gap:8, alignItems:"flex-start" }}>
@@ -208,35 +170,7 @@ const Alert = ({ children, color="#f39c12" }) => (
   </div>
 );
 
-const ConfirmModal = ({ message, onConfirm, onCancel }) => (
-  <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,.7)", zIndex:2000, display:"flex", alignItems:"center", justifyContent:"center", padding:16, backdropFilter:"blur(4px)" }}>
-    <div style={{ background:"#161b27", border:"1px solid rgba(255,255,255,.1)", borderRadius:14, padding:24, maxWidth:380, width:"100%", boxShadow:"0 24px 80px rgba(0,0,0,.6)" }}>
-      <div style={{ display:"flex", gap:12, marginBottom:20, alignItems:"flex-start" }}>
-        <div style={{ width:36, height:36, borderRadius:9, background:"rgba(255,71,87,.12)", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
-          <Ic n="warn" size={18} color="#ff4757"/>
-        </div>
-        <p style={{ fontSize:14, color:"#ccc", lineHeight:1.5, margin:0 }}>{message}</p>
-      </div>
-      <div style={{ display:"flex", gap:8, justifyContent:"flex-end" }}>
-        <Btn variant="secondary" onClick={onCancel}>Cancelar</Btn>
-        <Btn variant="danger" onClick={onConfirm}><Ic n="trash" size={14}/>Eliminar</Btn>
-      </div>
-    </div>
-  </div>
-);
-
-const useConfirm = () => {
-  const [state, setState] = useState(null);
-  const askConfirm = (message) => new Promise(resolve => setState({ message, resolve }));
-  const confirmModal = state ? (
-    <ConfirmModal
-      message={state.message}
-      onConfirm={() => { state.resolve(true);  setState(null); }}
-      onCancel={()  => { state.resolve(false); setState(null); }}
-    />
-  ) : null;
-  return [askConfirm, confirmModal];
-};
+// ConfirmModal, useConfirm → movidos a ./shared.jsx
 
 // ─── AUTH ──────────────────────────────────────────────────────────────────────
 const AuthScreen = ({ onLogin }) => {
@@ -492,22 +426,7 @@ const Sidebar = ({ active, setActive, user, onLogout, mobile, open, onClose, not
 };
 
 // ─── HOOK DATOS ───────────────────────────────────────────────────────────────
-const useData = (userId, key, fallback = []) => {
-  const [data, setData] = useState(() => store.get(uKey(userId, key), fallback));
-  useEffect(() => {
-    if (!supa || !userId) return;
-    supa.get(userId, key).then(val => { if (val !== null) { store.set(uKey(userId, key), val); setData(val); } }).catch(()=>{});
-  }, [userId, key]);
-  const save = useCallback((val) => {
-    setData(prev => {
-      const next = typeof val==="function" ? val(prev) : val;
-      store.set(uKey(userId, key), next);
-      if (supa && userId) supa.set(userId, key, next).catch(()=>{});
-      return next;
-    });
-  }, [userId, key]);
-  return [data, save];
-};
+// useData → movido a ./shared.jsx
 
 
 // ─── BÚSQUEDA GLOBAL ──────────────────────────────────────────────────────────
