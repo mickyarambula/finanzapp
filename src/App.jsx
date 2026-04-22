@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, createContext, useContext, useCallback } from "react";
 import { createClient } from "@supabase/supabase-js";
+import { fmt, fmtDate, today, genId } from "./utils";
 
 const SUPA_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPA_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -148,17 +149,6 @@ const useTcAuto = (userId, setConfig) => {
       .catch(() => {}); // falla silenciosa — queda el valor manual
   }, [userId]);
 };
-
-const fmt = (amount, currency = "MXN") =>
-  new Intl.NumberFormat("es-MX", { style:"currency", currency, minimumFractionDigits:2 }).format(amount || 0);
-
-const fmtDate = (d) => {
-  if (!d) return "—";
-  return new Date(d + "T12:00:00").toLocaleDateString("es-MX", { day:"2-digit", month:"short", year:"numeric" });
-};
-
-const today = () => new Date().toISOString().split("T")[0];
-const genId = () => Date.now().toString(36) + Math.random().toString(36).slice(2);
 
 // ─── ÍCONOS ───────────────────────────────────────────────────────────────────
 const ICONS = {
