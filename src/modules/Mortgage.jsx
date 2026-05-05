@@ -221,7 +221,7 @@ const Mortgage = () => {
   const [showCapModal, setShowCapModal]   = useState(false);
   const [editPago, setEditPago]           = useState(null); // pago en edición
   const [pagoForm, setPagoForm]           = useState({});
-  const [capForm,  setCapForm]            = useState({ monto:"", fecha:today(), cuentaId:"", notas:"" });
+  const [capForm,  setCapForm]            = useState({ monto:"", fecha:today(), cuentaId:"", notas:"", registrarComoTx:true });
 
   // ── form crédito
   const emptyForm = {
@@ -290,12 +290,17 @@ const Mortgage = () => {
   };
 
   // ── fecha de próximo vencimiento
+  // Si día_inicio > día_corte, primer corte es 2 meses después del inicio (no 1) porque el día_corte
+  // del mes siguiente cae demasiado cerca de la firma. Cada pago registrado avanza un mes adicional.
   const proxVencimiento = (m) => {
     const pagados = (m.pagosRealizados||[]).length;
     const inicio = new Date(m.fechaInicio + "T12:00:00");
+    const diaInicio = inicio.getDate();
+    const diaCorte = parseInt(m.diaCorte)||1;
+    const offsetPrimerCorte = diaInicio > diaCorte ? 2 : 1;
     const d = new Date(inicio);
-    d.setMonth(d.getMonth() + pagados + 1);
-    d.setDate(parseInt(m.diaCorte)||1);
+    d.setMonth(d.getMonth() + offsetPrimerCorte + pagados);
+    d.setDate(diaCorte);
     return d.toISOString().split("T")[0];
   };
 
@@ -488,8 +493,21 @@ const Mortgage = () => {
     const updated = {...m, pagosCapital:nuevosCap};
     setMortgages(p=>p.map(x=>x.id===m.id?updated:x));
     setSelected(updated);
+    if (capForm.registrarComoTx) {
+      const newTx = {
+        id:genId(), date:capForm.fecha, amount:montoNum,
+        type:"expense",
+        description:`Abono a capital — ${m.nombre||m.banco||"Hipoteca"}`,
+        category:"Hipoteca / Vivienda",
+        accountId: capForm.cuentaId||"",
+        currency:"MXN",
+        origen:"hipoteca", origenId:m.id,
+        notes: capForm.notas||"",
+      };
+      setTransactions(p=>[newTx,...p]);
+    }
     setShowCapModal(false);
-    setCapForm({monto:"",fecha:today(),cuentaId:"",notas:""});
+    setCapForm({monto:"",fecha:today(),cuentaId:"",notas:"",registrarComoTx:true});
     toast(`Pago a capital de ${fmt(montoNum,m.moneda)} registrado ✓`);
   };
 
@@ -740,7 +758,7 @@ const Mortgage = () => {
             <p style={{fontSize:12,color:"#555",margin:0}}>{m.banco||"Sin banco"} · {m.tipo==="fijo"?"Tasa fija":"Capital fijo"} · {m.tasaAnual}% · {m.plazoAnios} años · {cur2}</p>
           </div>
           <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-            <Btn variant="secondary" onClick={()=>{setCapForm({monto:"",fecha:today(),cuentaId:"",notas:""});setShowCapModal(true);}}><Ic n="plus" size={15}/>Pago a capital</Btn>
+            <Btn variant="secondary" onClick={()=>{setCapForm({monto:"",fecha:today(),cuentaId:"",notas:"",registrarComoTx:true});setShowCapModal(true);}}><Ic n="plus" size={15}/>Pago a capital</Btn>
             <Btn onClick={()=>abrirPagoModal(m)}><Ic n="check" size={15}/>Registrar mensualidad</Btn>
           </div>
         </div>
@@ -1048,7 +1066,7 @@ const Mortgage = () => {
         {tab==="capital" && (
           <div>
             <div style={{display:"flex",justifyContent:"flex-end",marginBottom:10}}>
-              <Btn onClick={()=>{setCapForm({monto:"",fecha:today(),cuentaId:"",notas:""});setShowCapModal(true);}}><Ic n="plus" size={15}/>Pago a capital</Btn>
+              <Btn onClick={()=>{setCapForm({monto:"",fecha:today(),cuentaId:"",notas:"",registrarComoTx:true});setShowCapModal(true);}}><Ic n="plus" size={15}/>Pago a capital</Btn>
             </div>
             {prog.totalCapitalExtra>0 && (
               <div style={{background:"rgba(124,58,237,.08)",border:"1px solid rgba(124,58,237,.2)",borderRadius:10,padding:"10px 14px",marginBottom:12,fontSize:13,color:"#a78bfa"}}>
@@ -1131,6 +1149,13 @@ const Mortgage = () => {
             <Inp label="Fecha" type="date" value={capForm.fecha} onChange={e=>setCapForm(p=>({...p,fecha:e.target.value}))}/>
             <Sel label="Descontar de cuenta" value={capForm.cuentaId} onChange={e=>setCapForm(p=>({...p,cuentaId:e.target.value}))} options={acctOpts}/>
             <Inp label="Notas" value={capForm.notas} onChange={e=>setCapForm(p=>({...p,notas:e.target.value}))} placeholder="Referencia, origen del dinero..."/>
+            <label style={{display:"flex",alignItems:"flex-start",gap:10,marginBottom:14,cursor:"pointer",background:"rgba(124,58,237,.05)",border:"1px solid rgba(124,58,237,.18)",borderRadius:9,padding:"10px 13px"}}>
+              <input type="checkbox" checked={capForm.registrarComoTx} onChange={e=>setCapForm(p=>({...p,registrarComoTx:e.target.checked}))} style={{marginTop:2,accentColor:"#7c3aed",width:15,height:15,flexShrink:0}}/>
+              <div>
+                <p style={{fontSize:12,fontWeight:700,color:"#a78bfa",margin:"0 0 2px"}}>Registrar también en Transacciones</p>
+                <p style={{fontSize:11,color:"#555",margin:0}}>Genera un gasto en el período por el abono. Desactiva si ya lo registraste manualmente.</p>
+              </div>
+            </label>
             <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
               <Btn variant="secondary" onClick={()=>setShowCapModal(false)}>Cancelar</Btn>
               <Btn onClick={()=>guardarCapital(m)}><Ic n="check" size={15}/>Registrar pago a capital</Btn>
