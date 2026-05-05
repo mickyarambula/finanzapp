@@ -2115,10 +2115,14 @@ const Dashboard = () => {
         d.setDate(parseInt(m.diaCorte)||1);
         return d;
       }
+      // Si día_inicio > día_corte, primer corte es 2 meses después (no 1) — ver Mortgage.jsx proxVencimiento.
       const inicio = new Date((m.fechaInicio||today())+"T12:00:00");
+      const diaInicio = inicio.getDate();
+      const diaCorte = parseInt(m.diaCorte)||1;
+      const offsetPrimerCorte = diaInicio > diaCorte ? 2 : 1;
       const d = new Date(inicio);
-      d.setMonth(d.getMonth()+pagados+1);
-      d.setDate(parseInt(m.diaCorte)||1);
+      d.setMonth(d.getMonth() + offsetPrimerCorte + pagados);
+      d.setDate(diaCorte);
       return d;
     })();
     const diasAlPago = Math.round((proxPago-now)/86400000);
