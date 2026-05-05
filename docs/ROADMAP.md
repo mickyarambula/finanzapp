@@ -1,6 +1,17 @@
 # Finanzapp — Roadmap
 
+## Hecho recientemente (sesión 05-may-2026)
+- ~~Comisiones recurrentes en préstamos recibidos (Loans.jsx)~~ ✅
+- ~~Panel "Total a pagar" para préstamos recibidos~~ ✅
+- ~~Fix: abono a capital genera tx automática~~ ✅
+- ~~Fix: proxVencimiento offset según día_inicio vs día_corte (Mortgage.jsx + App.jsx Dashboard)~~ ✅
+- ~~Fix: doble conteo seguros + cuota mensual unificada~~ ✅
+- ~~Migración Supabase: comisiones[] de Santa Rosa, 2 tx erróneas borradas, tx abono capital insertada~~ ✅
+
 ## Pendientes inmediatos (próxima sesión)
+
+### 0. Quick win en Supabase
+- **Corregir tasa Santa Rosa**: actualizar `rate` de `"13.5"` → `"12.5"` en loan `mn9i23jzfw15ismwvbe`. Es la tasa real negociada (NO 13%, NO 13.5%). 1 UPDATE, sin riesgo.
 
 ### 1. Refactor de módulos — Tomar 2 (en curso ✅)
 **Patrón validado:** módulo en `src/modules/*.jsx` importa solo de `react`, `../utils`, `../shared`, recibe cero props.
@@ -15,7 +26,7 @@ Hecho hasta ahora:
 - ~~Loans + Alert~~ ✅ (22-abr `0513864`)
 
 **Sigue (en orden recomendado):**
-- **Investments** — análisis ya completo, ver HANDOFF.md para plan ejecutivo. Riesgo medio-alto (1,313 líneas + PortafolioChart 126 líneas). Cero tuberías nuevas. Cero props.
+- **Investments** ← SIGUIENTE — análisis ya completo, ver HANDOFF.md para plan ejecutivo. Riesgo medio-alto (1,313 líneas + PortafolioChart 126 líneas). Cero tuberías nuevas. Cero props.
 - **Dashboard** — riesgo ALTO. Es el componente más interconectado: KPIs, alertas, gráfica 6 meses, panel de pendientes recurrentes (con su duplicado de calcNext), panel de loans. Análisis exhaustivo nuevo recomendado antes.
 - **Transactions** — riesgo ALTO. Filtros, exportar Excel, categorías, tags. Probable que tenga sub-componentes propios.
 
@@ -24,6 +35,7 @@ Hecho hasta ahora:
 - `calcNext` duplicada 4 veces con nombres distintos
 - `ProyeccionFlujo` definido pero nunca usado — eliminar
 - Warnings `Duplicate key whiteSpace/transform` en HelpTip (shared.jsx)
+- Rama `if (esPrimerPago && m.fechaAcreditacion)` en App.jsx (Dashboard hipoteca) tiene `+2` hardcoded — verificar si necesita el mismo offset condicional cuando Banorte acredita un día > diaCorte
 
 ### 2. Configuración Vercel — Production Overrides
 - Hay un warning: "Configuration Settings in the current Production deployment differ from current Project Settings"

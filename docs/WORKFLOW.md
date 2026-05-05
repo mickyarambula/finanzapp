@@ -116,11 +116,24 @@ git push
 | v-estable-post-metas | Estado bueno tras extraer Metas (commit base 1d7c2af). Creado antes de Mortgage | 22-abr-2026 |
 | v-estable-post-mortgage | Estado bueno tras extraer Mortgage + HelpTip (commit base abf98ff). Creado antes de Recurring | 22-abr-2026 |
 | v-estable-post-recurring | Estado bueno tras extraer Recurring (commit base 7414dee). Creado antes de Loans | 22-abr-2026 |
-| v-estable-post-loans | Estado bueno tras extraer Loans + Alert (commit base 0513864). Creado al cierre del 22-abr, antes de Investments | 22-abr-2026 |
+| v-estable-post-loans | Estado bueno tras extraer Loans + Alert (commit base 0513864). Creado al cierre del 22-abr | 22-abr-2026 |
+| v-estable-pre-comisiones-recurrentes | Pre-feature comisiones en préstamos recibidos (commit base b5e1562) | 05-may-2026 |
+| v-estable-post-comisiones-recurrentes | Tras pushear feature comisiones (commit base 9aa28f7). Creado antes de Mortgage fixes | 05-may-2026 |
+| v-estable-pre-mortgage-fixes | Pre-fix tx en abono a capital + offset proxVencimiento (commit base 9aa28f7) | 05-may-2026 |
+| v-estable-post-mortgage-fixes | Tras pushear los fixes Mortgage (commit base 5707cd5). Creado antes de fix doble conteo seguros | 05-may-2026 |
+| v-estable-pre-cuota-display-fix | Pre-fix doble conteo seguros banner + cuota mensual (commit base 5707cd5) | 05-may-2026 |
+| v-estable-post-cuota-display-fix | Tras pushear fix unificación cuota (commit base 6f46a95). Creado antes de fix Dashboard hipoteca | 05-may-2026 |
+| v-estable-pre-dashboard-mortgage-alert-fix | Pre-fix offset Dashboard hipoteca alerta vencido (commit base 6f46a95) | 05-may-2026 |
+| v-estable-post-dashboard-mortgage-alert-fix | **ÚLTIMO ESTABLE** — tras pushear fix Dashboard (commit base 72eb23d). Antes de Investments | 05-may-2026 |
 
 ## Commits de referencia importantes
 | Commit | Descripción | Estado |
 |--------|-------------|--------|
+| 72eb23d | fix(dashboard): mortgage alert proxVencimiento offset when diaInicio > diaCorte | ✅ PRODUCCIÓN (05-may fix 4) |
+| 6f46a95 | fix(mortgage): remove double-counting of seguros in banner + cuota mensual includes seguros | ✅ PRODUCCIÓN (05-may fix 3) |
+| 5707cd5 | fix(mortgage): pago a capital genera tx + proxVencimiento respeta dia_inicio>dia_corte | ✅ PRODUCCIÓN (05-may fix 1+2) |
+| 9aa28f7 | feat(loans): comisiones recurrentes en prestamos recibidos + panel Total a pagar | ✅ PRODUCCIÓN (05-may feature) |
+| b5e1562 | docs: update after 4-module refactor sprint (Metas, Mortgage, Recurring, Loans) | ✅ docs cierre 22-abr |
 | 0513864 | refactor: extract Loans module (con AmortizacionChart, CorteGlobalPanel, TramosPanel, CorteMensual) to src/modules/Loans.jsx (Alert moved to shared) | ✅ PRODUCCIÓN (22-abr módulo 4) |
 | 7414dee | refactor: extract Recurring module to src/modules/Recurring.jsx | ✅ PRODUCCIÓN (22-abr módulo 3) |
 | abf98ff | refactor: extract Mortgage + SimuladorLiquidacion to src/modules/Mortgage.jsx (HelpTip moved to shared) | ✅ PRODUCCIÓN (22-abr módulo 2) |

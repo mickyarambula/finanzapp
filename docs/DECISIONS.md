@@ -2,6 +2,29 @@
 
 ## Decisiones de arquitectura
 
+### 2026-05-05: Comisiones recurrentes en préstamos recibidos
+- **Qué:** En `Loans.jsx`, los préstamos `type==="received"` ahora soportan un array `comisiones[]` con entradas `{ tipo, porcentaje, frecuencia: "una_vez" | "anual" | "mensual" }`. El cálculo de devengado, el desglose de pagos y el modal de pago se extendieron para tratar comisiones como un tercer bucket separado de capital e interés.
+- **Por qué se hizo:** El crédito Santa Rosa real cobra Apertura, Administración (ambas one-shot al inicio) y FEGA (1.77% anual recurrente sobre el saldo). El modelo previo (3 inputs fijos `comisionApertura`/`comisionFega`/`otrosGastos` que se asentaban como tx pagada al crear el préstamo) era incorrecto: una_vez no significa "ya pagada", significa "se devenga al inicio pero queda pendiente hasta el primer pago". Y FEGA recurrente no se modelaba en absoluto.
+- **Decisiones de diseño clave:**
+  1. **`comisiones[]` reemplaza el modelo legacy** dentro del form (repeater dinámico). Los campos legacy quedaron en el schema solo para no romper datos preexistentes; ya no se escriben.
+  2. **Allocation order al pagar:** comisiones → interés → capital. El usuario puede sobrescribir cuánto va a comisiones via input "Del cual a comisiones" en el modal de pago.
+  3. **`una_vez` se devenga 100% sobre el principal en el primer período** (entre `startDate` y el primer pago, o hasta hoy si no hay pagos). Si se paga parcialmente, el remanente queda en `pendingComisiones`.
+  4. **`anual`/`mensual` se devengan sobre el `balance` actual** del período (no sobre el principal), análogo a cómo se devenga interés.
+  5. **Solo aplica a `type==="received"`**. Los préstamos otorgados (`given`) no tienen comisiones (no las cobramos).
+- **UI nueva:** panel "💸 Total a pagar (préstamos recibidos)" full-width espejo del existente "Total cobrado histórico" para préstamos otorgados. Histórico pagado, pendiente al día, estimado 30d, desglose clickeable por préstamo.
+- **Migración Supabase ejecutada:** Santa Rosa ganó `comisiones[]` con [Apertura 0.5% una_vez, Administración 0.5% una_vez, FEGA 1.77% anual]. Se borraron 2 tx erróneas que se habían asentado como pagadas al crear el préstamo (apertura $10k + FEGA $10k del 17-mar) cuando en realidad estaban pendientes.
+
+### 2026-05-05: Offset al primer corte de hipoteca según día_inicio vs día_corte
+- **Qué:** `proxVencimiento` (Mortgage.jsx) y la lógica equivalente del Dashboard (App.jsx bloque "// 13. Hipoteca") ahora calculan el offset al primer corte según `diaInicio > diaCorte ? 2 : 1` meses.
+- **Por qué:** El modelo previo asumía offset=1 mes siempre desde `fechaInicio` al primer corte. Para Casa Portal de Hierro (firmado 27-mar, día de corte 3), esto daba primer corte 03-abr — solo 7 días después de la firma, irrealizable contra el calendario hipotecario real. Resultado: alertas "vencido" prematuras y avance roto del próximo vencimiento.
+- **Regla:** si firmaste un día > el día de corte, el primer corte cae dos meses después (en el día de corte). Si firmaste antes o en el día de corte, cae un mes después. Cada pago realizado avanza un mes adicional.
+- **Doble fix necesario:** Dashboard tiene su propia copia de la lógica (más sofisticada con `fechaAcreditacion`), por lo que el fix se aplicó en ambos archivos. La rama `if (esPrimerPago && m.fechaAcreditacion)` quedó intacta — caso especial flagged como deuda técnica para revisar otro día.
+
+### 2026-05-05: Cuota mensual hipoteca = capital + interés + seguros (no solo PMT puro)
+- **Qué:** El banner "Próximo pago" y la card "Cuota mensual" del tab Resumen ahora muestran `cuotaTotal` (cap + int + segVida_proporcional + segDanos + admin) en vez de `cuotaBase` (PMT puro sin seguros).
+- **Por qué:** El número que el usuario quiere ver es **lo que sale de su cuenta cada mes**, no la fórmula matemática del préstamo. La PMT pura ($14,624.71 para Casa Portal) era engañosa porque omitía $1,749.59 en seguros y admin. Y el banner tenía un bug peor: sumaba seguros DOS VECES (el `cuotaSig.pago` ya los incluye, y le sumaba `segurosTotal` otra vez encima → $18,119.80 vs el real $16,374).
+- **Para cerrar gap con el dato canónico del banco:** llenar el campo `cuotaReal` del crédito con el monto exacto que cobra Banorte ($16,509.59 para Casa Portal). Cuando `cuotaReal > 0`, los 3 lugares (banner, tabla, resumen) ya tienen lógica para usarlo y mostrar el dato del banco en vez del calculado.
+
 ### 2026-04-22: Sprint de 4 módulos consecutivos — VALIDADO ✅
 - **Qué:** En una sola sesión se extrajeron Metas, Mortgage, Recurring y Loans a `src/modules/*.jsx`. Cada uno con tag de seguridad propio y validación 10-15 min en producción antes del siguiente.
 - **Patrón confirmado 4 veces sin excepciones:** módulo importa solo de `react`, `../utils`, `../shared`, recibe **CERO props** desde App.jsx, datos vienen vía `useData()` y `useCtx()`.
