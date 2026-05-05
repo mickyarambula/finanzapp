@@ -767,8 +767,9 @@ const Mortgage = () => {
         {(()=>{
           const cuentaAsoc = accounts.find(a=>a.id===m.cuentaId);
           const cuotaTotal = parseFloat(m.cuotaReal)||0;
-          const segurosTotal = (parseFloat(m.seguroVida)||0)+(parseFloat(m.seguroDanos)||0)+(parseFloat(m.adminCredito)||0);
-          const cuotaMostrar = cuotaTotal > 0 ? cuotaTotal : (cuotaDisplay + segurosTotal);
+          // cuotaDisplay = prog.cuotaSig.pago, que ya es pagoTotal (cap+int+segVida+segDanos+admin).
+          // Sumar seguros otra vez aquí provocaría doble conteo.
+          const cuotaMostrar = cuotaTotal > 0 ? cuotaTotal : cuotaDisplay;
           const saldoCuenta = cuentaAsoc ? parseFloat(cuentaAsoc.balance||0) : null;
           const fondosOk = saldoCuenta === null || saldoCuenta >= cuotaMostrar;
           const faltante = saldoCuenta !== null ? Math.max(0, cuotaMostrar - saldoCuenta) : 0;
@@ -893,8 +894,9 @@ const Mortgage = () => {
                 const seg={seguroVida:m.seguroVida,seguroVidaTipo:m.seguroVidaTipo||"proporcional",seguroDanos:m.seguroDanos,adminCredito:m.adminCredito};
                 const {totalPagar,totalIntereses,cuota,cuotaTotal}=calcAmort(m.monto,m.tasaAnual,m.plazoAnios,m.tipo,m.pagosCapital||[],seg);
                 const pagadoTotal=(m.pagosRealizados||[]).reduce((s,p)=>s+p.pago,0)+(m.pagosCapital||[]).reduce((s,p)=>s+parseFloat(p.monto),0);
+                // Cuota mensual: usar cuotaTotal (capital+interés+seguros) en vez de cuota (PMT puro), refleja lo que sale de la cuenta.
                 return [
-                  ["Cuota mensual",fmt(m.cuotaReal?parseFloat(m.cuotaReal):cuota,cur2),"#00d4aa"],
+                  ["Cuota mensual",fmt(m.cuotaReal?parseFloat(m.cuotaReal):cuotaTotal,cur2),"#00d4aa"],
                   ["Total a pagar",fmt(totalPagar,cur2)],
                   ["Total intereses",fmt(totalIntereses,cur2),"#f39c12"],
                   ["Costo financiero",`${totalPagar>0?((totalIntereses/totalPagar)*100).toFixed(1):0}%`],
