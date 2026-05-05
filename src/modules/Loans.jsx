@@ -466,8 +466,8 @@ const Loans = () => {
   const [openPay,  setOpenPay]  = useState(false);
   const [editing,  setEditing]  = useState(null);
   const [askConfirm, confirmModal] = useConfirm();
-  const blankLoan = { type:"given", name:"", accountId:"", principal:"", currency:"MXN", rateType:"annual", rate:"", startDate:today(), dueDate:"", notes:"", comisionApertura:"", comisionFega:"", otrosGastos:"" };
-  const blankPay  = { amount:"", date:today(), paymentType:"interest_only", targetAccountId:"", notes:"", registrarComoTx:true };
+  const blankLoan = { type:"given", name:"", accountId:"", principal:"", currency:"MXN", rateType:"annual", rate:"", startDate:today(), dueDate:"", notes:"", comisionApertura:"", comisionFega:"", otrosGastos:"", comisiones:[] };
+  const blankPay  = { amount:"", date:today(), paymentType:"interest_only", targetAccountId:"", notes:"", registrarComoTx:true, toComisiones:"" };
   const [lf, setLF] = useState(blankLoan);
   const [pf, setPF] = useState(blankPay);
   const [fechaCorteGlobalInput, setFechaCorteGlobalInput] = useState(today());
@@ -486,6 +486,27 @@ const Loans = () => {
     }
     if (tramoVigente) return dailyRate(tramoVigente.rate, tramoVigente.rateType||loan.rateType);
     return dailyRate(loan.rate, loan.rateType);
+  };
+
+  // calcComisionesEnPeriodo: devenga comisiones[] de un préstamo received en un período
+  // - frecuencia="una_vez": devenga 100% sobre principal solo en el primer período
+  // - frecuencia="anual": balance * pct/100 * días/365
+  // - frecuencia="mensual": balance * pct/100 * días/30
+  const calcComisionesEnPeriodo = (loan, balance, fromDate, toDate, isFirstPeriod) => {
+    if (loan.type !== "received") return 0;
+    const comisiones = loan.comisiones || [];
+    if (comisiones.length === 0) return 0;
+    const principal = parseFloat(loan.principal) || 0;
+    const days = Math.max(0, Math.floor((toDate - fromDate) / 86400000));
+    let total = 0;
+    for (const c of comisiones) {
+      const pct = parseFloat(c.porcentaje) || 0;
+      if (pct <= 0) continue;
+      if (c.frecuencia === "una_vez") { if (isFirstPeriod) total += principal * pct / 100; }
+      else if (c.frecuencia === "anual")   total += balance * pct / 100 * days / 365;
+      else if (c.frecuencia === "mensual") total += balance * pct / 100 * days / 30;
+    }
+    return total;
   };
 
   // calcInteresTramos: calcula interés entre dos fechas respetando cambios de tasa
@@ -516,46 +537,79 @@ const Loans = () => {
   };
 
   const calcState = loan => {
-    let balance = parseFloat(loan.principal), totalPaid=0;
+    let balance = parseFloat(loan.principal), totalPaid=0, totalPaidComisiones=0;
     let lastDate = new Date(loan.startDate+"T12:00:00");
+    let accruedComTotal = 0, firstPeriod = true;
     for (const pmt of [...(loan.payments||[])].sort((a,b)=>new Date(a.date)-new Date(b.date))) {
-      const accrued = calcInteresTramos(loan, balance, lastDate, new Date(pmt.date+"T12:00:00"));
-      if (pmt.paymentType==="interest_only") { totalPaid+=pmt.amount; lastDate=new Date(pmt.date+"T12:00:00"); }
-      else { const toInt=Math.min(pmt.amount,accrued); balance=Math.max(0,balance-(pmt.amount-toInt)); totalPaid+=pmt.amount; lastDate=new Date(pmt.date+"T12:00:00"); }
+      const periodEnd = new Date(pmt.date+"T12:00:00");
+      const accruedInt = calcInteresTramos(loan, balance, lastDate, periodEnd);
+      const accruedCom = calcComisionesEnPeriodo(loan, balance, lastDate, periodEnd, firstPeriod);
+      accruedComTotal += accruedCom;
+      const toCom = parseFloat(pmt.toComisiones)||0;
+      totalPaidComisiones += toCom;
+      const remainingTrasCom = pmt.amount - toCom;
+      if (pmt.paymentType==="interest_only") {
+        totalPaid += pmt.amount;
+      } else {
+        const toInt = Math.min(remainingTrasCom, accruedInt);
+        balance = Math.max(0, balance - (remainingTrasCom - toInt));
+        totalPaid += pmt.amount;
+      }
+      lastDate = periodEnd;
+      firstPeriod = false;
     }
     const pendingInterest = calcInteresTramos(loan, balance, lastDate, new Date());
-    return { originalPrincipal:parseFloat(loan.principal), currentBalance:balance, pendingInterest, totalOwed:balance+pendingInterest, totalPaid, isPaid:balance<=0.01 };
+    const accruedComEstePeriodo = calcComisionesEnPeriodo(loan, balance, lastDate, new Date(), firstPeriod);
+    const pendingComisiones = Math.max(0, accruedComTotal + accruedComEstePeriodo - totalPaidComisiones);
+    const isPaid = balance<=0.01 && pendingComisiones<=0.01;
+    return {
+      originalPrincipal: parseFloat(loan.principal),
+      currentBalance: balance,
+      pendingInterest,
+      pendingComisiones,
+      totalOwed: balance + pendingInterest + pendingComisiones,
+      totalPaid,
+      totalPaidComisiones,
+      isPaid,
+    };
   };
 
   const getBreakdown = loan => {
     const dr = dailyRate(loan.rate, loan.rateType);
     let balance=parseFloat(loan.principal), lastDate=new Date(loan.startDate+"T12:00:00");
+    let firstPeriod = true;
     return [...(loan.payments||[])].sort((a,b)=>new Date(a.date)-new Date(b.date)).map((pmt,i)=>{
       const days=Math.max(0,Math.floor((new Date(pmt.date+"T12:00:00")-lastDate)/86400000));
       const accrued=balance*dr*days;
-      if (pmt.paymentType==="interest_only") { lastDate=new Date(pmt.date+"T12:00:00"); return{...pmt,idx:i+1,days,accrued,toInterest:pmt.amount,toPrincipal:0,balanceAfter:balance,isInterestOnly:true}; }
-      const toInt=Math.min(pmt.amount,accrued); const toCap=pmt.amount-toInt;
-      balance=Math.max(0,balance-toCap); lastDate=new Date(pmt.date+"T12:00:00");
-      return{...pmt,idx:i+1,days,accrued,toInterest:toInt,toPrincipal:toCap,balanceAfter:balance,isInterestOnly:false};
+      const accruedCom = calcComisionesEnPeriodo(loan, balance, lastDate, new Date(pmt.date+"T12:00:00"), firstPeriod);
+      const toCom = parseFloat(pmt.toComisiones)||0;
+      const remainingTrasCom = pmt.amount - toCom;
+      if (pmt.paymentType==="interest_only") {
+        lastDate=new Date(pmt.date+"T12:00:00"); firstPeriod=false;
+        return {...pmt,idx:i+1,days,accrued,accruedCom,toInterest:remainingTrasCom,toComisiones:toCom,toPrincipal:0,balanceAfter:balance,isInterestOnly:true};
+      }
+      const toInt=Math.min(remainingTrasCom,accrued); const toCap=remainingTrasCom-toInt;
+      balance=Math.max(0,balance-toCap); lastDate=new Date(pmt.date+"T12:00:00"); firstPeriod=false;
+      return {...pmt,idx:i+1,days,accrued,accruedCom,toInterest:toInt,toComisiones:toCom,toPrincipal:toCap,balanceAfter:balance,isInterestOnly:false};
     });
   };
 
   const applyDelta = (accs,id,delta) => accs.map(a=>a.id===id?{...a,balance:parseFloat(a.balance||0)+delta}:a);
 
   const openNewLoan = () => { setEditing(null); setLF({...blankLoan,accountId:accounts[0]?.id||""}); setOpenLoan(true); };
-  const openEditLoan = (loan,e) => { e?.stopPropagation(); setEditing(loan); setLF({type:loan.type,name:loan.name,accountId:loan.accountId,principal:loan.principal.toString(),currency:loan.currency,rateType:loan.rateType,rate:loan.rate,startDate:loan.startDate,dueDate:loan.dueDate||"",notes:loan.notes||""}); setOpenLoan(true); };
+  const openEditLoan = (loan,e) => { e?.stopPropagation(); setEditing(loan); setLF({type:loan.type,name:loan.name,accountId:loan.accountId,principal:loan.principal.toString(),currency:loan.currency,rateType:loan.rateType,rate:loan.rate,startDate:loan.startDate,dueDate:loan.dueDate||"",notes:loan.notes||"",comisiones:loan.comisiones||[],comisionApertura:"",comisionFega:"",otrosGastos:""}); setOpenLoan(true); };
   const closeLoan = () => { setOpenLoan(false); setEditing(null); };
 
   const saveLoan = () => {
     if (!lf.name.trim()||!lf.principal||!lf.accountId) { toast("Completa los campos requeridos.","error"); return; }
     const principal=parseFloat(lf.principal);
     if (isNaN(principal)||principal<=0) { toast("Monto inválido.","error"); return; }
-    const comAp   = parseFloat(lf.comisionApertura)||0;
-    const comFega = parseFloat(lf.comisionFega)||0;
-    const otrosG  = parseFloat(lf.otrosGastos)||0;
-    const totalComisiones = (principal * comAp/100) + (principal * comFega/100) + otrosG;
+    // Solo received: limpiar entradas de comisiones[] sin tipo o porcentaje válido
+    const comisionesClean = lf.type==="received"
+      ? (lf.comisiones||[]).filter(c=>c.tipo&&c.tipo.trim()&&parseFloat(c.porcentaje)>0)
+      : [];
     if (editing) {
-      setLoans(loans.map(l=>l.id===editing.id?{...l,...lf,principal}:l));
+      setLoans(loans.map(l=>l.id===editing.id?{...l,...lf,principal,comisiones:comisionesClean}:l));
       toast("Préstamo actualizado.","success");
     } else {
       const loanId = genId();
@@ -565,20 +619,8 @@ const Loans = () => {
         const delta = lf.type==="given" ? -principal : principal; // prestamos = sale dinero; recibimos = entra dinero
         return {...a, balance: parseFloat(a.balance||0) + delta};
       }));
-      // ── Registrar comisiones como gasto si las hay
-      if (totalComisiones>0) {
-        const comTxs = [];
-        if (comAp>0) comTxs.push({id:genId(),date:lf.startDate||today(),type:"expense",amount:principal*comAp/100,description:`Comisión apertura — ${lf.name}`,category:"Pago de deuda",accountId:lf.accountId,currency:lf.currency,origen:"prestamo",origenId:loanId,notes:`${comAp}% apertura`});
-        if (comFega>0) comTxs.push({id:genId(),date:lf.startDate||today(),type:"expense",amount:principal*comFega/100,description:`FEGA — ${lf.name}`,category:"Pago de deuda",accountId:lf.accountId,currency:lf.currency,origen:"prestamo",origenId:loanId,notes:`${comFega}% FEGA`});
-        if (otrosG>0) comTxs.push({id:genId(),date:lf.startDate||today(),type:"expense",amount:otrosG,description:`Gastos adicionales — ${lf.name}`,category:"Pago de deuda",accountId:lf.accountId,currency:lf.currency,origen:"prestamo",origenId:loanId,notes:"Otros gastos"});
-        setTransactions(prev=>[...comTxs,...prev]);
-        // También descontar comisiones del saldo de la cuenta
-        setAccounts(prev=>prev.map(a=>a.id===lf.accountId?{...a,balance:parseFloat(a.balance||0)-totalComisiones}:a));
-        toast(`Préstamo registrado + ${fmt(totalComisiones)} en comisiones descontadas ✓`,"success");
-      } else {
-        toast(`Préstamo ${lf.type==="given"?"otorgado":"recibido"} registrado. Saldo de cuenta ajustado.`,"success");
-      }
-      setLoans([{id:loanId,...lf,principal,payments:[],createdAt:new Date().toISOString()},...loans]);
+      toast(`Préstamo ${lf.type==="given"?"otorgado":"recibido"} registrado. Saldo de cuenta ajustado.`,"success");
+      setLoans([{id:loanId,...lf,principal,comisiones:comisionesClean,payments:[],createdAt:new Date().toISOString()},...loans]);
     }
     closeLoan();
   };
@@ -596,39 +638,60 @@ const Loans = () => {
     toast("Préstamo eliminado y saldos revertidos.","warning");
   };
 
-  const openNewPay = () => { setPF({...blankPay,targetAccountId:selected?.accountId||accounts[0]?.id||""}); setOpenPay(true); };
+  const openNewPay = () => {
+    const st = selected ? calcState(selected) : null;
+    const defaultCom = (selected?.type==="received" && st && st.pendingComisiones>0) ? st.pendingComisiones.toFixed(2) : "";
+    setPF({...blankPay,targetAccountId:selected?.accountId||accounts[0]?.id||"",toComisiones:defaultCom});
+    setOpenPay(true);
+  };
   const closePay = () => setOpenPay(false);
 
   const savePay = () => {
     const amount=parseFloat(pf.amount);
     if (!amount||amount<=0) { toast("Monto inválido.","error"); return; }
     const st=calcState(selected);
-    if (pf.paymentType==="interest_only"&&amount>st.pendingInterest*1.02+1) { toast(`No puede exceder el interés acumulado: ${fmt(st.pendingInterest,selected.currency)}`,"error"); return; }
+    const toCom = parseFloat(pf.toComisiones)||0;
+    if (toCom < 0) { toast("Las comisiones no pueden ser negativas.","error"); return; }
+    if (toCom > amount + 0.01) { toast("Las comisiones no pueden exceder el monto del pago.","error"); return; }
+    if (toCom > st.pendingComisiones + 0.02) { toast(`No puede exceder comisiones pendientes: ${fmt(st.pendingComisiones,selected.currency)}`,"error"); return; }
+    const remainingTrasCom = amount - toCom;
+    if (pf.paymentType==="interest_only"&&remainingTrasCom>st.pendingInterest*1.02+1) { toast(`Resto tras comisiones (${fmt(remainingTrasCom,selected.currency)}) excede el interés acumulado: ${fmt(st.pendingInterest,selected.currency)}`,"error"); return; }
     if (pf.paymentType!=="interest_only"&&amount>st.totalOwed+1) { toast(`No puede exceder lo adeudado: ${fmt(st.totalOwed,selected.currency)}`,"error"); return; }
     const targetId=pf.targetAccountId||selected.accountId;
     setAccounts(applyDelta(accounts, targetId, selected.type==="given"?amount:-amount));
     const pmtId = genId();
-    const newPmt={id:pmtId,...pf,amount,targetAccountId:targetId};
+    const newPmt={id:pmtId,...pf,amount,toComisiones:toCom,targetAccountId:targetId};
     setLoans(loans.map(l=>l.id===selected.id?{...l,payments:[...(l.payments||[]),newPmt]}:l));
     // ── híbrido: crear transacción si el usuario lo eligió
     if (pf.registrarComoTx) {
       const isIngreso = selected.type==="given"; // préstamo dado → cobrar = ingreso
       const txs = [];
-      if (pf.paymentType==="interest_only") {
-        // Solo intereses → ingreso/gasto puro
+      // Comisiones (solo received): tx aparte
+      if (toCom > 0) {
         txs.push({
-          id:genId(), date:pf.date, amount,
-          type: isIngreso?"income":"expense",
-          description: isIngreso?`Intereses cobrados — ${selected.name}`:`Pago intereses — ${selected.name}`,
-          category: isIngreso?"Intereses cobrados":"Pago de deuda",
+          id:genId(), date:pf.date, amount:toCom,
+          type:"expense",
+          description:`Pago comisiones — ${selected.name}`,
+          category:"Pago de deuda",
           accountId: targetId, currency: selected.currency||"MXN",
           origen:"prestamo", origenId:selected.id, pmtId, notes: pf.notes||"",
         });
+      }
+      const restoTrasCom = amount - toCom;
+      if (pf.paymentType==="interest_only") {
+        if (restoTrasCom > 0) {
+          txs.push({
+            id:genId(), date:pf.date, amount:restoTrasCom,
+            type: isIngreso?"income":"expense",
+            description: isIngreso?`Intereses cobrados — ${selected.name}`:`Pago intereses — ${selected.name}`,
+            category: isIngreso?"Intereses cobrados":"Pago de deuda",
+            accountId: targetId, currency: selected.currency||"MXN",
+            origen:"prestamo", origenId:selected.id, pmtId, notes: pf.notes||"",
+          });
+        }
       } else {
-        // Capital + interés: separar ambas partes
-        const interes = st.pendingInterest > 0 ? Math.min(st.pendingInterest, amount) : 0;
-        const capital = Math.max(0, amount - interes);
-        // Solo los intereses son ingreso/gasto real
+        const interes = st.pendingInterest > 0 ? Math.min(st.pendingInterest, restoTrasCom) : 0;
+        const capital = Math.max(0, restoTrasCom - interes);
         if (interes > 0) {
           txs.push({
             id:genId(), date:pf.date, amount:interes,
@@ -639,7 +702,6 @@ const Loans = () => {
             origen:"prestamo", origenId:selected.id, pmtId, notes: pf.notes||"",
           });
         }
-        // El capital es recuperación de activo (préstamo dado) o reducción de pasivo (préstamo recibido)
         if (capital > 0) {
           txs.push({
             id:genId(), date:pf.date, amount:capital,
@@ -653,7 +715,7 @@ const Loans = () => {
       }
       setTransactions(p=>[...txs,...p]);
     }
-    toast(pf.paymentType==="interest_only"?"Pago de intereses registrado. Capital intacto.":"Pago registrado.","success");
+    toast(pf.paymentType==="interest_only"?"Pago registrado. Capital intacto.":"Pago registrado.","success");
     closePay();
   };
 
@@ -705,7 +767,14 @@ const Loans = () => {
         </div>
 
         <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(145px,1fr))", gap:10, marginBottom:16 }}>
-          {[["Capital original",fmt(st.originalPrincipal,selected.currency),"#888"],["Saldo pendiente",fmt(st.currentBalance,selected.currency),st.isPaid?"#00d4aa":"#ff4757"],["Interés acumulado",fmt(st.pendingInterest,selected.currency),"#f39c12"],["Total adeudado",fmt(st.totalOwed,selected.currency),"#ff6b6b"],["Total pagado",fmt(st.totalPaid,selected.currency),"#00d4aa"]].map(([l,v,c])=>(
+          {[
+            ["Capital original",fmt(st.originalPrincipal,selected.currency),"#888"],
+            ["Saldo pendiente",fmt(st.currentBalance,selected.currency),st.isPaid?"#00d4aa":"#ff4757"],
+            ["Interés acumulado",fmt(st.pendingInterest,selected.currency),"#f39c12"],
+            ...(selected.type==="received" && (selected.comisiones||[]).length>0 ? [["Comisiones acumuladas",fmt(st.pendingComisiones,selected.currency),"#e67e22"]] : []),
+            ["Total adeudado",fmt(st.totalOwed,selected.currency),"#ff6b6b"],
+            ["Total pagado",fmt(st.totalPaid,selected.currency),"#00d4aa"],
+          ].map(([l,v,c])=>(
             <Card key={l} style={{ padding:14 }}>
               <p style={{ fontSize:11, color:"#666", textTransform:"uppercase", letterSpacing:.4, margin:"0 0 4px" }}>{l}</p>
               <p style={{ fontSize:16, fontWeight:700, color:c, margin:0 }}>{v}</p>
@@ -810,7 +879,9 @@ const Loans = () => {
         {bd.length>0&&(()=>{
           const totalInteresesPagados = bd.reduce((s,p)=>s+p.toInterest,0);
           const totalCapitalPagado = bd.reduce((s,p)=>s+p.toPrincipal,0);
+          const totalComisionesPagadas = bd.reduce((s,p)=>s+(p.toComisiones||0),0);
           const totalPagosReal = bd.reduce((s,p)=>s+p.amount,0);
+          const showCom = selected.type==="received" && (selected.comisiones||[]).length>0;
           return (
             <Card style={{marginBottom:14,padding:0,overflow:"hidden"}}>
               <div style={{padding:"10px 16px 8px",borderBottom:"1px solid rgba(255,255,255,.05)"}}>
@@ -819,6 +890,7 @@ const Loans = () => {
               <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:0}}>
                 {[
                   {l:"Total pagado",v:fmt(totalPagosReal,selected.currency),c:"#00d4aa"},
+                  ...(showCom?[{l:"En comisiones",v:fmt(totalComisionesPagadas,selected.currency),c:"#e67e22"}]:[]),
                   {l:"En intereses",v:fmt(totalInteresesPagados,selected.currency),c:"#f39c12"},
                   {l:"A capital",v:fmt(totalCapitalPagado,selected.currency),c:"#3b82f6"},
                   {l:"Pagos registrados",v:bd.length,c:"#888"},
@@ -878,12 +950,18 @@ const Loans = () => {
             </div>
             <div style={{ background:"rgba(255,255,255,.04)", border:"1px solid rgba(255,255,255,.07)", borderRadius:9, padding:"11px 14px", marginBottom:14 }}>
               {pf.paymentType==="interest_only" ? (
-                <><p style={{ fontSize:11, color:"#777", margin:"0 0 4px" }}>Interés acumulado hasta hoy</p><p style={{ fontSize:20, fontWeight:700, color:"#f39c12", margin:"0 0 3px" }}>{fmt(st2.pendingInterest,selected.currency)}</p><p style={{ fontSize:11, color:"#555", margin:0 }}>Capital intacto: {fmt(st2.currentBalance,selected.currency)}</p></>
+                <><p style={{ fontSize:11, color:"#777", margin:"0 0 4px" }}>Interés acumulado hasta hoy</p><p style={{ fontSize:20, fontWeight:700, color:"#f39c12", margin:"0 0 3px" }}>{fmt(st2.pendingInterest,selected.currency)}</p>{selected.type==="received" && st2.pendingComisiones>0 && <p style={{ fontSize:11, color:"#e67e22", margin:"0 0 3px" }}>Comisiones pendientes: {fmt(st2.pendingComisiones,selected.currency)}</p>}<p style={{ fontSize:11, color:"#555", margin:0 }}>Capital intacto: {fmt(st2.currentBalance,selected.currency)}</p></>
               ) : (
-                <><p style={{ fontSize:11, color:"#777", margin:"0 0 4px" }}>Total adeudado</p><p style={{ fontSize:20, fontWeight:700, color:"#ff6b6b", margin:"0 0 3px" }}>{fmt(st2.totalOwed,selected.currency)}</p><p style={{ fontSize:11, color:"#666", margin:0 }}>Capital: {fmt(st2.currentBalance,selected.currency)} · Interés: {fmt(st2.pendingInterest,selected.currency)}</p></>
+                <><p style={{ fontSize:11, color:"#777", margin:"0 0 4px" }}>Total adeudado</p><p style={{ fontSize:20, fontWeight:700, color:"#ff6b6b", margin:"0 0 3px" }}>{fmt(st2.totalOwed,selected.currency)}</p><p style={{ fontSize:11, color:"#666", margin:0 }}>Capital: {fmt(st2.currentBalance,selected.currency)} · Interés: {fmt(st2.pendingInterest,selected.currency)}{selected.type==="received" && st2.pendingComisiones>0 ? ` · Comisiones: ${fmt(st2.pendingComisiones,selected.currency)}` : ""}</p></>
               )}
             </div>
             <Inp label="Monto del pago" type="number" value={pf.amount} onChange={pc("amount")} placeholder="0.00" prefix={selected.currency==="USD"?"US$":"$"} required/>
+            {selected.type==="received" && (selected.comisiones||[]).length>0 && (
+              <div style={{marginBottom:14}}>
+                <Inp label={<>Del cual a comisiones<HelpTip text="Porción del pago que se aplica a comisiones pendientes (apertura, administración, FEGA…). El resto va a interés y luego a capital."/></>} type="number" value={pf.toComisiones} onChange={pc("toComisiones")} placeholder="0.00" prefix={selected.currency==="USD"?"US$":"$"}/>
+                <p style={{fontSize:10,color:"#666",margin:"-8px 0 0"}}>Pendiente: <strong style={{color:"#e67e22"}}>{fmt(st2.pendingComisiones,selected.currency)}</strong>{pf.amount && parseFloat(pf.amount)>0 ? ` · Resto del pago: ${fmt(Math.max(0,parseFloat(pf.amount)-(parseFloat(pf.toComisiones)||0)),selected.currency)}` : ""}</p>
+              </div>
+            )}
             <Sel label="¿A qué cuenta entra?" value={pf.targetAccountId} onChange={pc("targetAccountId")} options={accounts.map(a=>({value:a.id,label:`${a.name} — ${fmt(a.balance,a.currency)}`}))}/>
             <Inp label="Fecha" type="date" value={pf.date} onChange={pc("date")}/>
             <Inp label="Notas (opcional)" value={pf.notes} onChange={pc("notes")} placeholder="Referencia..."/>
@@ -966,27 +1044,37 @@ const Loans = () => {
             </div>
           </div>
         )}
-        {/* Interés acumulado */}
-        {!st.isPaid && st.pendingInterest>0 && (
-          <div style={{
-            marginBottom:8,padding:"7px 10px",borderRadius:8,
-            background:interesAlto?"rgba(255,71,87,.08)":"rgba(243,156,18,.07)",
-            border:`1px solid ${interesAlto?"rgba(255,71,87,.2)":"rgba(243,156,18,.2)"}`
-          }}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-              <span style={{fontSize:10,color:interesAlto?"#ff6b7a":"#f39c12",fontWeight:600}}>
-                {interesAlto?"⚠️":"💰"} Interés acumulado{isGiven?" a cobrar":" a pagar"}
-              </span>
-              <span style={{fontSize:12,fontWeight:800,color:interesAlto?"#ff6b7a":"#f39c12"}}>
-                {isGiven?"+":"-"}{fmt(st.pendingInterest,loan.currency)}
-              </span>
+        {/* Interés acumulado (+ comisiones para received) */}
+        {!st.isPaid && (st.pendingInterest>0 || st.pendingComisiones>0) && (() => {
+          const showCom = !isGiven && st.pendingComisiones>0;
+          const totalAcc = st.pendingInterest + (showCom?st.pendingComisiones:0);
+          return (
+            <div style={{
+              marginBottom:8,padding:"7px 10px",borderRadius:8,
+              background:interesAlto?"rgba(255,71,87,.08)":"rgba(243,156,18,.07)",
+              border:`1px solid ${interesAlto?"rgba(255,71,87,.2)":"rgba(243,156,18,.2)"}`
+            }}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <span style={{fontSize:10,color:interesAlto?"#ff6b7a":"#f39c12",fontWeight:600}}>
+                  {interesAlto?"⚠️":"💰"} {showCom?"Interés + comisiones":"Interés acumulado"}{isGiven?" a cobrar":" a pagar"}
+                </span>
+                <span style={{fontSize:12,fontWeight:800,color:interesAlto?"#ff6b7a":"#f39c12"}}>
+                  {isGiven?"+":"-"}{fmt(totalAcc,loan.currency)}
+                </span>
+              </div>
+              {showCom && (
+                <div style={{display:"flex",justifyContent:"space-between",marginTop:2}}>
+                  <span style={{fontSize:9,color:"#666"}}>Interés: {fmt(st.pendingInterest,loan.currency)}</span>
+                  <span style={{fontSize:9,color:"#e67e22"}}>Comisiones: {fmt(st.pendingComisiones,loan.currency)}</span>
+                </div>
+              )}
+              <div style={{display:"flex",justifyContent:"space-between",marginTop:2}}>
+                <span style={{fontSize:10,color:"#555"}}>{diasSinPago}d desde {ultPago?"último pago":"inicio"}</span>
+                {interesAlto&&<span style={{fontSize:10,color:"#ff6b7a",fontWeight:600}}>Interés alto — considera cobrar/pagar</span>}
+              </div>
             </div>
-            <div style={{display:"flex",justifyContent:"space-between",marginTop:2}}>
-              <span style={{fontSize:10,color:"#555"}}>{diasSinPago}d desde {ultPago?"último pago":"inicio"}</span>
-              {interesAlto&&<span style={{fontSize:10,color:"#ff6b7a",fontWeight:600}}>Interés alto — considera cobrar/pagar</span>}
-            </div>
-          </div>
-        )}
+          );
+        })()}
         {loan.dueDate&&(
           <div style={{padding:"5px 9px",borderRadius:7,
             background:vencido?"rgba(255,71,87,.1)":urgente?"rgba(243,156,18,.1)":"rgba(255,255,255,.03)",
@@ -1018,15 +1106,24 @@ const Loans = () => {
   const totalPorCobrar      = activeLoans.filter(l=>l.type==="given").reduce((s,l)=>s+calcState(l).currentBalance,0);
   const totalPorPagar       = activeLoans.filter(l=>l.type==="received").reduce((s,l)=>s+calcState(l).totalOwed,0);
   const interesPorCobrar    = activeLoans.filter(l=>l.type==="given").reduce((s,l)=>s+calcState(l).pendingInterest,0);
-  const interesPorPagar     = activeLoans.filter(l=>l.type==="received").reduce((s,l)=>s+calcState(l).pendingInterest,0);
+  const interesPorPagar     = activeLoans.filter(l=>l.type==="received").reduce((s,l)=>s+calcState(l).pendingInterest+calcState(l).pendingComisiones,0);
   const interesEsteMes = activeLoans.filter(l=>l.type==="received").reduce((s,l)=>{
+    const st = calcState(l);
     const dr=(parseFloat(l.rate)||0)/100/(l.rateType==="annual"?365:30);
-    return s + calcState(l).currentBalance * dr * 30;
+    const intMes = st.currentBalance * dr * 30;
+    // Comisiones recurrentes proyectadas a 30d
+    const comMes = (l.comisiones||[]).reduce((cs,c)=>{
+      const pct=parseFloat(c.porcentaje)||0; if(pct<=0) return cs;
+      if (c.frecuencia==="anual")   return cs + st.currentBalance * pct/100 * 30/365;
+      if (c.frecuencia==="mensual") return cs + st.currentBalance * pct/100;
+      return cs;
+    },0);
+    return s + intMes + comMes;
   },0);
 
   const prestamosGivenActivos = activeLoans.filter(l=>l.type==="given");
 
-  // ── Totales cobrados (todos los préstamos, activos y liquidados)
+  // ── Totales cobrados (todos los préstamos given, activos y liquidados)
   const givenLoans = loans.filter(l=>l.type==="given");
   const totalCobradoIntereses = givenLoans.reduce((s,l)=>s+getBreakdown(l).reduce((a,p)=>a+p.toInterest,0),0);
   const totalCobradoCapital   = givenLoans.reduce((s,l)=>s+getBreakdown(l).reduce((a,p)=>a+p.toPrincipal,0),0);
@@ -1035,6 +1132,27 @@ const Loans = () => {
     const bd=getBreakdown(l);
     return { loan:l, intereses:bd.reduce((a,p)=>a+p.toInterest,0), capital:bd.reduce((a,p)=>a+p.toPrincipal,0), pagos:bd.length };
   }).filter(d=>d.intereses+d.capital>0);
+
+  // ── Totales pagados (todos los préstamos received, activos y liquidados)
+  const receivedLoans = loans.filter(l=>l.type==="received");
+  const totalPagadoIntereses  = receivedLoans.reduce((s,l)=>s+getBreakdown(l).reduce((a,p)=>a+p.toInterest,0),0);
+  const totalPagadoComisiones = receivedLoans.reduce((s,l)=>s+getBreakdown(l).reduce((a,p)=>a+(p.toComisiones||0),0),0);
+  const totalPagadoCapital    = receivedLoans.reduce((s,l)=>s+getBreakdown(l).reduce((a,p)=>a+p.toPrincipal,0),0);
+  const totalPagadoHist       = totalPagadoIntereses + totalPagadoComisiones + totalPagadoCapital;
+  const desglosePagado = receivedLoans.map(l=>{
+    const bd=getBreakdown(l);
+    return {
+      loan:l,
+      intereses:bd.reduce((a,p)=>a+p.toInterest,0),
+      comisiones:bd.reduce((a,p)=>a+(p.toComisiones||0),0),
+      capital:bd.reduce((a,p)=>a+p.toPrincipal,0),
+      pagos:bd.length,
+    };
+  }).filter(d=>d.intereses+d.comisiones+d.capital>0);
+  const totalAPagarHoy = activeLoans.filter(l=>l.type==="received").reduce((s,l)=>{
+    const st = calcState(l);
+    return s + st.pendingInterest + st.pendingComisiones;
+  },0);
 
   return (
     <div>
@@ -1119,16 +1237,62 @@ const Loans = () => {
           )}
           {interesPorPagar>0&&(
             <Card style={{padding:"12px 14px",borderColor:"rgba(243,156,18,.2)",background:"rgba(243,156,18,.03)"}}>
-              <p style={{fontSize:10,color:"#f39c12",textTransform:"uppercase",letterSpacing:.4,margin:"0 0 4px"}}>Interés acumulado a pagar</p>
+              <p style={{fontSize:10,color:"#f39c12",textTransform:"uppercase",letterSpacing:.4,margin:"0 0 4px"}}>Interés + comisiones a pagar</p>
               <p style={{fontSize:18,fontWeight:800,color:"#f39c12",margin:0}}>-{fmt(interesPorPagar)}</p>
               <p style={{fontSize:10,color:"#444",margin:"3px 0 0"}}>A la fecha de hoy</p>
             </Card>
           )}
           {interesEsteMes>0&&(
             <Card style={{padding:"12px 14px",borderColor:"rgba(243,156,18,.2)"}}>
-              <p style={{fontSize:10,color:"#555",textTransform:"uppercase",letterSpacing:.4,margin:"0 0 4px"}}>Interés est. próx. 30d</p>
+              <p style={{fontSize:10,color:"#555",textTransform:"uppercase",letterSpacing:.4,margin:"0 0 4px"}}>Interés + comisiones est. 30d</p>
               <p style={{fontSize:18,fontWeight:800,color:"#f39c12",margin:0}}>{fmt(interesEsteMes)}</p>
               <p style={{fontSize:10,color:"#444",margin:"3px 0 0"}}>A pagar aprox.</p>
+            </Card>
+          )}
+          {(totalPagadoHist>0 || totalAPagarHoy>0)&&(
+            <Card style={{padding:0,overflow:"hidden",borderColor:"rgba(243,156,18,.25)",background:"rgba(243,156,18,.04)",gridColumn:"1 / -1"}}>
+              <div style={{padding:"11px 16px 9px",borderBottom:"1px solid rgba(243,156,18,.12)",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
+                <p style={{fontSize:13,fontWeight:800,color:"#f39c12",margin:0}}>💸 Total a pagar (préstamos recibidos)</p>
+                <p style={{fontSize:11,color:"#555",margin:0}}>Histórico pagado · Pendiente al día · Estimado 30d</p>
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:0}}>
+                {[
+                  {l:"Total pagado hist.",v:fmt(totalPagadoHist),c:"#f39c12",big:true},
+                  {l:"En comisiones",v:fmt(totalPagadoComisiones),c:"#e67e22"},
+                  {l:"En intereses",v:fmt(totalPagadoIntereses),c:"#f39c12"},
+                  {l:"A capital",v:fmt(totalPagadoCapital),c:"#3b82f6"},
+                  {l:"Pendiente al día",v:fmt(totalAPagarHoy),c:"#ff6b6b"},
+                  {l:"Estimado 30d",v:fmt(interesEsteMes),c:"#888"},
+                ].map(k=>(
+                  <div key={k.l} style={{padding:"10px 16px",borderRight:"1px solid rgba(243,156,18,.07)"}}>
+                    <p style={{fontSize:9,color:"#555",textTransform:"uppercase",letterSpacing:.5,margin:"0 0 3px"}}>{k.l}</p>
+                    <p style={{fontSize:k.big?20:14,fontWeight:800,color:k.c,margin:0,fontVariantNumeric:"tabular-nums"}}>{k.v}</p>
+                  </div>
+                ))}
+              </div>
+              {desglosePagado.length>0&&(
+                <div style={{borderTop:"1px solid rgba(243,156,18,.08)"}}>
+                  {desglosePagado.map((d,i)=>(
+                    <div key={d.loan.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",
+                      padding:"7px 16px",borderBottom:i<desglosePagado.length-1?"1px solid rgba(255,255,255,.03)":"none",
+                      background:i%2===0?"transparent":"rgba(255,255,255,.01)",cursor:"pointer"}}
+                      onClick={()=>{setSelectedId(d.loan.id);setView("detail");}}>
+                      <div style={{flex:1,minWidth:0}}>
+                        <p style={{fontSize:12,fontWeight:600,color:"#ccc",margin:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{d.loan.name}</p>
+                        <p style={{fontSize:10,color:"#555",margin:0}}>{d.pagos} pago{d.pagos!==1?"s":""} · com {fmt(d.comisiones)} · int {fmt(d.intereses)} · cap {fmt(d.capital)}</p>
+                      </div>
+                      <p style={{fontSize:13,fontWeight:800,color:"#f39c12",margin:0,flexShrink:0,fontVariantNumeric:"tabular-nums"}}>
+                        {fmt(d.intereses+d.comisiones+d.capital)}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {desglosePagado.length===0 && totalAPagarHoy>0 && (
+                <div style={{padding:"10px 16px",fontSize:11,color:"#666",borderTop:"1px solid rgba(243,156,18,.08)"}}>
+                  Sin pagos registrados aún. Pendiente al día: <strong style={{color:"#ff6b6b"}}>{fmt(totalAPagarHoy)}</strong>
+                </div>
+              )}
             </Card>
           )}
           {activeLoans.some(l=>l.dueDate&&new Date(l.dueDate)<new Date())&&(
@@ -1182,20 +1346,39 @@ const Loans = () => {
             <Inp label="Vencimiento (opcional)" type="date" value={lf.dueDate} onChange={lc("dueDate")}/>
           </div>
           <Inp label="Notas (opcional)" value={lf.notes} onChange={lc("notes")} placeholder="Condiciones..."/>
-          {/* Comisiones — solo para préstamos recibidos y solo al crear */}
-          {!editing && lf.type==="received" && (
+          {/* Comisiones — solo para préstamos recibidos */}
+          {lf.type==="received" && (
             <div style={{marginBottom:14,padding:"12px 14px",background:"rgba(243,156,18,.06)",border:"1px solid rgba(243,156,18,.2)",borderRadius:10}}>
-              <p style={{fontSize:12,fontWeight:700,color:"#f39c12",margin:"0 0 10px"}}>💰 Comisiones y gastos iniciales <span style={{fontSize:10,fontWeight:400,color:"#666"}}>(opcionales)</span></p>
-              <p style={{fontSize:11,color:"#666",margin:"0 0 10px",lineHeight:1.4}}>Se descontarán de la cuenta y se registrarán como gasto al guardar.</p>
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10}}>
-                <Inp label="Comisión apertura %" type="number" value={lf.comisionApertura} onChange={lc("comisionApertura")} placeholder="0.5" suffix="%"/>
-                <Inp label="FEGA %" type="number" value={lf.comisionFega} onChange={lc("comisionFega")} placeholder="0.5" suffix="%"/>
-                <Inp label="Otros gastos $" type="number" value={lf.otrosGastos} onChange={lc("otrosGastos")} placeholder="0.00"/>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,flexWrap:"wrap",gap:6}}>
+                <p style={{fontSize:12,fontWeight:700,color:"#f39c12",margin:0}}>💰 Comisiones <HelpTip text="Apertura/admin como una_vez se devengan al inicio. FEGA/seguros como anual o mensual se devengan continuamente sobre el saldo."/></p>
+                <button type="button" onClick={()=>setLF(p=>({...p,comisiones:[...(p.comisiones||[]),{id:genId(),tipo:"",porcentaje:"",frecuencia:"una_vez"}]}))} style={{background:"rgba(243,156,18,.15)",border:"1px solid rgba(243,156,18,.3)",borderRadius:7,padding:"4px 10px",fontSize:11,fontWeight:700,color:"#f39c12",cursor:"pointer"}}>+ Añadir comisión</button>
               </div>
-              {(parseFloat(lf.comisionApertura)||parseFloat(lf.comisionFega)||parseFloat(lf.otrosGastos))>0&&lf.principal&&(()=>{
+              {(lf.comisiones||[]).length===0 ? (
+                <p style={{fontSize:11,color:"#666",margin:0,fontStyle:"italic"}}>Sin comisiones. Añade apertura, administración, FEGA, seguros, etc.</p>
+              ) : (
+                <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                  {(lf.comisiones||[]).map((c,i)=>(
+                    <div key={c.id||i} style={{display:"grid",gridTemplateColumns:"1.4fr .8fr 1fr 32px",gap:8,alignItems:"end"}}>
+                      <Inp label={i===0?"Tipo":""} value={c.tipo||""} onChange={e=>setLF(p=>({...p,comisiones:p.comisiones.map((x,j)=>j===i?{...x,tipo:e.target.value}:x)}))} placeholder="Apertura"/>
+                      <Inp label={i===0?"%":""} type="number" value={c.porcentaje??""} onChange={e=>setLF(p=>({...p,comisiones:p.comisiones.map((x,j)=>j===i?{...x,porcentaje:e.target.value}:x)}))} placeholder="0.5" suffix="%"/>
+                      <Sel label={i===0?"Frecuencia":""} value={c.frecuencia||"una_vez"} onChange={e=>setLF(p=>({...p,comisiones:p.comisiones.map((x,j)=>j===i?{...x,frecuencia:e.target.value}:x)}))} options={[{value:"una_vez",label:"Una vez"},{value:"anual",label:"Anual"},{value:"mensual",label:"Mensual"}]}/>
+                      <button type="button" onClick={()=>setLF(p=>({...p,comisiones:p.comisiones.filter((_,j)=>j!==i)}))} style={{background:"rgba(255,71,87,.1)",border:"1px solid rgba(255,71,87,.25)",borderRadius:7,height:38,cursor:"pointer",color:"#ff6b7a",fontSize:14,fontWeight:700,marginBottom:14}}>×</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {(lf.comisiones||[]).length>0&&lf.principal&&(()=>{
                 const p=parseFloat(lf.principal)||0;
-                const total=(p*(parseFloat(lf.comisionApertura)||0)/100)+(p*(parseFloat(lf.comisionFega)||0)/100)+(parseFloat(lf.otrosGastos)||0);
-                return total>0?<p style={{fontSize:12,color:"#f39c12",fontWeight:700,margin:"6px 0 0"}}>Total comisiones: {fmt(total,lf.currency)}</p>:null;
+                const totalUnaVez = (lf.comisiones||[]).filter(c=>c.frecuencia==="una_vez").reduce((s,c)=>s+p*(parseFloat(c.porcentaje)||0)/100,0);
+                const totalAnualPct = (lf.comisiones||[]).filter(c=>c.frecuencia==="anual").reduce((s,c)=>s+(parseFloat(c.porcentaje)||0),0);
+                const totalMensualPct = (lf.comisiones||[]).filter(c=>c.frecuencia==="mensual").reduce((s,c)=>s+(parseFloat(c.porcentaje)||0),0);
+                return (
+                  <p style={{fontSize:11,color:"#f39c12",margin:"10px 0 0",lineHeight:1.5}}>
+                    {totalUnaVez>0&&<>Una vez: <strong>{fmt(totalUnaVez,lf.currency)}</strong> · </>}
+                    {totalAnualPct>0&&<>Anual recurrente: <strong>{totalAnualPct.toFixed(2)}%</strong> · </>}
+                    {totalMensualPct>0&&<>Mensual recurrente: <strong>{totalMensualPct.toFixed(2)}%</strong></>}
+                  </p>
+                );
               })()}
             </div>
           )}
