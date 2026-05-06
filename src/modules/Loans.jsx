@@ -133,6 +133,72 @@ const CorteGlobalPanel = ({ loans, calcInteresTramos, fechaCorteGlobalInput, set
   );
 };
 
+const CorteGlobalPanelRecibidos = ({ loans, calcState, getBreakdown, fechaCorteRecibidosInput, setFechaCorteRecibidosInput, fmt, setSelectedId, setView, totalPagadoIntereses, totalPagadoComisiones, totalPagadoCapital, desglosePagado, interesEsteMes }) => {
+  const detalle = loans.map(l => ({ loan: l, st: calcState(l, fechaCorteRecibidosInput) }));
+  const totalPendiente = detalle.reduce((s, d) => s + d.st.pendingInterest + d.st.pendingComisiones, 0);
+  const totalPagadoHist = totalPagadoIntereses + totalPagadoComisiones + totalPagadoCapital;
+  const fmtFecha = (str) => new Date(str + "T12:00:00").toLocaleDateString("es-MX", {day:"2-digit", month:"long", year:"numeric"});
+
+  return (
+    <Card style={{padding:0,overflow:"hidden",borderColor:"rgba(243,156,18,.25)",background:"rgba(243,156,18,.04)",gridColumn:"1 / -1"}}>
+      <div style={{padding:"12px 16px 10px",borderBottom:"1px solid rgba(243,156,18,.12)",display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:10}}>
+        <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+          <span style={{fontSize:15}}>💸</span>
+          <p style={{fontSize:13,fontWeight:800,color:"#f39c12",margin:0}}>Total a pagar al</p>
+          <input
+            type="date"
+            value={fechaCorteRecibidosInput}
+            onChange={e => setFechaCorteRecibidosInput(e.target.value)}
+            style={{background:"rgba(243,156,18,.15)",border:"1px solid rgba(243,156,18,.3)",borderRadius:7,
+              color:"#f39c12",fontSize:12,padding:"4px 8px",outline:"none",cursor:"pointer",fontWeight:700}}
+          />
+        </div>
+        <p style={{fontSize:11,color:"#555",margin:0}}>{fmtFecha(fechaCorteRecibidosInput)}</p>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:0}}>
+        {[
+          {l:"Total pagado hist.",v:fmt(totalPagadoHist),c:"#f39c12",big:true},
+          {l:"En comisiones",v:fmt(totalPagadoComisiones),c:"#e67e22"},
+          {l:"En intereses",v:fmt(totalPagadoIntereses),c:"#f39c12"},
+          {l:"A capital",v:fmt(totalPagadoCapital),c:"#3b82f6"},
+          {l:"Pendiente a la fecha",v:fmt(totalPendiente),c:"#ff6b6b"},
+          {l:"Estimado 30d",v:fmt(interesEsteMes),c:"#888"},
+        ].map(k=>(
+          <div key={k.l} style={{padding:"10px 16px",borderRight:"1px solid rgba(243,156,18,.07)"}}>
+            <p style={{fontSize:9,color:"#555",textTransform:"uppercase",letterSpacing:.5,margin:"0 0 3px"}}>{k.l}</p>
+            <p style={{fontSize:k.big?20:14,fontWeight:800,color:k.c,margin:0,fontVariantNumeric:"tabular-nums"}}>{k.v}</p>
+          </div>
+        ))}
+      </div>
+      {detalle.length>0 && (
+        <div style={{borderTop:"1px solid rgba(243,156,18,.08)"}}>
+          {detalle.map(({loan, st}, i) => {
+            const dPagado = desglosePagado.find(d=>d.loan.id===loan.id);
+            const pendienteLoan = st.pendingInterest + st.pendingComisiones;
+            return (
+              <div key={loan.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",
+                padding:"8px 16px",borderBottom:i<detalle.length-1?"1px solid rgba(255,255,255,.03)":"none",
+                background:i%2===0?"transparent":"rgba(255,255,255,.01)",cursor:"pointer"}}
+                onClick={()=>{setSelectedId(loan.id);setView("detail");}}>
+                <div style={{flex:1,minWidth:0}}>
+                  <p style={{fontSize:12,fontWeight:600,color:"#ccc",margin:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{loan.name}</p>
+                  <p style={{fontSize:10,color:"#555",margin:0}}>
+                    {dPagado ? `${dPagado.pagos} pago${dPagado.pagos!==1?"s":""} · com ${fmt(dPagado.comisiones)} · int ${fmt(dPagado.intereses)} · cap ${fmt(dPagado.capital)}` : "Sin pagos registrados"}
+                  </p>
+                </div>
+                <div style={{textAlign:"right",flexShrink:0}}>
+                  <p style={{fontSize:9,color:"#555",margin:"0 0 1px",textTransform:"uppercase",letterSpacing:.4}}>Pendiente</p>
+                  <p style={{fontSize:13,fontWeight:800,color:"#ff6b6b",margin:0,fontVariantNumeric:"tabular-nums"}}>{fmt(pendienteLoan)}</p>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </Card>
+  );
+};
+
 const TramosPanel = ({ loan, loans, setLoans, dailyRate, toast }) => {
   const [showTramoForm, setShowTramoForm] = useState(false);
   const [nuevoTramo, setNuevoTramo] = useState({desde:today(), rate:"", rateType:loan.rateType||"monthly"});
@@ -471,6 +537,7 @@ const Loans = () => {
   const [lf, setLF] = useState(blankLoan);
   const [pf, setPF] = useState(blankPay);
   const [fechaCorteGlobalInput, setFechaCorteGlobalInput] = useState(today());
+  const [fechaCorteRecibidosInput, setFechaCorteRecibidosInput] = useState(today());
   const lc = k => e => setLF(p=>({...p,[k]:e.target.value}));
   const pc = k => e => setPF(p=>({...p,[k]:e.target.value}));
 
@@ -540,12 +607,18 @@ const Loans = () => {
   // pendingInterest = (interés devengado desde inicio) - (interés pagado históricamente),
   // por lo que un interest_only que no cubra todo el devengado deja el sobrante pendiente
   // en lugar de descartarlo.
-  const calcState = loan => {
+  // targetDate (opcional): si se pasa, calcula el state al cierre de ese día (proyección o histórico).
+  // Pagos posteriores a targetDate se ignoran.
+  const calcState = (loan, targetDate) => {
+    const target = targetDate ? new Date(targetDate+"T23:59:59") : new Date();
     let balance = parseFloat(loan.principal);
     let lastDate = new Date(loan.startDate+"T12:00:00");
     let totalPaid=0, totalPaidComisiones=0, totalPaidInterest=0;
     let accruedIntTotal=0, accruedComTotal=0, firstPeriod=true;
-    for (const pmt of [...(loan.payments||[])].sort((a,b)=>new Date(a.date)-new Date(b.date))) {
+    const pagos = [...(loan.payments||[])]
+      .filter(p => new Date(p.date+"T12:00:00") <= target)
+      .sort((a,b)=>new Date(a.date)-new Date(b.date));
+    for (const pmt of pagos) {
       const periodEnd = new Date(pmt.date+"T12:00:00");
       accruedIntTotal += calcInteresTramos(loan, balance, lastDate, periodEnd);
       accruedComTotal += calcComisionesEnPeriodo(loan, balance, lastDate, periodEnd, firstPeriod);
@@ -565,8 +638,8 @@ const Loans = () => {
       lastDate = periodEnd;
       firstPeriod = false;
     }
-    accruedIntTotal += calcInteresTramos(loan, balance, lastDate, new Date());
-    accruedComTotal += calcComisionesEnPeriodo(loan, balance, lastDate, new Date(), firstPeriod);
+    accruedIntTotal += calcInteresTramos(loan, balance, lastDate, target);
+    accruedComTotal += calcComisionesEnPeriodo(loan, balance, lastDate, target, firstPeriod);
     const pendingInterest = Math.max(0, accruedIntTotal - totalPaidInterest);
     const pendingComisiones = Math.max(0, accruedComTotal - totalPaidComisiones);
     const isPaid = balance<=0.01 && pendingInterest<=0.01 && pendingComisiones<=0.01;
@@ -583,10 +656,13 @@ const Loans = () => {
     };
   };
 
-  const getBreakdown = loan => {
+  const getBreakdown = (loan, targetDate) => {
+    const target = targetDate ? new Date(targetDate+"T23:59:59") : null;
     let balance=parseFloat(loan.principal), lastDate=new Date(loan.startDate+"T12:00:00");
     let cumAccruedInt=0, cumPaidInt=0, firstPeriod=true;
-    return [...(loan.payments||[])].sort((a,b)=>new Date(a.date)-new Date(b.date)).map((pmt,i)=>{
+    return [...(loan.payments||[])]
+      .filter(p => !target || new Date(p.date+"T12:00:00") <= target)
+      .sort((a,b)=>new Date(a.date)-new Date(b.date)).map((pmt,i)=>{
       const periodEnd = new Date(pmt.date+"T12:00:00");
       const days = Math.max(0, Math.floor((periodEnd - lastDate)/86400000));
       const accrued = calcInteresTramos(loan, balance, lastDate, periodEnd);
@@ -1018,6 +1094,11 @@ const Loans = () => {
       : Math.round((new Date()-new Date(loan.startDate+"T12:00:00"))/86400000);
     // Alerta interés alto: si supera 5% del capital
     const interesAlto = st.pendingInterest > parseFloat(loan.principal)*0.05;
+    // Estados específicos de received: recienPagado (verde) y severo (rojo).
+    // Given conserva su comportamiento basado en interesAlto.
+    const recienPagado = !isGiven && ultPago && diasSinPago < 3;
+    const totalAccReceived = st.pendingInterest + (st.pendingComisiones||0);
+    const severoReceived = !isGiven && diasSinPago > 30 && totalAccReceived > parseFloat(loan.principal)*0.05;
     return (
       <Card onClick={()=>{setSelectedId(loan.id);setView("detail");}}
         style={{cursor:"pointer",transition:"border-color .15s",borderColor:vencido?"rgba(255,71,87,.3)":isGiven?"rgba(0,120,255,.15)":"rgba(155,89,182,.15)"}}
@@ -1061,17 +1142,42 @@ const Loans = () => {
         {!st.isPaid && (st.pendingInterest>0 || st.pendingComisiones>0) && (() => {
           const showCom = !isGiven && st.pendingComisiones>0;
           const totalAcc = st.pendingInterest + (showCom?st.pendingComisiones:0);
+          if (recienPagado) {
+            return (
+              <div style={{marginBottom:8,padding:"7px 10px",borderRadius:8,
+                background:"rgba(0,212,170,.07)",border:"1px solid rgba(0,212,170,.22)"}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <span style={{fontSize:10,color:"#00d4aa",fontWeight:700}}>
+                    ✅ Al día — {diasSinPago===0?"pagado hoy":`pagado hace ${diasSinPago}d`}
+                  </span>
+                  <span style={{fontSize:11,fontWeight:600,color:"#888"}}>
+                    Devengado: {fmt(totalAcc,loan.currency)}
+                  </span>
+                </div>
+                {showCom && totalAcc > 0 && (
+                  <div style={{display:"flex",justifyContent:"space-between",marginTop:2}}>
+                    <span style={{fontSize:9,color:"#666"}}>Interés: {fmt(st.pendingInterest,loan.currency)}</span>
+                    <span style={{fontSize:9,color:"#777"}}>Comisiones: {fmt(st.pendingComisiones,loan.currency)}</span>
+                  </div>
+                )}
+                <div style={{marginTop:2}}>
+                  <span style={{fontSize:10,color:"#555"}}>Devengado desde último pago</span>
+                </div>
+              </div>
+            );
+          }
+          const isSevero = isGiven ? interesAlto : severoReceived;
           return (
             <div style={{
               marginBottom:8,padding:"7px 10px",borderRadius:8,
-              background:interesAlto?"rgba(255,71,87,.08)":"rgba(243,156,18,.07)",
-              border:`1px solid ${interesAlto?"rgba(255,71,87,.2)":"rgba(243,156,18,.2)"}`
+              background:isSevero?"rgba(255,71,87,.08)":"rgba(243,156,18,.07)",
+              border:`1px solid ${isSevero?"rgba(255,71,87,.2)":"rgba(243,156,18,.2)"}`
             }}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                <span style={{fontSize:10,color:interesAlto?"#ff6b7a":"#f39c12",fontWeight:600}}>
-                  {interesAlto?"⚠️":"💰"} {showCom?"Interés + comisiones":"Interés acumulado"}{isGiven?" a cobrar":" a pagar"}
+                <span style={{fontSize:10,color:isSevero?"#ff6b7a":"#f39c12",fontWeight:600}}>
+                  {isSevero?"⚠️":"💰"} {showCom?"Interés + comisiones":"Interés acumulado"}{isGiven?" a cobrar":" a pagar"}
                 </span>
-                <span style={{fontSize:12,fontWeight:800,color:interesAlto?"#ff6b7a":"#f39c12"}}>
+                <span style={{fontSize:12,fontWeight:800,color:isSevero?"#ff6b7a":"#f39c12"}}>
                   {isGiven?"+":"-"}{fmt(totalAcc,loan.currency)}
                 </span>
               </div>
@@ -1083,7 +1189,7 @@ const Loans = () => {
               )}
               <div style={{display:"flex",justifyContent:"space-between",marginTop:2}}>
                 <span style={{fontSize:10,color:"#555"}}>{diasSinPago}d desde {ultPago?"último pago":"inicio"}</span>
-                {interesAlto&&<span style={{fontSize:10,color:"#ff6b7a",fontWeight:600}}>Interés alto — considera cobrar/pagar</span>}
+                {isSevero&&<span style={{fontSize:10,color:"#ff6b7a",fontWeight:600}}>Interés alto — considera {isGiven?"cobrar":"pagar"}</span>}
               </div>
             </div>
           );
@@ -1119,7 +1225,9 @@ const Loans = () => {
   const totalPorCobrar      = activeLoans.filter(l=>l.type==="given").reduce((s,l)=>s+calcState(l).currentBalance,0);
   const totalPorPagar       = activeLoans.filter(l=>l.type==="received").reduce((s,l)=>s+calcState(l).totalOwed,0);
   const interesPorCobrar    = activeLoans.filter(l=>l.type==="given").reduce((s,l)=>s+calcState(l).pendingInterest,0);
-  const interesPorPagar     = activeLoans.filter(l=>l.type==="received").reduce((s,l)=>s+calcState(l).pendingInterest+calcState(l).pendingComisiones,0);
+  const interesPorPagar     = activeLoans.filter(l=>l.type==="received").reduce((s,l)=>s+calcState(l,fechaCorteRecibidosInput).pendingInterest+calcState(l,fechaCorteRecibidosInput).pendingComisiones,0);
+  const prestamosReceivedActivos = activeLoans.filter(l=>l.type==="received");
+  const fmtFechaRec = new Date(fechaCorteRecibidosInput+"T12:00:00").toLocaleDateString("es-MX",{day:"2-digit",month:"short",year:"numeric"});
   const interesEsteMes = activeLoans.filter(l=>l.type==="received").reduce((s,l)=>{
     const st = calcState(l);
     const dr=(parseFloat(l.rate)||0)/100/(l.rateType==="annual"?365:30);
@@ -1162,11 +1270,6 @@ const Loans = () => {
       pagos:bd.length,
     };
   }).filter(d=>d.intereses+d.comisiones+d.capital>0);
-  const totalAPagarHoy = activeLoans.filter(l=>l.type==="received").reduce((s,l)=>{
-    const st = calcState(l);
-    return s + st.pendingInterest + st.pendingComisiones;
-  },0);
-
   return (
     <div>
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:14, flexWrap:"wrap", gap:10 }}>
@@ -1252,7 +1355,7 @@ const Loans = () => {
             <Card style={{padding:"12px 14px",borderColor:"rgba(243,156,18,.2)",background:"rgba(243,156,18,.03)"}}>
               <p style={{fontSize:10,color:"#f39c12",textTransform:"uppercase",letterSpacing:.4,margin:"0 0 4px"}}>Interés + comisiones a pagar</p>
               <p style={{fontSize:18,fontWeight:800,color:"#f39c12",margin:0}}>-{fmt(interesPorPagar)}</p>
-              <p style={{fontSize:10,color:"#444",margin:"3px 0 0"}}>A la fecha de hoy</p>
+              <p style={{fontSize:10,color:"#444",margin:"3px 0 0"}}>A la fecha {fmtFechaRec}</p>
             </Card>
           )}
           {interesEsteMes>0&&(
@@ -1262,51 +1365,22 @@ const Loans = () => {
               <p style={{fontSize:10,color:"#444",margin:"3px 0 0"}}>A pagar aprox.</p>
             </Card>
           )}
-          {(totalPagadoHist>0 || totalAPagarHoy>0)&&(
-            <Card style={{padding:0,overflow:"hidden",borderColor:"rgba(243,156,18,.25)",background:"rgba(243,156,18,.04)",gridColumn:"1 / -1"}}>
-              <div style={{padding:"11px 16px 9px",borderBottom:"1px solid rgba(243,156,18,.12)",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
-                <p style={{fontSize:13,fontWeight:800,color:"#f39c12",margin:0}}>💸 Total a pagar (préstamos recibidos)</p>
-                <p style={{fontSize:11,color:"#555",margin:0}}>Histórico pagado · Pendiente al día · Estimado 30d</p>
-              </div>
-              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:0}}>
-                {[
-                  {l:"Total pagado hist.",v:fmt(totalPagadoHist),c:"#f39c12",big:true},
-                  {l:"En comisiones",v:fmt(totalPagadoComisiones),c:"#e67e22"},
-                  {l:"En intereses",v:fmt(totalPagadoIntereses),c:"#f39c12"},
-                  {l:"A capital",v:fmt(totalPagadoCapital),c:"#3b82f6"},
-                  {l:"Pendiente al día",v:fmt(totalAPagarHoy),c:"#ff6b6b"},
-                  {l:"Estimado 30d",v:fmt(interesEsteMes),c:"#888"},
-                ].map(k=>(
-                  <div key={k.l} style={{padding:"10px 16px",borderRight:"1px solid rgba(243,156,18,.07)"}}>
-                    <p style={{fontSize:9,color:"#555",textTransform:"uppercase",letterSpacing:.5,margin:"0 0 3px"}}>{k.l}</p>
-                    <p style={{fontSize:k.big?20:14,fontWeight:800,color:k.c,margin:0,fontVariantNumeric:"tabular-nums"}}>{k.v}</p>
-                  </div>
-                ))}
-              </div>
-              {desglosePagado.length>0&&(
-                <div style={{borderTop:"1px solid rgba(243,156,18,.08)"}}>
-                  {desglosePagado.map((d,i)=>(
-                    <div key={d.loan.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",
-                      padding:"7px 16px",borderBottom:i<desglosePagado.length-1?"1px solid rgba(255,255,255,.03)":"none",
-                      background:i%2===0?"transparent":"rgba(255,255,255,.01)",cursor:"pointer"}}
-                      onClick={()=>{setSelectedId(d.loan.id);setView("detail");}}>
-                      <div style={{flex:1,minWidth:0}}>
-                        <p style={{fontSize:12,fontWeight:600,color:"#ccc",margin:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{d.loan.name}</p>
-                        <p style={{fontSize:10,color:"#555",margin:0}}>{d.pagos} pago{d.pagos!==1?"s":""} · com {fmt(d.comisiones)} · int {fmt(d.intereses)} · cap {fmt(d.capital)}</p>
-                      </div>
-                      <p style={{fontSize:13,fontWeight:800,color:"#f39c12",margin:0,flexShrink:0,fontVariantNumeric:"tabular-nums"}}>
-                        {fmt(d.intereses+d.comisiones+d.capital)}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              )}
-              {desglosePagado.length===0 && totalAPagarHoy>0 && (
-                <div style={{padding:"10px 16px",fontSize:11,color:"#666",borderTop:"1px solid rgba(243,156,18,.08)"}}>
-                  Sin pagos registrados aún. Pendiente al día: <strong style={{color:"#ff6b6b"}}>{fmt(totalAPagarHoy)}</strong>
-                </div>
-              )}
-            </Card>
+          {(totalPagadoHist>0 || prestamosReceivedActivos.length>0) && (
+            <CorteGlobalPanelRecibidos
+              loans={prestamosReceivedActivos}
+              calcState={calcState}
+              getBreakdown={getBreakdown}
+              fechaCorteRecibidosInput={fechaCorteRecibidosInput}
+              setFechaCorteRecibidosInput={setFechaCorteRecibidosInput}
+              fmt={fmt}
+              setSelectedId={setSelectedId}
+              setView={setView}
+              totalPagadoIntereses={totalPagadoIntereses}
+              totalPagadoComisiones={totalPagadoComisiones}
+              totalPagadoCapital={totalPagadoCapital}
+              desglosePagado={desglosePagado}
+              interesEsteMes={interesEsteMes}
+            />
           )}
           {activeLoans.some(l=>l.dueDate&&new Date(l.dueDate)<new Date())&&(
             <Card style={{padding:"12px 14px",borderColor:"rgba(255,71,87,.25)",background:"rgba(255,71,87,.05)"}}>
