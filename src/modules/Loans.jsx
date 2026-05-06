@@ -536,32 +536,40 @@ const Loans = () => {
     return total;
   };
 
+  // calcState: trackea interestAccrued e interestPaid de forma persistente.
+  // pendingInterest = (interés devengado desde inicio) - (interés pagado históricamente),
+  // por lo que un interest_only que no cubra todo el devengado deja el sobrante pendiente
+  // en lugar de descartarlo.
   const calcState = loan => {
-    let balance = parseFloat(loan.principal), totalPaid=0, totalPaidComisiones=0;
+    let balance = parseFloat(loan.principal);
     let lastDate = new Date(loan.startDate+"T12:00:00");
-    let accruedComTotal = 0, firstPeriod = true;
+    let totalPaid=0, totalPaidComisiones=0, totalPaidInterest=0;
+    let accruedIntTotal=0, accruedComTotal=0, firstPeriod=true;
     for (const pmt of [...(loan.payments||[])].sort((a,b)=>new Date(a.date)-new Date(b.date))) {
       const periodEnd = new Date(pmt.date+"T12:00:00");
-      const accruedInt = calcInteresTramos(loan, balance, lastDate, periodEnd);
-      const accruedCom = calcComisionesEnPeriodo(loan, balance, lastDate, periodEnd, firstPeriod);
-      accruedComTotal += accruedCom;
+      accruedIntTotal += calcInteresTramos(loan, balance, lastDate, periodEnd);
+      accruedComTotal += calcComisionesEnPeriodo(loan, balance, lastDate, periodEnd, firstPeriod);
       const toCom = parseFloat(pmt.toComisiones)||0;
       totalPaidComisiones += toCom;
       const remainingTrasCom = pmt.amount - toCom;
       if (pmt.paymentType==="interest_only") {
-        totalPaid += pmt.amount;
+        totalPaidInterest += remainingTrasCom;
       } else {
-        const toInt = Math.min(remainingTrasCom, accruedInt);
-        balance = Math.max(0, balance - (remainingTrasCom - toInt));
-        totalPaid += pmt.amount;
+        const pendingIntBefore = Math.max(0, accruedIntTotal - totalPaidInterest);
+        const toInt = Math.min(remainingTrasCom, pendingIntBefore);
+        const toCap = remainingTrasCom - toInt;
+        totalPaidInterest += toInt;
+        balance = Math.max(0, balance - toCap);
       }
+      totalPaid += pmt.amount;
       lastDate = periodEnd;
       firstPeriod = false;
     }
-    const pendingInterest = calcInteresTramos(loan, balance, lastDate, new Date());
-    const accruedComEstePeriodo = calcComisionesEnPeriodo(loan, balance, lastDate, new Date(), firstPeriod);
-    const pendingComisiones = Math.max(0, accruedComTotal + accruedComEstePeriodo - totalPaidComisiones);
-    const isPaid = balance<=0.01 && pendingComisiones<=0.01;
+    accruedIntTotal += calcInteresTramos(loan, balance, lastDate, new Date());
+    accruedComTotal += calcComisionesEnPeriodo(loan, balance, lastDate, new Date(), firstPeriod);
+    const pendingInterest = Math.max(0, accruedIntTotal - totalPaidInterest);
+    const pendingComisiones = Math.max(0, accruedComTotal - totalPaidComisiones);
+    const isPaid = balance<=0.01 && pendingInterest<=0.01 && pendingComisiones<=0.01;
     return {
       originalPrincipal: parseFloat(loan.principal),
       currentBalance: balance,
@@ -569,28 +577,35 @@ const Loans = () => {
       pendingComisiones,
       totalOwed: balance + pendingInterest + pendingComisiones,
       totalPaid,
+      totalPaidInterest,
       totalPaidComisiones,
       isPaid,
     };
   };
 
   const getBreakdown = loan => {
-    const dr = dailyRate(loan.rate, loan.rateType);
     let balance=parseFloat(loan.principal), lastDate=new Date(loan.startDate+"T12:00:00");
-    let firstPeriod = true;
+    let cumAccruedInt=0, cumPaidInt=0, firstPeriod=true;
     return [...(loan.payments||[])].sort((a,b)=>new Date(a.date)-new Date(b.date)).map((pmt,i)=>{
-      const days=Math.max(0,Math.floor((new Date(pmt.date+"T12:00:00")-lastDate)/86400000));
-      const accrued=balance*dr*days;
-      const accruedCom = calcComisionesEnPeriodo(loan, balance, lastDate, new Date(pmt.date+"T12:00:00"), firstPeriod);
+      const periodEnd = new Date(pmt.date+"T12:00:00");
+      const days = Math.max(0, Math.floor((periodEnd - lastDate)/86400000));
+      const accrued = calcInteresTramos(loan, balance, lastDate, periodEnd);
+      const accruedCom = calcComisionesEnPeriodo(loan, balance, lastDate, periodEnd, firstPeriod);
+      cumAccruedInt += accrued;
       const toCom = parseFloat(pmt.toComisiones)||0;
       const remainingTrasCom = pmt.amount - toCom;
+      let toInt, toCap;
       if (pmt.paymentType==="interest_only") {
-        lastDate=new Date(pmt.date+"T12:00:00"); firstPeriod=false;
-        return {...pmt,idx:i+1,days,accrued,accruedCom,toInterest:remainingTrasCom,toComisiones:toCom,toPrincipal:0,balanceAfter:balance,isInterestOnly:true};
+        toInt = remainingTrasCom; toCap = 0;
+      } else {
+        const pendingIntBefore = Math.max(0, cumAccruedInt - cumPaidInt);
+        toInt = Math.min(remainingTrasCom, pendingIntBefore);
+        toCap = remainingTrasCom - toInt;
+        balance = Math.max(0, balance - toCap);
       }
-      const toInt=Math.min(remainingTrasCom,accrued); const toCap=remainingTrasCom-toInt;
-      balance=Math.max(0,balance-toCap); lastDate=new Date(pmt.date+"T12:00:00"); firstPeriod=false;
-      return {...pmt,idx:i+1,days,accrued,accruedCom,toInterest:toInt,toComisiones:toCom,toPrincipal:toCap,balanceAfter:balance,isInterestOnly:false};
+      cumPaidInt += toInt;
+      lastDate = periodEnd; firstPeriod = false;
+      return {...pmt,idx:i+1,days,accrued,accruedCom,toInterest:toInt,toComisiones:toCom,toPrincipal:toCap,balanceAfter:balance,isInterestOnly:pmt.paymentType==="interest_only"};
     });
   };
 
@@ -639,9 +654,7 @@ const Loans = () => {
   };
 
   const openNewPay = () => {
-    const st = selected ? calcState(selected) : null;
-    const defaultCom = (selected?.type==="received" && st && st.pendingComisiones>0) ? st.pendingComisiones.toFixed(2) : "";
-    setPF({...blankPay,targetAccountId:selected?.accountId||accounts[0]?.id||"",toComisiones:defaultCom});
+    setPF({...blankPay,targetAccountId:selected?.accountId||accounts[0]?.id||""});
     setOpenPay(true);
   };
   const closePay = () => setOpenPay(false);
